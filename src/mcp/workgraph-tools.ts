@@ -13,6 +13,7 @@ import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, li
 import { computeWorkgraphHealth } from '../services/workgraph-health.js';
 import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
+import { ensureExploreRunEpic } from '../services/explore-run-epic.js';
 import { addSessionTodo } from './tools/session-todos.js';
 import { trackingProjectRoot } from '../services/project-registry.js';
 import { criterionEdgesOf } from '../services/criterion-edges.js';
@@ -495,7 +496,7 @@ export interface FileExploreOpts {
   reach?: string;
   title?: string;
   description?: string;
-  status?: Extract<TodoStatus, 'backlog' | 'planned'>;
+  status?: Extract<TodoStatus, 'backlog' | 'planned' | 'ready'>;
 }
 
 export async function fileExploreRequest(
@@ -506,13 +507,13 @@ export async function fileExploreRequest(
   const { refusal, warnings } = validateExploreRequest({ oracle: opts.oracle, scope: opts.scope, target: opts.target });
   if (refusal !== null) throw new ExploreOracleRefusedError(refusal);
 
-  const parentId = await ensureBucket(project, 'explore');
+  const parentId = await ensureExploreRunEpic(project);
   const leaf = await addSessionTodo(project, session, opts.title ?? opts.oracle, undefined, {
     kind: 'leaf',
     parentId,
     type: 'explore',
     description: opts.description,
-    status: opts.status ?? 'backlog',
+    status: opts.status ?? 'ready',
     exploreSpec: { scope: opts.scope, target: opts.target, oracle: opts.oracle, not: opts.not ?? null, reach: opts.reach ?? null },
   });
 
@@ -600,7 +601,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'file_explore',
     description:
-      "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+      "File an explore-node investigation request as a leaf under the rolling 'Explore runs' epic. The leaf is dispatchable immediately (no re-homing required). `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -613,7 +614,7 @@ export const WORKGRAPH_TOOL_DEFS = [
         reach: { type: 'string' },
         title: { type: 'string' },
         description: { type: 'string' },
-        status: { type: 'string', enum: ['backlog', 'planned'] },
+        status: { type: 'string', enum: ['backlog', 'planned', 'ready'], description: "Leaf status: 'backlog' (unplanned), 'planned' (planned but unapproved), or 'ready' (approved, dispatchable — default)." },
       },
       required: ['project', 'session', 'scope', 'target', 'oracle'],
     },
