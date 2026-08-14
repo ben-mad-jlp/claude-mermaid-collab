@@ -32,8 +32,18 @@ export function _resetPathAliasCache(): void {
   aliasMapCache.clear();
 }
 
-/** Parse JSON with support for single-line and multi-line comments plus trailing commas. */
+/** Parse JSON with support for single-line and multi-line comments plus trailing commas.
+ *  Plain JSON.parse runs FIRST: the comment-stripping regexes are string-blind, and a
+ *  tsconfig paths block like `"@/*": ["src/*"]` contains `/*` INSIDE strings — stripping
+ *  a valid file corrupts it (observed 2026-08-14: readPathAliases returned [] for this
+ *  repo's own ui/tsconfig.json, re-blinding the alias-aware reachability guard). */
 function parseJsonWithComments(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Genuinely JSONC — strip and retry. Still string-blind, but only reached for files
+    // plain JSON.parse rejects, where comments/trailing commas are the likely cause.
+  }
   // Strip single-line comments
   let stripped = text.replace(/\/\/.*$/gm, '');
   // Strip multi-line comments (/* ... */)

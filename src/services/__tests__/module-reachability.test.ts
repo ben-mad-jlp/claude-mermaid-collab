@@ -581,3 +581,35 @@ describe('module-reachability', () => {
     expect(result.unreachable).toContain('ui/src/lib/orphanTarget.ts');
   });
 });
+
+describe('readPathAliases against valid JSON containing /* inside strings', () => {
+  it('parses this repo-shaped tsconfig where path patterns contain /* and returns the @ alias', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { readPathAliases, _resetPathAliasCache } = await import('../module-reachability.js');
+    const root = mkdtempSync(join(tmpdir(), 'alias-jsonc-'));
+    try {
+      mkdirSync(join(root, 'ui'), { recursive: true });
+      // VALID JSON — no comments — but every pattern/target contains `/*`, which the
+      // string-blind comment stripper used to corrupt into a parse failure.
+      // Byte-for-byte the shape that broke in production: PRETTY-PRINTED, so the
+      // string-blind stripper finds a /* ... */ span ACROSS lines of path patterns.
+      writeFileSync(join(root, 'ui', 'tsconfig.json'), JSON.stringify({
+        compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'], '@components/*': ['src/components/*'] } },
+        include: ['src'],
+        // The corrupting pair: /* opens inside a paths pattern, and the first literal */
+        // appears inside an exclude glob like **/*.test.ts — the string-blind stripper
+        // eats everything between, corrupting an entirely valid JSON file.
+        exclude: ['node_modules', 'dist', '**/*.stories.tsx'],
+      }, null, 2));
+      _resetPathAliasCache();
+      const aliases = readPathAliases(root);
+      const at = aliases.find((a: { prefix: string }) => a.prefix === '@');
+      expect(at).toBeDefined();
+    } finally {
+      _resetPathAliasCache();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
