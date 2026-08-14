@@ -63,38 +63,45 @@ export async function kickConductor(
   }
 }
 
-export type AutoFixLevel = 'off' | 'on';
+/** Both operator levers that hang off orchestrator_config are simple off/on switches with
+ *  the same GET/POST contract, so one pair of clients serves both. */
+export type LeverLevel = 'off' | 'on';
+export type AutoFixLevel = LeverLevel;
+export type ExplorerLevel = LeverLevel;
 
-/** Read the per-project AUTOFIX level (the third operator lever: it gates the daemon's
- *  repair-forge pass). DEFAULT 'on' — a failed/absent read resolves to 'on' so the UI
- *  never claims the forge is held when the backend says nothing. Never throws. */
-export async function fetchAutoFixLevel(
+/** Read an off/on lever. DEFAULT 'on' — a failed/absent read resolves to 'on' so the UI
+ *  never claims something is held when the backend said nothing. Never throws. */
+async function fetchLeverLevel(
+  path: string,
+  label: string,
   project: string,
-): Promise<{ ok: boolean; level: AutoFixLevel; error?: string }> {
+): Promise<{ ok: boolean; level: LeverLevel; error?: string }> {
   try {
-    const response = await fetch(`/api/autofix/level?project=${encodeURIComponent(project)}`);
-    if (!response.ok) return { ok: false, level: 'on', error: `autofix read failed (${response.status})` };
+    const response = await fetch(`${path}?project=${encodeURIComponent(project)}`);
+    if (!response.ok) return { ok: false, level: 'on', error: `${label} read failed (${response.status})` };
     const data = (await response.json()) as { level?: string };
     return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
   } catch {
-    return { ok: false, level: 'on', error: 'autofix read failed' };
+    return { ok: false, level: 'on', error: `${label} read failed` };
   }
 }
 
-/** POST a new per-project AUTOFIX level. Resolves (never throws) so the caller can render
- *  the failure inline; the resolved `level` is the server's stored value. */
-export async function setAutoFixLevel(
+/** POST a new off/on lever level. Resolves (never throws) so the caller can render the
+ *  failure inline; the resolved `level` is the server's stored value, not the request's. */
+async function postLeverLevel(
+  path: string,
+  label: string,
   project: string,
-  level: AutoFixLevel,
-): Promise<{ ok: boolean; level?: AutoFixLevel; error?: string }> {
+  level: LeverLevel,
+): Promise<{ ok: boolean; level?: LeverLevel; error?: string }> {
   try {
-    const response = await fetch('/api/autofix/level', {
+    const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project, level }),
     });
     if (!response.ok) {
-      let message = `autofix failed (${response.status})`;
+      let message = `${label} failed (${response.status})`;
       try {
         const data = (await response.json()) as { error?: string };
         if (data?.error) message = data.error;
@@ -106,9 +113,22 @@ export async function setAutoFixLevel(
     const data = (await response.json()) as { level?: string };
     return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
   } catch {
-    return { ok: false, error: 'autofix failed' };
+    return { ok: false, error: `${label} failed` };
   }
 }
+
+/** AUTOFIX (third lever): gates the daemon's repair-forge pass. */
+export const fetchAutoFixLevel = (project: string) =>
+  fetchLeverLevel('/api/autofix/level', 'autofix', project);
+export const setAutoFixLevel = (project: string, level: AutoFixLevel) =>
+  postLeverLevel('/api/autofix/level', 'autofix', project, level);
+
+/** EXPLORER (fourth lever): gates explore-leaf DISPATCH + the verify-explore filer.
+ *  Explores are still filed and still promoted while it is off — only claiming is held. */
+export const fetchExplorerLevel = (project: string) =>
+  fetchLeverLevel('/api/explorer/level', 'explorer', project);
+export const setExplorerLevel = (project: string, level: ExplorerLevel) =>
+  postLeverLevel('/api/explorer/level', 'explorer', project, level);
 
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }

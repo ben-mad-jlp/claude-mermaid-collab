@@ -58,6 +58,32 @@ export const AUTOFIX_LEVELS: AutoFixLevel[] = ['off', 'on'];
  *  no migration step. */
 export const AUTOFIX_DEFAULT: AutoFixLevel = 'on';
 
+/** EXPLORER — the fourth operator lever. It gates explore-leaf DISPATCH: with the switch
+ *  off, explore leaves are still FILED and still PROMOTED into the rolling 'Explore runs'
+ *  epic (promote-on-file, mission 949dda42) — they simply are not CLAIMED, and flipping
+ *  the switch back on drains the queue.
+ *
+ *  It deliberately does NOT gate file_explore or promote-on-file: sending filed explores
+ *  back to a bucket would recreate the unschedulable-leaf wall that promote-on-file was
+ *  built to remove, and would lose work. Pause the spend, never the memory.
+ *
+ *  It ALSO holds the repair-verify-filer pass (which auto-files explores when a repair
+ *  mission converges) — with dispatch held, filing more explores only piles up a queue
+ *  that cannot run.
+ *
+ *  off — explore leaves queue but never claim, VISIBLY: the claim-suppression report
+ *        names `explorer-off` for each held leaf.
+ *  on  — explores dispatch exactly as today.
+ */
+export type ExplorerLevel = 'off' | 'on';
+
+export const EXPLORER_LEVELS: ExplorerLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. Explores auto-run today, so an absent or unrecognised stored value
+ *  MUST read back as 'on' — an explicit operator opt-OUT, never a silent behaviour
+ *  change. Legacy rows read NULL → 'on' with no migration step. */
+export const EXPLORER_DEFAULT: ExplorerLevel = 'on';
+
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   on: 1,
@@ -129,6 +155,10 @@ function openDb(): Database {
   // (the only pass that spends nodes unasked). NULL = AUTOFIX_DEFAULT ('on'), so every
   // legacy row keeps today's behaviour without a migration step.
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN autoFixLevel TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project EXPLORER switch — gates explore-leaf DISPATCH (claim)
+  // and the repair-verify-filer pass. NULL = EXPLORER_DEFAULT ('on'), so every legacy row
+  // keeps today's behaviour without a migration step. Filing/promotion is NEVER gated.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN explorerLevel TEXT'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -370,6 +400,40 @@ export function setAutoFixLevel(project: string, level: AutoFixLevel): void {
  *  checking it first would burn the throttle clock even with AutoFix off. */
 export function isAutoFixEnabled(project: string): boolean {
   return getAutoFixLevel(project) !== 'off';
+}
+
+// --- Per-project EXPLORER switch (gates explore-leaf DISPATCH + the verify-explore filer) ---
+
+/** The persisted Explorer level for a project.
+ *
+ *  DEFAULT IS 'on': explores auto-run today, so a project with no row — and a legacy row
+ *  written before the explorerLevel column existed (NULL) — reads back as 'on'. Only an
+ *  explicit stored 'off' holds explore dispatch. */
+export function getExplorerLevel(project: string): ExplorerLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT explorerLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { explorerLevel: string | null } | undefined;
+  return row?.explorerLevel === 'off' ? 'off' : EXPLORER_DEFAULT;
+}
+
+/** Persist the Explorer level for a project. An unrecognised value clamps to the
+ *  EXPLORER_DEFAULT ('on') — never to 'off'. Transient project paths are refused. */
+export function setExplorerLevel(project: string, level: ExplorerLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: ExplorerLevel = level === 'off' ? 'off' : EXPLORER_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, explorerLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET explorerLevel = excluded.explorerLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** May explore leaves be CLAIMED (and the verify-explore filer run) for this project?
+ *  Like isAutoFixEnabled, this MUST be evaluated LEFT of any throttle helper that stamps
+ *  a clock (shouldRunRepairVerifyFilerPass does), or an off switch would still burn it. */
+export function isExplorerEnabled(project: string): boolean {
+  return getExplorerLevel(project) !== 'off';
 }
 
 // --- Per-(project, node-kind) model + effort overrides (leaf-executor claude nodes) ---

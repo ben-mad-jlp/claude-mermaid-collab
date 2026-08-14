@@ -16,6 +16,10 @@ import {
   getAutoFixLevel,
   setAutoFixLevel,
   AUTOFIX_LEVELS,
+  getExplorerLevel,
+  setExplorerLevel,
+  EXPLORER_LEVELS,
+  type ExplorerLevel,
   type AutoFixLevel,
   type OrchestratorLevel,
   type NodeProviderId,
@@ -85,9 +89,40 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
     const project = url.searchParams.get('project');
     if (!project) return jsonError('project is required', 400);
     const level = getOrchestratorLevel(project);
-    // `autoFix` is an ADDITIVE field: the daemon lever is already reported here, and the
-    // AutoFix lever sits beside it. Existing keys are untouched.
-    return Response.json({ project, level, autoFix: getAutoFixLevel(project) });
+    // `autoFix` and `explorer` are ADDITIVE fields: the daemon lever is already reported
+    // here, and both sibling levers sit beside it. Existing keys are untouched.
+    return Response.json({
+      project,
+      level,
+      autoFix: getAutoFixLevel(project),
+      explorer: getExplorerLevel(project),
+    });
+  }
+
+  // GET /api/explorer/level?project=<abs path>
+  // The fourth operator lever. Gates explore-leaf DISPATCH (claim) + the repair-verify
+  // explore filer — never filing or promote-on-file. DEFAULT 'on'.
+  if (url.pathname === '/api/explorer/level' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, level: getExplorerLevel(project) });
+  }
+
+  // POST /api/explorer/level { project, level }
+  if (url.pathname === '/api/explorer/level' && req.method === 'POST') {
+    try {
+      const { project, level } = (await req.json()) as { project?: string; level?: string };
+      if (!project) return jsonError('project is required', 400);
+      if (!level) return jsonError('level is required', 400);
+      if (!(EXPLORER_LEVELS as string[]).includes(level)) {
+        return jsonError(`level must be one of: ${EXPLORER_LEVELS.join(', ')}`, 400);
+      }
+      setExplorerLevel(project, level as ExplorerLevel);
+      // Read back rather than echoing — a transient project path is REFUSED by the setter.
+      return Response.json({ project, level: getExplorerLevel(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
   }
 
   // GET /api/autofix/level?project=<abs path>

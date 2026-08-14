@@ -15,6 +15,8 @@ import {
   setProjectPoolSize,
   setAutoFixLevel,
   getAutoFixLevel,
+  setExplorerLevel,
+  getExplorerLevel,
   _closeDb,
 } from '../orchestrator-config';
 
@@ -102,6 +104,19 @@ describe('orchestrator-config transient-path guard', () => {
     setAutoFixLevel(realProject, 'off');
     expect(countRows('orchestrator_config', realProject)).toBe(1);
     expect(getAutoFixLevel(realProject)).toBe('off');
+  });
+
+  it('setExplorerLevel refuses transient paths and writes normally for a real path', () => {
+    const transientProject = `/tmp/junk-proj-explorer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setExplorerLevel(transientProject, 'off');
+    expect(countRows('orchestrator_config', transientProject)).toBe(0);
+    // A refused write must never read back as a successful hold.
+    expect(getExplorerLevel(transientProject)).toBe('on');
+
+    const realProject = '/Users/benmaderazo/Code/claude-mermaid-collab-explorer-check';
+    setExplorerLevel(realProject, 'off');
+    expect(countRows('orchestrator_config', realProject)).toBe(1);
+    expect(getExplorerLevel(realProject)).toBe('off');
   });
 
   it('setProjectPoolSize refuses transient paths and writes normally for a real path', () => {

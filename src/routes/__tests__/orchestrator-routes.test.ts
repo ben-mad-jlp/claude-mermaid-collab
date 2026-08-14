@@ -57,7 +57,7 @@ describe('handleOrchestratorRoutes', () => {
     expect(res!.status).toBe(200);
     // `autoFix` is ADDITIVE on this payload (the daemon lever's own response) — it also
     // reports the sibling AutoFix lever, default 'on'.
-    expect(await res!.json()).toEqual({ project: PROJECT, level: 'on', autoFix: 'on' });
+    expect(await res!.json()).toEqual({ project: PROJECT, level: 'on', autoFix: 'on', explorer: 'on' });
   });
 
   it('GET level requires project', async () => {
@@ -73,7 +73,7 @@ describe('handleOrchestratorRoutes', () => {
     expect(await post!.json()).toEqual({ project: PROJECT, level: 'off' });
 
     const get = await call('GET', `/api/orchestrator/level?project=${encodeURIComponent(PROJECT)}`);
-    expect(await get!.json()).toEqual({ project: PROJECT, level: 'off', autoFix: 'on' });
+    expect(await get!.json()).toEqual({ project: PROJECT, level: 'off', autoFix: 'on', explorer: 'on' });
   });
 
   it('POST level rejects an invalid level', async () => {
@@ -122,6 +122,53 @@ describe('handleOrchestratorRoutes', () => {
   it('POST autofix level requires project', async () => {
     const res = await call('POST', '/api/autofix/level', { level: 'off' });
     expect(res!.status).toBe(400);
+  });
+
+  // --- Explorer: the fourth lever (gates explore-leaf DISPATCH, never filing) ---
+
+  it('GET explorer level defaults to on for an unset project (explores auto-run today)', async () => {
+    const project = `${PROJECT}-explorer-unset`;
+    const res = await call('GET', `/api/explorer/level?project=${encodeURIComponent(project)}`);
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(await res!.json()).toEqual({ project, level: 'on' });
+  });
+
+  it('GET explorer level requires project', async () => {
+    const res = await call('GET', '/api/explorer/level');
+    expect(res!.status).toBe(400);
+  });
+
+  it('POST explorer level accepts off and on, and GET reads it back', async () => {
+    const project = `${PROJECT}-explorer-roundtrip`;
+    const off = await call('POST', '/api/explorer/level', { project, level: 'off' });
+    expect(off!.status).toBe(200);
+    expect(await off!.json()).toEqual({ project, level: 'off' });
+    const readBack = await call('GET', `/api/explorer/level?project=${encodeURIComponent(project)}`);
+    expect(await readBack!.json()).toEqual({ project, level: 'off' });
+
+    const on = await call('POST', '/api/explorer/level', { project, level: 'on' });
+    expect(await on!.json()).toEqual({ project, level: 'on' });
+  });
+
+  it('POST explorer level rejects an unknown level with 400 naming the accepted values', async () => {
+    const res = await call('POST', '/api/explorer/level', { project: PROJECT, level: 'paused' });
+    expect(res!.status).toBe(400);
+    const body = (await res!.json()) as { error: string };
+    expect(body.error).toContain('off');
+    expect(body.error).toContain('on');
+  });
+
+  it('POST explorer level requires project', async () => {
+    const res = await call('POST', '/api/explorer/level', { level: 'off' });
+    expect(res!.status).toBe(400);
+  });
+
+  it('the two levers are INDEPENDENT — setting explorer off leaves autofix on', async () => {
+    const project = `${PROJECT}-lever-independence`;
+    await call('POST', '/api/explorer/level', { project, level: 'off' });
+    const autofix = await call('GET', `/api/autofix/level?project=${encodeURIComponent(project)}`);
+    expect(await autofix!.json()).toEqual({ project, level: 'on' });
   });
 
   it('POST level requires project', async () => {
