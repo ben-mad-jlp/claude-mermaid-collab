@@ -2239,6 +2239,10 @@ export async function runLeaf(
       if (reprobe) effectiveBase = reprobe;
     }
   }
+  if (effectiveBase?.infraDegraded) {
+    console.log(`[leaf-executor] leaf ${leaf.id.slice(0, 8)}: infra-degraded base — released, re-measure will retry`);
+    effectiveBase = undefined;
+  }
   if (effectiveBase && effectiveBase.status !== 'pass' && !baseRepairEpic) {
     const head = effectiveBase.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
     const cmd = effectiveBase.command ?? 'gate';
