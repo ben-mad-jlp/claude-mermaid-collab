@@ -111,13 +111,27 @@ async function main() {
     }
   }
 
-  // Runtime seam lookup: computeFrictionSignature is owned by epic 930cc096
+  // Runtime seam lookup. The recurrence work landed computeFrictionSignature in
+  // friction-signature.ts with a (retryReason, detail) shape — not the row shape this
+  // script anticipated from friction-store — so probe the real home first and adapt;
+  // the legacy probe stays as a fallback for older checkouts.
   let computeSignature: ((row: FrictionSignatureRow) => string) | null = null;
   try {
-    const mod = await import('../src/services/friction-store.js');
-    computeSignature = (mod as any).computeFrictionSignature;
+    const mod = await import('../src/services/friction-signature.js');
+    const fn = (mod as any).computeFrictionSignature;
+    if (typeof fn === 'function') {
+      computeSignature = (row: FrictionSignatureRow) => fn(row.retryReason, row.detail);
+    }
   } catch {
-    // Module or export does not exist yet
+    // Module does not exist on this checkout
+  }
+  if (!computeSignature) {
+    try {
+      const mod = await import('../src/services/friction-store.js');
+      computeSignature = (mod as any).computeFrictionSignature;
+    } catch {
+      // Module or export does not exist yet
+    }
   }
 
   if (typeof computeSignature !== 'function') {
