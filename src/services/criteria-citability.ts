@@ -3,7 +3,10 @@
  *
  * A blueprint's acceptance criteria must be citable in the declared change-set.
  * A criterion is NOT citable if it asserts a command's result, an absence, or a
- * code location outside the diff. This module validates BEFORE the implement node
+ * code location outside the diff — or if it is CITABLE but INFEASIBLE, i.e. the only
+ * proof it states needs something the daemon has no access to (a browser, a listening
+ * service, a device, network egress, an outside test system, a human eye).
+ * This module validates BEFORE the implement node
  * is spawned — the same predicate as the terminal G3 grounding gate (validateReviewGrounding),
  * evaluated against the blueprint's DECLARED change-set instead of the realised diff.
  *
@@ -13,7 +16,11 @@
 import { extractCitations, citationResolves } from './review-citations';
 import { ABSENCE_RESULT } from './node-commands';
 
-export type UncitableKind = 'command-result' | 'absence' | 'out-of-diff-location';
+export type UncitableKind =
+  | 'command-result'
+  | 'absence'
+  | 'out-of-diff-location'
+  | 'infeasible';
 
 export interface CriteriaCitabilityOpts {
   testOnly?: boolean;
@@ -334,6 +341,138 @@ export function assertsCitableArtifact(text: string): boolean {
   return /\b(contains?|shows?|reports?|records?|lists?|includes?|exists?|written|produced?|generated?|has\s+(?:a|an|the)\b|with\s+(?:a|an|the)\b|section|field|column|row|entry|line|value)\b/i.test(text);
 }
 
+/** The POSITIVE definition of "provable by the daemon". A leaf proves a criterion from inside its
+ *  own worktree, with no network, no display, no attached device and no second machine. Exactly
+ *  five proof methods are available to it:
+ *
+ *    1. invoking a TEST FILE with a runner (vitest/jest/bun test/go test/…),
+ *    2. a TYPECHECK / compile (tsc --noEmit, `typecheck`),
+ *    3. a FILE / PATH / file:line / symbol-in-a-named-file CITATION,
+ *    4. a SCOPED GREP (grep / rg / git grep over a path),
+ *    5. a GIT FACT (git diff / log / show / ls-files / rev-parse).
+ *
+ *  This predicate is the SAFETY VALVE for the infeasibility rule below: if a criterion names ANY
+ *  of the five, it is provable regardless of what else it mentions, and is never convicted as
+ *  infeasible. It is therefore deliberately GENEROUS — a false "provable" is only a miss, while a
+ *  false "infeasible" would refuse legitimate work. */
+export function namesDaemonProvableProof(text: string): boolean {
+  // (1) a test-file invocation / a named test or spec file
+  if (/(?:^|[\s`("'])(?:npx\s+)?(?:vitest|jest|mocha|ava|pytest)\b/i.test(text)) return true;
+  if (/(?:^|[\s`("'])(?:npm|pnpm|yarn|bun|deno)\s+(?:run\s+)?test\b/i.test(text)) return true;
+  if (/(?:^|[\s`("'])(?:go|cargo)\s+test\b/i.test(text)) return true;
+  if (/\b(?:unit|regression)\s+tests?\b|\b(?:test|spec)\s+(?:file|case)\b/i.test(text)) return true;
+  // (2) a typecheck / compile
+  if (/(?:^|[\s`("'])tsc\b|--noEmit\b|\btype[-\s]?check(?:s|ed|ing)?\b|\bcompiles?\b/i.test(text)) return true;
+  // (3) a file:line citation, or any concrete source/data/doc file path
+  if (extractCitations(text).length > 0) return true;
+  if (
+    /\b[\w./-]*[\w-]+\.(?:[jt]sx?|mjs|cjs|py|go|rs|swift|kt|rb|java|c|h|cpp|json|jsonl|md|ya?ml|toml|sql|css|scss|html|txt|csv|log)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  // (4) a scoped grep
+  if (/(?:^|[\s`("'])(?:git\s+grep|grep|rg|ripgrep)\b/i.test(text)) return true;
+  // (5) a git fact
+  if (/(?:^|[\s`("'])git\s+(?:diff|log|show|status|ls-files|rev-parse|blame|cat-file|merge-base)\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+/** The curated set of proof methods that live OUTSIDE the five above. Each entry is deliberately
+ *  narrow and verb/context-anchored: a bare noun ("device", "server", a URL) never fires on its
+ *  own, because those appear constantly in ordinary, perfectly provable criteria (e.g. "routes SSE
+ *  device payloads into the store"). */
+const INFEASIBLE_SIGNALS: ReadonlyArray<{ re: RegExp; needs: string }> = [
+  // A browser / a rendered UI
+  {
+    re: /\b(?:in|on|via|using|through|inside)\s+(?:a\s+|the\s+)?(?:headless\s+)?(?:browser|chrome|firefox|safari|webkit|devtools|web\s+page)\b/i,
+    needs: 'a browser',
+  },
+  {
+    re: /\b(?:browser|chrome|firefox|safari)\s+(?:window|tab|console|devtools|session)\b/i,
+    needs: 'a browser',
+  },
+  { re: /\bscreenshots?\b/i, needs: 'a screenshot of a rendered UI' },
+  {
+    re: /\b(?:rendered|renders|rendering)\s+(?:page|ui|screen|view|dom|output|widget|canvas)\b/i,
+    needs: 'a rendered UI',
+  },
+  // A human eye
+  {
+    re: /\bvisual(?:ly)?\s+(?:inspect\w*|verif\w*|check\w*|confirm\w*|compar\w*|identical|correct)\b|\bvisual\s+(?:inspection|diff|check)\b/i,
+    needs: 'human visual inspection',
+  },
+  {
+    re: /\bby\s+eye\b|\bhuman\s+(?:eye|reviewer|review|verif\w*|inspect\w*|judg\w*|sign[-\s]?off)\b|\bby\s+a\s+human\b/i,
+    needs: 'a human eye',
+  },
+  { re: /\blooks?\s+(?:correct|right|good|the\s+same)\b/i, needs: 'human visual inspection' },
+  // An outside / manual test system
+  {
+    re: /\bmanual(?:ly)?\s+(?:qa|test\w*|verif\w*|check\w*|confirm\w*|inspect\w*)\b|\bmanual\s+(?:qa|testing|verification)\b/i,
+    needs: 'a manual test pass',
+  },
+  {
+    re: /\bqa\s+(?:team|engineer|pass|sign[-\s]?off)\b|\b(?:external|outside|separate)\s+test\s+(?:system|harness|suite|rig)\b/i,
+    needs: 'an outside test system',
+  },
+  // A listening service / a port
+  {
+    re: /\b(?:start|starts|starting|boot|boots|booting|launch|launches|launching|spin(?:s|ning)?\s+up|run(?:s|ning)?)\s+(?:the\s+|a\s+)?(?:dev\s+|live\s+|local\s+)?(?:server|service|daemon|app|application|container)\b/i,
+    needs: 'a running service',
+  },
+  {
+    re: /\b(?:listening|serving|running|live|reachable|available)\s+(?:on|at)\s+(?:port\s+)?\d+\b|\bon\s+port\s+\d+\b/i,
+    needs: 'a listening service on a port',
+  },
+  {
+    re: /\b(?:curl|fetch(?:es|ed)?|GET|POST|request(?:s|ed)?|visit(?:s|ed)?|navigat(?:e|es|ed))\b[^.]{0,40}\b(?:https?:\/\/|localhost:\d+|127\.0\.0\.1)/i,
+    needs: 'a live service over the network',
+  },
+  // Network egress
+  {
+    re: /\bnetwork\s+(?:access|egress|connectivity|call)\b|\b(?:the\s+)?internet\s+(?:access|connection)\b/i,
+    needs: 'network egress',
+  },
+  {
+    re: /\b(?:external|third[-\s]party|remote|upstream|production|staging)\s+(?:api|endpoint|service|server|environment|host)\b/i,
+    needs: 'an external service',
+  },
+  // External hardware / a device
+  {
+    re: /\b(?:physical|real|external|connected|attached|actual)\s+(?:device|hardware|machine|phone|handset)\b|\bon\s+(?:a|the)\s+(?:physical|real)\s+device\b/i,
+    needs: 'external hardware',
+  },
+  {
+    re: /\b(?:usb|serial\s+port|robot\s+arm|webcam|microphone|3d\s+printer)\b|\bplugged\s+in\b/i,
+    needs: 'external hardware',
+  },
+];
+
+/** Rule 4 — CONVICT on infeasible: the criterion is well-formed and citable in shape, but the ONLY
+ *  proof it states needs something outside the daemon's five available proof methods.
+ *
+ *  Two-part, conservative by construction:
+ *    (i)  a curated OUT-OF-REACH signal matches, AND
+ *    (ii) the criterion names NONE of the five daemon-provable proof methods.
+ *
+ *  Part (ii) is what keeps this from creeping: a criterion that says "…and `bun test
+ *  src/x.test.ts` asserts it" is provable no matter how much UI prose surrounds it. There is
+ *  deliberately NO human-verified escape hatch: this daemon runs autonomously and human review
+ *  happens only after it finishes, so the disposition is always "restate it provably". */
+function convictOnInfeasible(text: string): { uncitable: boolean; reason?: string } {
+  const hit = INFEASIBLE_SIGNALS.find((s) => s.re.test(text));
+  if (!hit) return { uncitable: false };
+  if (namesDaemonProvableProof(text)) return { uncitable: false };
+  return {
+    uncitable: true,
+    reason: `criterion's only stated proof needs ${hit.needs}, which no leaf can reach from inside its own worktree — the criterion is infeasible for the daemon to prove`,
+  };
+}
+
 const STOP_WORDS = new Set(['a', 'an', 'the', 'no', 'not', 'is', 'are', 'was', 'were', 'left', 'added']);
 
 /** Pull the clearest example token out of offending criterion text: prefer a backticked or
@@ -374,6 +513,10 @@ export function compliantShapeFor(kind: UncitableKind, offendingText: string): s
       const citations = extractCitations(offendingText);
       const path = citations[0]?.raw ?? '<path>';
       return `Compliant shape: declare it or re-cite — add "${path}" to filesToEdit/filesToCreate, or cite a file:line this leaf actually changes.`;
+    }
+    case 'infeasible': {
+      const term = pickTerm(offendingText);
+      return `Compliant shape: state a proof the leaf can run inside its own worktree — no browser, no listening service, no device, no network, no human eye. Pick one: (a) a test file it declares plus the named assertion inside it, e.g. \`bun test <declared test file>\` passes, asserting \`it('<test name>')\`; (b) a typecheck, e.g. \`npx tsc --noEmit\` on the changed files; (c) a file:line citation of the code that implements \`${term}\`; (d) a scoped grep over a declared path; or (e) a git fact, e.g. \`git diff HEAD --stat -- <path>\`. Push the untestable part down to something in-process: assert the state/props/markup the renderer is GIVEN, or the payload the service WOULD receive, instead of what a browser or a person would see.`;
     }
     default:
       return '';
@@ -443,6 +586,19 @@ export function classifyCriterion(
       citable: false,
       kind: 'absence',
       reason: `${rule3.reason} ${compliantShapeFor('absence', text)}`,
+    };
+  }
+
+  // Rule 4: CONVICT on infeasible. Deliberately LAST — every existing acquittal and conviction is
+  // evaluated first, so this rule can only ever reclassify what would otherwise fall through as
+  // citable-by-default. It cannot shadow any kind the other rules already decide.
+  const rule4 = convictOnInfeasible(text);
+  if (rule4.uncitable) {
+    return {
+      text,
+      citable: false,
+      kind: 'infeasible',
+      reason: `${rule4.reason} ${compliantShapeFor('infeasible', text)}`,
     };
   }
 
