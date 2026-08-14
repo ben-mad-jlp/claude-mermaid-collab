@@ -8,6 +8,8 @@ import {
   finalizePassRow,
   appendPassProgress,
   listConductorPasses,
+  listConductorPassesPage,
+  countConductorPasses,
   countConsecutiveFailedPasses,
   filedRefsOf,
   _closeConductorJournalDb,
@@ -158,6 +160,69 @@ describe('conductor-pass-journal', () => {
     expect(countConsecutiveFailedPasses('/p', 'm2', 'sfp2')).toBe(1);
   });
 
+  describe('pagination', () => {
+    // 5 rows on m1 (startedAt 1000..5000) + 2 on m2, so newest-first for m1 is 5000,4000,...
+    function seedPages(): void {
+      for (const startedAt of [1000, 2000, 3000, 4000, 5000]) {
+        const id = openPassRow('/p', 'm1', startedAt) as string;
+        finalizePassRow(id, { endedAt: startedAt + 1, outcome: 'conducted', ran: true });
+      }
+      for (const startedAt of [1500, 2500]) {
+        const id = openPassRow('/p', 'm2', startedAt) as string;
+        finalizePassRow(id, { endedAt: startedAt + 1, outcome: 'conducted', ran: true });
+      }
+    }
+
+    test('offset skips the newest rows without a limit', () => {
+      seedPages();
+      const rows = listConductorPasses('/p', { missionId: 'm1', offset: 2 });
+      expect(rows.map((r) => r.startedAt)).toEqual([3000, 2000, 1000]);
+    });
+
+    test('limit + offset compose into non-overlapping pages that cover every row exactly once', () => {
+      seedPages();
+      const page1 = listConductorPasses('/p', { missionId: 'm1', limit: 2, offset: 0 });
+      const page2 = listConductorPasses('/p', { missionId: 'm1', limit: 2, offset: 2 });
+      const page3 = listConductorPasses('/p', { missionId: 'm1', limit: 2, offset: 4 });
+      expect(page1.map((r) => r.startedAt)).toEqual([5000, 4000]);
+      expect(page2.map((r) => r.startedAt)).toEqual([3000, 2000]);
+      expect(page3.map((r) => r.startedAt)).toEqual([1000]);
+      expect([...page1, ...page2, ...page3].map((r) => r.id)).toHaveLength(
+        new Set([...page1, ...page2, ...page3].map((r) => r.id)).size,
+      );
+    });
+
+    test('an offset past the end returns [] rather than throwing or wrapping', () => {
+      seedPages();
+      expect(listConductorPasses('/p', { missionId: 'm1', limit: 2, offset: 99 })).toEqual([]);
+    });
+
+    test('omitting offset is identical to the pre-pagination behaviour (existing callers unchanged)', () => {
+      seedPages();
+      const noOpts = listConductorPasses('/p', { missionId: 'm1' });
+      const zeroOffset = listConductorPasses('/p', { missionId: 'm1', offset: 0 });
+      expect(noOpts.map((r) => r.id)).toEqual(zeroOffset.map((r) => r.id));
+      expect(listConductorPasses('/p', { missionId: 'm1', limit: 3 }).map((r) => r.startedAt)).toEqual([
+        5000, 4000, 3000,
+      ]);
+    });
+
+    test('countConductorPasses counts the FILTER, ignoring limit and offset', () => {
+      seedPages();
+      expect(countConductorPasses('/p')).toBe(7);
+      expect(countConductorPasses('/p', { missionId: 'm1' })).toBe(5);
+      expect(countConductorPasses('/p', { missionId: 'm2' })).toBe(2);
+      expect(countConductorPasses('/p', { missionId: 'nope' })).toBe(0);
+    });
+
+    test('listConductorPassesPage returns the page rows plus the unpaged total for the filter', () => {
+      seedPages();
+      const page = listConductorPassesPage('/p', { missionId: 'm1', limit: 2, offset: 2 });
+      expect(page.rows.map((r) => r.startedAt)).toEqual([3000, 2000]);
+      expect(page.total).toBe(5);
+    });
+  });
+
   test('fail-open: every exported function returns its degraded value when the db handle cannot open', () => {
     // Point MERMAID_SUPERVISOR_DIR at a path that cannot be created as a directory
     // (a file at that location blocks mkdirSync).
@@ -171,6 +236,8 @@ describe('conductor-pass-journal', () => {
     expect(finalizePassRow('nonexistent-id', { outcome: 'node-failed' })).toBe(false);
     expect(appendPassProgress('nonexistent-id', { arm: 'node' })).toBe(false);
     expect(listConductorPasses('/p')).toEqual([]);
+    expect(countConductorPasses('/p')).toBe(0);
+    expect(listConductorPassesPage('/p', { limit: 2, offset: 2 })).toEqual({ rows: [], total: 0 });
     expect(countConsecutiveFailedPasses('/p', 'm1', 'sfp1')).toBe(0);
 
     rmSync(blockerDir, { recursive: true, force: true });

@@ -27,6 +27,9 @@ export interface ConductorPassRow {
   declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
   ran: boolean | null;
+  /** Node-authored "what I concluded and why" for this pass (<=600 chars). Optional so rows
+   *  written before the column existed read back as absent rather than empty. */
+  summary?: string | null;
 }
 
 export interface ConductorPassChip { kind: string; id: string; label: string }
@@ -183,7 +186,11 @@ export function groupConductorPasses(
     // One clock for the whole grouping pass: sampling Date.now() per row would let two
     // in-flight rows straddle a minute boundary and stop collapsing into one group.
     const formatted = formatConductorPass(row, now);
-    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
+    // `summary` participates: two passes whose one-line sentence is identical (the common case
+    // for declined / filed-nothing passes) can still have DIFFERENT node reasoning, and only the
+    // representative's summary is rendered. Without this, collapsing would hide reasoning.
+    // `?? ''` normalizes null and undefined so this stays byte-identical to the backend mirror.
+    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}::${row.summary ?? ''}`;
 
     if (current && fp === prevFp) {
       current.rows.push(row);
@@ -210,18 +217,26 @@ export function groupConductorPasses(
   return groups;
 }
 
+export interface ConductorJournalQuery {
+  missionId?: string;
+  limit?: number;
+  /** Rows to skip, newest-first. Omitted => page 1 (server default, no OFFSET clause). */
+  offset?: number;
+}
+
+function journalUrl(project: string, opts?: ConductorJournalQuery): string {
+  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
+  if (opts?.missionId != null) url += `&missionId=${encodeURIComponent(opts.missionId)}`;
+  if (opts?.limit != null) url += `&limit=${encodeURIComponent(String(opts.limit))}`;
+  if (opts?.offset != null) url += `&offset=${encodeURIComponent(String(opts.offset))}`;
+  return url;
+}
+
 export async function fetchConductorJournal(
   project: string,
-  opts?: { missionId?: string; limit?: number },
+  opts?: ConductorJournalQuery,
 ): Promise<ConductorPassRow[]> {
-  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
-  if (opts?.missionId != null) {
-    url += `&missionId=${encodeURIComponent(opts.missionId)}`;
-  }
-  if (opts?.limit != null) {
-    url += `&limit=${encodeURIComponent(String(opts.limit))}`;
-  }
-  const response = await fetch(url);
+  const response = await fetch(journalUrl(project, opts));
   if (!response.ok) {
     return [];
   }
@@ -231,13 +246,17 @@ export async function fetchConductorJournal(
 
 export async function fetchConductorJournalWithNicknames(
   project: string,
-  opts?: { missionId?: string; limit?: number },
-): Promise<{ rows: ConductorPassRow[]; nicknames: Record<string, string> }> {
-  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
-  if (opts?.missionId != null) url += `&missionId=${encodeURIComponent(opts.missionId)}`;
-  if (opts?.limit != null) url += `&limit=${encodeURIComponent(String(opts.limit))}`;
-  const response = await fetch(url);
-  if (!response.ok) return { rows: [], nicknames: {} };
-  const data = (await response.json()) as { rows?: ConductorPassRow[]; nicknames?: Record<string, string> };
-  return { rows: data.rows ?? [], nicknames: data.nicknames ?? {} };
+  opts?: ConductorJournalQuery,
+): Promise<{ rows: ConductorPassRow[]; nicknames: Record<string, string>; total: number }> {
+  const response = await fetch(journalUrl(project, opts));
+  if (!response.ok) return { rows: [], nicknames: {}, total: 0 };
+  const data = (await response.json()) as {
+    rows?: ConductorPassRow[];
+    nicknames?: Record<string, string>;
+    total?: number;
+  };
+  const rows = data.rows ?? [];
+  // A server that predates `total` (or a fixture that omits it) must not read as "0 rows" —
+  // fall back to what we actually received so the pager stays consistent with the page.
+  return { rows, nicknames: data.nicknames ?? {}, total: data.total ?? rows.length };
 }
