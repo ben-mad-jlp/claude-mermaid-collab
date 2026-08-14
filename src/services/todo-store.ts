@@ -1959,6 +1959,10 @@ export function todoNotFoundMessage(project: string, id: string): string {
   return base;
 }
 
+export function zeroRowWriteMessage(verb: string, id: string, precondition: string, remedy: string): string {
+  return `${verb} wrote no row for ${id}: precondition failed — ${precondition}; ${remedy}`;
+}
+
 function resolveFullId(project: string, id: string): string {
   const db = openDb(project);
   if (db.query('SELECT 1 FROM todos WHERE id = ?').get(id)) return id;
@@ -2459,7 +2463,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), JSON.stringify(next.declaredFiles), patch.retryCount ?? existing.retryCount, fullId
       );
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('update_todo', id, 'the row vanished between the getTodo read and the UPDATE (concurrent removeTodo/archive)', 're-read with get_todo(<id>); if gone, recreate it'));
 
       // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
       // drop every non-terminal transitive descendant so the lane goes fully terminal instead
@@ -2585,6 +2589,15 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
  *  The coordinator passes its own COORDINATOR_EPOCH at the caller layer; this is the
  *  fallback for any store path that claims without an explicit epoch argument. */
 export const PROCESS_CLAIM_EPOCH = crypto.randomUUID();
+
+/** Mutating exports whose zero-row result is legitimate contention/idempotency, not a lie. */
+export const ZERO_ROW_CONTENTION_VERBS = [
+  'claimTodo',        // res.changes === 1 ? … : null; another worker won the claim race.
+  'reclaimNow',       // the three CAS-lost return null arms.
+  'stampMissionNodeApprovedIfNull', // approvedAt IS NULL guard; already-approved ⇒ false.
+  'clearEpicLandedAt', // landedAt IS NOT NULL guard; already-cleared ⇒ false.
+  'releaseClaim',     // returns false when the row wasn't a live in_progress claim (lost race).
+] as const;
 
 /** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
  *  Override with MERMAID_MAX_CLAIM_RETRIES. */
@@ -3112,6 +3125,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // re-open/split/drop. It is NOT auto-promoted back to 'ready' (the unblock
     // pass below skips rejected todos), so it never silently re-claims and
     // re-fails. Only accepted/pending/null completions move to 'done'.
+    const claimScoped = opts?.claimToken != null && !opts.requireInProgress;
+    const claimToken = claimScoped ? (opts!.claimToken as string) : undefined;
     if (accept === 'rejected') {
       // Not done → completedBy cleared (mirrors completedAt). cleanup-605d6fc0:
       // store the non-derived 'planned' (not the derived 'blocked' enum) + the
@@ -3120,20 +3135,24 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // claimReason checks DEP rejection but not a row's OWN acceptanceStatus, and
       // the old unblock-pass skip was deleted in S4. Tracked separately as a
       // claimability-predicate gap (rejected ⇒ not-claimable).
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
-      ).run(accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(accept, ts, fullId, claimToken!) : stmt.run(accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     } else {
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
         // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
         // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, actor, accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(ts, actor, accept, ts, fullId, claimToken!) : stmt.run(ts, actor, accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
     // materialized — it is derived by claimability.isClaimable every tick, so there is nothing
@@ -3828,7 +3847,7 @@ export function resetTodo(
       let res;
       if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
       else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('reset_todo', id, 'the row disappeared under the reset UPDATE', 're-read with get_todo(<id>)'));
       if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
         cascadeDropDescendants(db, fullId, nowIso());
         assertNoLiveDescendants(db, id, fullId);
