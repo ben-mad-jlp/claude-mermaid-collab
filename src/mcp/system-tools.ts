@@ -4,7 +4,7 @@ import { listLeafInflight } from '../services/worker-ledger.js';
 import { breakerOpen } from '../services/headless-breaker.js';
 import { frictionTrends } from '../services/friction-trends.js';
 import { runtimeConfig } from '../services/runtime-config.js';
-import { diagnoseClaimSuppression, getColdStartsInFlight } from '../services/coordinator-live.js';
+import { diagnoseClaimSuppression, getColdStartsInFlight, BUCKET_PLANNING_SUPPRESSION_REASON } from '../services/coordinator-live.js';
 import { requestSelfDeploy } from '../services/deploy-service.js';
 import { instanceTopology } from '../services/instance-topology.js';
 import { systemStatus } from '../services/system-status.js';
@@ -96,7 +96,8 @@ export async function handleSystemTool(name: string, args: any): Promise<string 
       const claimSuppression = project ? await diagnoseClaimSuppression(project) : undefined;
       const lastPass = project ? supervisorStore.getConductorLastPass(project) : null;
       const needsHuman = conductorNeedsHuman(lastPass?.reason);
-      const state = inflight.length > 0 ? 'working' : claimSuppression?.blocked ? 'blocked-on-decision' : (claimSuppression?.suppressed.length ?? 0) > 0 ? 'claims-suppressed' : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : needsHuman ? 'needs-attention' : 'idle';
+      const heldSuppressed = (claimSuppression?.suppressed ?? []).filter((s) => s.reason !== BUCKET_PLANNING_SUPPRESSION_REASON);
+      const state = inflight.length > 0 ? 'working' : claimSuppression?.blocked ? 'blocked-on-decision' : heldSuppressed.length > 0 ? 'claims-suppressed' : (claimSuppression?.claimable ?? 0) > 0 ? 'claimable' : needsHuman ? 'needs-attention' : 'idle';
       let killRate: any = null;
       try {
         killRate = conductorKillRate({ now });
