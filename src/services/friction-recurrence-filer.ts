@@ -15,6 +15,7 @@ import { type FrictionNote } from './friction-store.js';
 import { getConfig } from './config-service.js';
 import { ensureBucket } from './bucket-registry.js';
 import { findOpenTodoBySignature, createTodo, updateTodo, type CreateTodoInput } from './todo-store.js';
+import type { BugfixSpec } from './bugfix-spec.js';
 
 export const RECURRENCE_FILE_THRESHOLD = 3;
 
@@ -93,6 +94,11 @@ export async function autoFileRecurringFriction(
   if (existing === null) {
     // Create a new todo.
     const priority: 1 | 2 = count >= threshold * 2 ? 1 : 2;
+    const bugfixSpec: BugfixSpec = {
+      observedFailure: filingInput.observedFailure,
+      evidence: filingInput.evidence,
+      fixedMeans: filingInput.fixedMeans,
+    };
     const filed = await createTodoFn(project, {
       ownerSession: '__friction_recurrence_filer__',
       parentId: epicId,
@@ -102,6 +108,7 @@ export async function autoFileRecurringFriction(
       priority,
       triageTag: ctx.note.layer,
       frictionSignature: ctx.signature,
+      bugfixSpec,
     });
     return { filed: 'created', todoId: filed.id };
   } else {

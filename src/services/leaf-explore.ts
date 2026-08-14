@@ -7,6 +7,7 @@ import { NODE_PROFILE, leafTranscriptPath } from './leaf-node-profile';
 import { buildNodePrompt, buildExploreWrapUpDirective, exploreReportPath } from './leaf-prompts';
 import { parseExploreReport, exploreAssertsFindings, type ExploreReportParse } from './leaf-parsing';
 import { composeInjectedContext } from './prompt-injection';
+import type { Finding } from './finding-store';
 import { findBySourceLeafId } from './finding-store';
 import { getInjectionFlags } from './runtime-config';
 import { resolveNodePermissionMode } from './node-permission-mode';
@@ -124,8 +125,9 @@ export async function runExplorePipeline(ctx: LeafRunContext): Promise<LeafRunRe
 
   // Terminal handling after loop breaks (hard-stop path)
   if (lastReport !== undefined) {
+    let rows: Finding[] = [];
     if (lastParse && exploreAssertsFindings(lastParse)) {
-      const rows = await (ctx.deps.findingsForLeaf ?? findBySourceLeafId)(ctx.project, ctx.leaf.id);
+      rows = await (ctx.deps.findingsForLeaf ?? findBySourceLeafId)(ctx.project, ctx.leaf.id);
       const valid = rows.some(
         (r) => r.sourceLeafId === ctx.leaf.id && r.violatedClaim.trim() !== '' &&
           r.implicatedFiles.length > 0 && r.reproPath.trim() !== '',
@@ -136,6 +138,18 @@ export async function runExplorePipeline(ctx: LeafRunContext): Promise<LeafRunRe
       await ctx.deps.writeArtifact?.(cwd, exploreReportPath(ctx.leaf), lastReport);
     } catch (e) {
       return ctx.parkBlocked(`explore-report-write-failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (lastParse && exploreAssertsFindings(lastParse)) {
+      try {
+        await ctx.deps.fileExploreFindings?.(ctx.project, {
+          leaf: ctx.leaf,
+          reportPath: exploreReportPath(ctx.leaf),
+          report: lastReport,
+          findings: rows,
+        });
+      } catch (e) {
+        console.warn('[leaf-explore] auto-file findings failed:', e instanceof Error ? e.message : String(e));
+      }
     }
     return ctx.finalizeReportLeaf('pass', `explore: ${ctx.leaf.title ?? ctx.leaf.id}`);
   }
