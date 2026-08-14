@@ -229,6 +229,11 @@ export const ConductorActivityPanel: React.FC<{
                 className="py-1 border-b border-gray-200/50 dark:border-gray-700/50"
               >
                 <div className="flex items-center gap-1">
+                  {group.representative.forced === true && (
+                    <span data-testid="conductor-pass-forced" className="text-3xs px-1 rounded bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                      kicked
+                    </span>
+                  )}
                   {group.representative.endedAt === null && (
                     <span data-testid="conductor-pass-live" className="text-3xs px-1 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
                       live

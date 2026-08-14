@@ -542,3 +542,22 @@ describe('ConductorActivityPanel', () => {
     });
   });
 });
+
+describe('ConductorActivityPanel — operator-forced passes', () => {
+  it('marks an operator-forced pass in the journal list, and leaves ordinary passes unmarked', async () => {
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ rows: [{ ...ROW_B, forced: true }, ROW_A] }),
+      }),
+    ) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(2);
+    });
+    expect(screen.getAllByTestId('conductor-pass-forced')).toHaveLength(1);
+    expect(screen.getByTestId('conductor-pass-forced').textContent).toBe('kicked');
+  });
+});

@@ -23,11 +23,13 @@ import { fireStamp } from './nudge-stamp.ts';
 import { resolveNudgeTarget, CONDUCTOR_SESSION } from './nudge-target.ts';
 import {
   MISSION_STALLED_KIND,
+  baseReason,
   buildStallCardText,
   clearMissionStall,
   noteMissionLoopReason,
   sweepRedTrunkSilence,
   type MissionLoopReasonBase,
+  type MissionLoopReasonFacts,
   type RepairTodoState,
 } from './mission-stall.ts';
 import { getLatestBaseGateVerdictForBase, latestLedgerTsForEpics } from './worker-ledger.ts';
@@ -426,6 +428,44 @@ export interface MissionLoopResult {
  *
  * FAILS OPEN: every store touch is wrapped, because a card path must never break the pass.
  */
+/**
+ * Build the mission facts that let the classifier tell a HEALTHY unchanged fingerprint from a
+ * WEDGED one (see mission-stall.ts's CONDITIONALLY_QUIET).
+ *
+ * Computed ONLY for the reasons that are conditionally classified — every other reason resolves
+ * through the table and must not pay collectMissionStallFacts's project scan.
+ *
+ * `serveableGaps` is the mission-loop's own count of criteria with no live serving epic, i.e. the
+ * `discover` gaps; `blockedCriterionIds` are the blocked ones. The in-flight test deliberately
+ * EXCLUDES `serveableGaps` from IN_FLIGHT_COUNTER_KEYS: a serveable gap is the very thing that
+ * makes an unchanged fingerprint suspicious, so counting it as "in flight" would make the whole
+ * refinement vacuous. Fails open to `undefined` (plain table lookup, today's behaviour).
+ */
+function buildReasonFacts(
+  project: string,
+  m: MissionSummary,
+  now: number,
+  deps: MissionLoopDeps,
+  reason: MissionLoopNoneReason,
+): MissionLoopReasonFacts | undefined {
+  if (baseReason(reason) !== 'nudge-fingerprint-unchanged') return undefined;
+  try {
+    const facts = (deps.buildStallFacts
+      ?? ((p: string, mm: MissionSummary, n: number) => collectMissionStallFacts(p, mm, n, deps.todosSnapshot)))(project, m, now);
+    return {
+      criterionActions: [
+        ...Array<string>(Math.max(0, facts.serveableGaps)).fill('discover'),
+        ...facts.blockedCriterionIds.map(() => 'blocked'),
+      ],
+      inflight: IN_FLIGHT_COUNTER_KEYS
+        .filter((k) => k !== 'serveableGaps')
+        .some((k) => (facts[k] as number) > 0),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function handleNoneReason(
   project: string,
   m: MissionSummary,
@@ -437,7 +477,7 @@ function handleNoneReason(
 ): void {
   const missionId = m.node.id;
   try {
-    noteMissionLoopReason(project, missionId, reason, now);
+    noteMissionLoopReason(project, missionId, reason, now, buildReasonFacts(project, m, now, deps, reason));
 
     if (reason === 'over-budget') {
       const card = (deps.raiseRebetCard ?? raiseOverBudgetRebetCard)(

@@ -9,6 +9,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useConductorEnabled, apiGet } from './useConductorEnabled';
+import { kickConductor } from '@/lib/conductorActivity';
 
 type ConductorLevel = 'off' | 'on';
 const LEVELS: ConductorLevel[] = ['off', 'on'];
@@ -89,6 +90,21 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
     [disabled, project, level, setEnabled],
   );
 
+  // OPERATOR KICK — the escape hatch, sitting with the on/off stops because that is where an
+  // operator already goes to act on the conductor. One click arms ONE forced pass (the flag is
+  // consumed by the pass that uses it); it is meaningless while the conductor is off or the
+  // daemon is off, so it disables with them.
+  const [kicking, setKicking] = useState(false);
+  const [kickNote, setKickNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const handleKick = useCallback(async () => {
+    if (kicking || !project) return;
+    setKicking(true);
+    setKickNote(null);
+    const r = await kickConductor(project);
+    setKickNote(r.ok ? { ok: true, text: 'kick armed — next pass runs' } : { ok: false, text: r.error ?? 'kick failed' });
+    setKicking(false);
+  }, [kicking, project]);
+
   const daemonOff = daemonOn === false;
   const containerTitle = daemonOff
     ? 'Conductor requires the daemon on — it directs the daemon (files epics for it to build & land), so it does nothing while the daemon is off.'
@@ -134,6 +150,31 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
           </button>
         );
       })}
+      {/* KICK — a lightning bolt in the same stroked 24-viewBox style as the Bridge header icons.
+          Forces exactly ONE pass past the fingerprint debounce; the flag is consumed by that pass
+          and never sticks. `title` carries the outcome so the ladder stays one compact row. */}
+      <button
+        type="button"
+        data-testid="conductor-kick"
+        data-kick-state={kickNote ? (kickNote.ok ? 'ok' : 'error') : kicking ? 'busy' : 'idle'}
+        disabled={kicking || disabled || !enabled}
+        aria-label="Force one conductor pass"
+        onClick={() => { void handleKick(); }}
+        title={
+          kickNote
+            ? kickNote.text
+            : !enabled
+              ? 'Turn the conductor on first — there is no pass to force.'
+              : 'Force one conductor pass now, ignoring the debounce (one-shot).'
+        }
+        className={`px-1.5 py-0.5 flex items-center transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 border-l border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 ${
+          kickNote && !kickNote.ok ? 'text-danger-500' : 'text-gray-500 dark:text-gray-400'
+        } ${kicking ? 'animate-pulse' : ''}`}
+      >
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      </button>
       {/* Last-pass readout: proves the conductor is actually running (not just switched on). */}
       {enabled && (
         <span
