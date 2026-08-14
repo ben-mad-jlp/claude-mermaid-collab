@@ -2021,7 +2021,7 @@ export function listCriteriaWithActions(
   project: string,
   todoId: string,
   opts?: { landTruth?: Map<string, boolean> },
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpicLive: boolean; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpicLive: boolean; servingEpicLandedAt: number | null; servingWorkCompletedAt: number | null; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m, undefined, opts);
@@ -2037,6 +2037,8 @@ export function listCriteriaWithActions(
       servedEpicCount: f?.servedEpicCount ?? 0,
       rejectedParkedCount: f?.rejectedParkedCount ?? 0,
       servingEpicLive: f?.servingEpicLive ?? false,
+      servingEpicLandedAt: f?.servingEpicLandedAt ?? null,
+      servingWorkCompletedAt: f?.servingWorkCompletedAt ?? null,
       servingEpics: f?.servingEpics ?? [],
     };
   });
