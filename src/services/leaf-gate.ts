@@ -18,8 +18,7 @@ import { createEscalation } from './supervisor-store';
 import { recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, recordBaseGateTestRuns, listWatchedTests } from './worker-ledger';
 import { baseGateKey, runBaseGateShared, quarantineSetHash } from './base-gate-coalescer.js';
 import { planImpactedBaseGate, narrowBaseGateConfig, type ImpactedBaseGateOpts } from './base-gate-impacted.js';
-import { activeQuarantine, promoteQuarantineCandidates, closeQuarantineOnGreen, sweepExpiringQuarantine } from './flaky-quarantine';
-import { pruneBaseGateTestRuns } from './worker-ledger';
+import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 import { quarantineCoversFailure } from './quarantine-match';
@@ -1221,12 +1220,6 @@ export function isCacheableBaseGateStatus(
  *  actually run the base gate and record the result. Extracted so the policy is
  *  unit-testable without a live worktree/git (see `defaultEpicBaseProbe` in
  *  conductor-infra-arm.ts for the sibling seam). */
-async function maintainQuarantineExpiry(project: string, now: number | undefined): Promise<void> {
-  try {
-    await sweepExpiringQuarantine(project, now ?? Date.now());
-  } catch { /* best-effort: a sweep failure must never break or delay a gate verdict */ }
-}
-
 export async function resolveBaseGreen(io: {
   epicId: string;
   project: string;
@@ -1242,7 +1235,6 @@ export async function resolveBaseGreen(io: {
 }): Promise<(LeafGateResult & { fresh: boolean }) | null> {
   const { epicId, project, epicBaseSha, gateCfg } = io;
   if (!gateCfg) return null; // absent → abstain (unchanged)
-  await maintainQuarantineExpiry(io.targetProject, io.now?.());
   const cached = getEpicBaseGate(epicId, epicBaseSha);
   if (cached && shouldHonourCachedBaseGate(cached, io.now?.()) === 'honour') {
     return {
@@ -1290,14 +1282,16 @@ export async function resolveBaseGreen(io: {
       } : {}),
     },
   );
+  // ALL quarantine bookkeeping (expiry-sweep → promote → close-on-green → prune) behind one
+  // per-project 5-minute clock, and deliberately AFTER the honoured-cache early-return above:
+  // a fully-cached hit must pay ZERO quarantine-store reads. Moving the expiry sweep behind
+  // the throttle (it used to run before the cache read) is safe because activeQuarantine's
+  // own TTL filter already stops expired rows from matching — the sweep only renews/announces,
+  // it never gates correctness. The observation-WRITE path (recordBaseGateTestRuns inside
+  // runBaseGate) is untouched.
   try {
-    promoteQuarantineCandidates(io.targetProject, io.now?.());
-    await closeQuarantineOnGreen(io.targetProject, io.now?.());
-    // Retention on the observation table it just read. The sweep existed since it was written
-    // and had ZERO callers — the table grew ~500k rows/day unbounded (1.86M measured
-    // 2026-08-11) while every quarantine pass scanned it. Self-throttled internally.
-    pruneBaseGateTestRuns(io.now?.());
-  } catch { /* best-effort: a promotion or close failure must never break the gate */ }
+    await runQuarantineCeremonies(io.targetProject, io.now?.());
+  } catch { /* best-effort: quarantine bookkeeping must never break the gate */ }
   let result: LeafGateResult = r;
   if (r.status === 'fail' && r.baselineFailures) {
     // Fingerprint normalization is load-bearing here. MEASURED 2026-08-12: the gate's
