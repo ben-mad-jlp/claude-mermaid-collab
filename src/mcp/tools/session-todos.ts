@@ -24,6 +24,7 @@ import {
   type LeafTier,
   type ExploreSpec,
 } from '../../services/todo-store.js';
+import type { BugfixSpec } from '../../services/bugfix-spec.js';
 import { inferProfileType } from '../../config/agent-profiles.js';
 import { inferTypeFromManifest } from '../../config/project-manifest.js';
 import { INBOX_EPIC_TITLE, isInboxEpic, isInboxEpicTitle } from '../../services/claimability.js';
@@ -418,6 +419,8 @@ export async function addSessionTodo(
     approvedBy?: string | null;
     /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach). */
     exploreSpec?: ExploreSpec | null;
+    /** Typed spec for a `bugfix` bucket leaf (observedFailure/evidence/fixedMeans). */
+    bugfixSpec?: BugfixSpec | null;
   },
 ): Promise<Todo> {
   const { title: _extrasTitle, files, type, inbox, kind: kindArg, ...extrasRest } = extras ?? {};
