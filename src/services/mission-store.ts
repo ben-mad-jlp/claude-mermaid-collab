@@ -1984,13 +1984,19 @@ export interface MissionSummary {
  * `rollup` built from deriveCheapMissionStatus + the already-read epic/criteria slices —
  * zero collectMissionStatusFacts calls. The default stays TRUE so every existing caller's
  * output is bit-identical; opting into the cheap path is explicit, per call site.
+ *
+ * `opts.allTodos` lets a caller that ALREADY holds the exact
+ * `listTodos(project, { includeCompleted: true })` array (e.g. the orchestrator tick's
+ * per-project todos snapshot — audit item 7a) hand it over, so listing missions performs
+ * ZERO additional full-table todos scans. Same contract as collectMissionStatusFacts'
+ * own `allTodos` opt, into which it is threaded.
  */
 export function listMissions(
   project: string,
-  opts: { session?: string; includeArchived?: boolean; onlyArchived?: boolean; withFacts?: boolean } = {},
+  opts: { session?: string; includeArchived?: boolean; onlyArchived?: boolean; withFacts?: boolean; allTodos?: Todo[] } = {},
 ): MissionSummary[] {
   const withFacts = opts.withFacts !== false;
-  const all = listTodos(project, { includeCompleted: true });
+  const all = opts.allTodos ?? listTodos(project, { includeCompleted: true });
   const roots = all.filter(
     (t) => t.parentId == null && t.status !== 'dropped' && isMission(t),
   );

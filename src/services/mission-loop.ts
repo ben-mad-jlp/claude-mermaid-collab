@@ -228,6 +228,13 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
 
 export interface MissionLoopDeps {
   list?: (project: string) => MissionSummary[];
+  /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+   *  (`listTodos(project, { includeCompleted: true })`, read ONCE per tick). When provided
+   *  (and `list` is not), listMissions and the stall-facts collector read it via their
+   *  `allTodos` seams instead of re-scanning the table ~1+3N times. Absent ⇒ self-read —
+   *  external callers unchanged. This pass never mutates todos (nudges/stamps live in the
+   *  mission sidecar), so a start-of-tick snapshot is exact, not stale. */
+  todosSnapshot?: import('./todo-store.ts').Todo[];
   isIdle?: (project: string, session: string) => boolean;
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   stampNudge?: (project: string, todoId: string, key?: string) => void;
@@ -252,7 +259,7 @@ export interface MissionLoopDeps {
  * available at the mission-loop call site (`m: MissionSummary`) plus one extra
  * `listCriteriaWithActions` call (the same scan `collectMissionStatusFacts` already does).
  */
-function collectMissionStallFacts(project: string, m: MissionSummary, now: number): MissionStallFacts {
+function collectMissionStallFacts(project: string, m: MissionSummary, now: number, allTodos?: import('./todo-store.ts').Todo[]): MissionStallFacts {
   const missionId = m.node.id;
   const blockedCriterionIds = listCriteriaWithActions(project, missionId)
     .filter((c) => c.action === 'escalate')
@@ -264,8 +271,10 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
 
   let hasBuildingLeaf = false;
   try {
-    const missionRow = getMission(project, missionId);
-    if (missionRow) hasBuildingLeaf = collectMissionStatusFacts(project, missionRow, now).hasBuildingLeaf;
+    // 7a: thread the tick's shared snapshot (when present) so the stall check costs
+    // zero extra full-table scans; absent ⇒ the stores self-read as before.
+    const missionRow = getMission(project, missionId, { allTodos });
+    if (missionRow) hasBuildingLeaf = collectMissionStatusFacts(project, missionRow, now, { allTodos }).hasBuildingLeaf;
   } catch { /* fail closed to false */ }
 
   let recycling = 0;
@@ -391,7 +400,8 @@ function evaluateStallAndMaybeRaise(
   const missionId = m.node.id;
   try {
     const episodeKey = `${project} ${missionId}`;
-    const facts = (deps.buildStallFacts ?? collectMissionStallFacts)(project, m, now);
+    const facts = (deps.buildStallFacts
+      ?? ((p: string, mm: MissionSummary, n: number) => collectMissionStallFacts(p, mm, n, deps.todosSnapshot)))(project, m, now);
     const { stalled, conditionKey, blockedCriterionIds } = evaluateMissionStall(facts, missionId);
 
     if (!stalled) {
@@ -447,7 +457,9 @@ function evaluateStallAndMaybeRaise(
  * that + the mission `active` flag are the gates; there is no per-project on/off mode.
  */
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
-  const list = deps.list ?? listMissions;
+  // 7a: with a tick-shared snapshot, listMissions' enumeration + per-mission facts read
+  // it (via allTodos) instead of paying ~1+3N fresh full-table scans per pass.
+  const list = deps.list ?? ((p: string) => listMissions(p, { allTodos: deps.todosSnapshot }));
   const isIdle = deps.isIdle ?? ((p: string, s: string) => {
     const row = getStatus(p, s);
     return row === null || row.status === 'waiting';
