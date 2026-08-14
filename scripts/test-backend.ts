@@ -19,6 +19,7 @@ import { QUARANTINE_SEGMENT } from '../src/services/quarantine.ts';
 import { partitionTestLanes } from '../src/services/nested-runner-lane.ts';
 import path from 'path';
 import { extractFailingTests } from '../src/services/gate-runner';
+import { memoizedTsc } from '../src/services/tsc-memo';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -287,20 +288,33 @@ async function main(): Promise<void> {
 
   // Gate on a clean desktop typecheck before running any backend test files, so a type break
   // under desktop/src fails test:backend / test:backend:floor independently of the per-leaf gate.
+  //
+  // Consults the durable tree-keyed tsc verdict (src/services/tsc-memo.ts): this script is a
+  // CHILD PROCESS of the gate runners, and it resolves the same worker ledger they do via the
+  // MERMAID_SUPERVISOR_DIR discipline (store-paths.globalStoreDir) — so on a clean tree the
+  // desktop tsc runs ONCE per tree across every test-backend invocation (base gate floor lane,
+  // land gate floor, --files= impacted runs) instead of once per invocation. A dirty tree
+  // (local dev edits) always runs for real. The import is free of new weight: gate-runner →
+  // leaf-gate already dragged worker-ledger into this script's module graph.
   {
-    const proc = Bun.spawn(['npx', 'tsc', '--noEmit', '-p', 'tsconfig.json'], {
-      cwd: path.join(ROOT, 'desktop'),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    const code = await proc.exited;
-    if (code !== 0) {
-      console.log(`\n✗ desktop typecheck FAILED:\n`);
-      console.log((err + out).trim().split('\n').slice(-20).join('\n'));
+    const desktopCwd = path.join(ROOT, 'desktop');
+    const runner = async (cwd: string, command: string) => {
+      try {
+        const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        const code = await proc.exited;
+        return { ran: true, code, output: err + out };
+      } catch (e) {
+        return { ran: false, code: -1, output: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const r = await memoizedTsc(desktopCwd, 'npx tsc --noEmit -p tsconfig.json', { runner });
+    if (r.code !== 0 || !r.ran) {
+      console.log(`\n✗ desktop typecheck FAILED${r.source === 'memo' ? ' (memoized verdict)' : ''}:\n`);
+      console.log(r.output.trim().split('\n').slice(-20).join('\n'));
       process.exit(1);
     }
-    console.log('✓ desktop typecheck passed\n');
+    console.log(`✓ desktop typecheck passed${r.source === 'memo' ? ' (memoized verdict)' : ''}\n`);
   }
 
   const totalFiles =

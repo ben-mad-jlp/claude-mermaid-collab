@@ -40,6 +40,7 @@ import { isFullSuiteAnchorVerdict } from './base-gate-impacted';
 import { activeQuarantine } from './flaky-quarantine';
 import type { TestQuarantineRow } from './worker-ledger';
 import { runLandTypecheckFloor } from './land-typecheck-floor';
+import { memoizedTsc } from './tsc-memo';
 import { quarantineCoversFailure } from './quarantine-match';
 import type { FloorPlan } from './impacted-tests';
 import { planImpactedFloor } from './impacted-tests';
@@ -495,7 +496,10 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   // --- typecheck ---
   let typecheck: EpicLandGateResult['typecheck'] | undefined;
   if (cfg.typecheck) {
-    const r = await spawn(o.epicWorktreeCwd, cfg.typecheck);
+    // Durable tree-keyed consult (tsc-memo.ts): a clean tree already type-checked by any
+    // runner (base gate, steward tscClean, floor, test-backend preamble) serves here with
+    // zero spawns; a memo-served FAIL carries its recorded output tail.
+    const r = await memoizedTsc(o.epicWorktreeCwd, cfg.typecheck, { runner: spawn });
     if (!r.ran) {
       return {
         status: 'error',

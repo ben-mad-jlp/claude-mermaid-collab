@@ -233,6 +233,28 @@ function openDb(): Database {
     failServeCount INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_bgv_base ON base_gate_verdict(baseSha)`);
+  // One durable typecheck verdict per (command, tree, cwd-kind) — the cross-RUNNER memo.
+  // A clean land used to run the whole-tree typecheck up to four times (base gate, land
+  // gate + floor, steward tscClean, test-backend's desktop preamble) because the only
+  // memo was steward-proof's in-process Map keyed `${cwd}:${HEAD}` — underivable by the
+  // other runners and gone on restart. THIS row is keyed by WHAT tsc actually reads:
+  // the TREE object (`git rev-parse HEAD^{tree}`), NOT the commit sha — an empty
+  // tip-bump or a merge commit with an identical tree still hits, and two worktrees
+  // checked out at the same tree share one verdict. Only CLEAN worktrees (porcelain
+  // empty) ever store or consult — a dirty tree has no citable tree sha (same
+  // discipline as the old steward memo). PASS is served indefinitely for its tree;
+  // FAIL only within a bounded TTL (tsc-memo.ts), mirroring the fail budgets elsewhere.
+  db.exec(`CREATE TABLE IF NOT EXISTS tsc_verdict (
+    key TEXT PRIMARY KEY,
+    cwdKind TEXT NOT NULL,
+    treeSha TEXT NOT NULL,
+    command TEXT NOT NULL,
+    status TEXT NOT NULL,
+    exitCode INTEGER,
+    output TEXT,
+    measuredAt INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_tscv_tree ON tsc_verdict(treeSha)`);
   // Flaky-test observation ledger: one row per test run (pass or fail) on the base lane,
   // to classify transient base-lane failures (flakes) against sha-correlated/red-on-branch issues.
   db.exec(`CREATE TABLE IF NOT EXISTS base_gate_test_run (
@@ -1132,6 +1154,60 @@ export function deleteBaseGateVerdictsForBase(baseSha: string): number {
   try {
     return openDb().prepare('DELETE FROM base_gate_verdict WHERE baseSha=?').run(baseSha).changes;
   } catch { return 0; }
+}
+
+// --- Durable tsc verdict (tsc_verdict): one typecheck measurement, all runners consult ---
+
+/** One durable typecheck verdict. `key` = hash(command, treeSha, cwdKind) — see the DDL
+ *  comment for why the TREE object (never the commit sha) is the identity. `status` is only
+ *  ever 'pass' | 'fail': a check that could not RUN (spawn failure, missing compiler) is an
+ *  incident, never a tree fact, and is never persisted. `output` carries the capped TAIL of
+ *  the failing run's output so a served FAIL still explains itself. */
+export interface TscVerdictRow {
+  key: string;
+  /** The measuring cwd relative to the repo toplevel ('' = root, 'desktop', …). Part of the
+   *  key: the same command in a different subdir reads a different tsconfig. Repo-relative so
+   *  two worktrees of the same tree still share. */
+  cwdKind: string;
+  /** `git rev-parse HEAD^{tree}` of the clean measuring worktree. */
+  treeSha: string;
+  command: string;
+  status: 'pass' | 'fail';
+  exitCode: number | null;
+  output: string | null;
+  measuredAt: number;
+}
+
+/** Upsert a tsc verdict. Best-effort like its neighbors, BUT re-reads after writing and
+ *  returns whether the row actually landed (mirrors recordBaseGateVerdict — a silently
+ *  no-op'd write would leave every runner re-running tsc with nothing red to say why). */
+export function recordTscVerdict(
+  v: Omit<TscVerdictRow, 'measuredAt'>,
+  now: number = Date.now(),
+): boolean {
+  try {
+    const db = openDb();
+    db.prepare(
+      `INSERT INTO tsc_verdict (key, cwdKind, treeSha, command, status, exitCode, output, measuredAt)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(key) DO UPDATE SET
+         cwdKind=excluded.cwdKind, treeSha=excluded.treeSha, command=excluded.command,
+         status=excluded.status, exitCode=excluded.exitCode, output=excluded.output,
+         measuredAt=excluded.measuredAt`,
+    ).run(v.key, v.cwdKind, v.treeSha, v.command, v.status, v.exitCode ?? null, v.output ?? null, now);
+    const back = db.prepare('SELECT status, measuredAt FROM tsc_verdict WHERE key=?').get(v.key) as
+      { status: string; measuredAt: number } | undefined;
+    return back?.status === v.status && back?.measuredAt === now;
+  } catch { return false; }
+}
+
+/** Read a tsc verdict. `null` on a miss OR a throw — both send the caller to a real run. */
+export function getTscVerdict(key: string): TscVerdictRow | null {
+  try {
+    const raw = openDb().prepare('SELECT * FROM tsc_verdict WHERE key=?').get(key) as
+      TscVerdictRow | undefined;
+    return raw ?? null;
+  } catch { return null; }
 }
 
 // --- Conductor wake gate: last-probed lane signature (epic_probe_signature) --------------
