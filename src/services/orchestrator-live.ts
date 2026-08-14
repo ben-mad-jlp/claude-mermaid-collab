@@ -27,6 +27,7 @@ import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-wat
 import { runFrictionTriagePass, shouldRunFrictionTriagePass } from './friction-triage.js';
 import { runMissionIntakePass, shouldRunMissionIntakePass } from './mission-intake.js';
 import { runRepairForgePass, shouldRunRepairForgePass } from './repair-mission-pass.js';
+import { runRepairVerifyFilerPass, shouldRunRepairVerifyFilerPass } from './repair-verify-filer.js';
 import { listTodos, type Todo } from './todo-store.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
@@ -371,6 +372,14 @@ export interface TickDeps {
   /** Throttle gate for repair-forge: at most once per REPAIR_FORGE_INTERVAL_MS per project.
    *  Default: shouldRunRepairForgePass. */
   shouldRunRepairForge?: (project: string) => boolean;
+  /** Auto-file verify explores for converged repair missions: scans repair missions for
+   *  MET criteria with named anchors and files one explore leaf per criterion (deduped).
+   *  No LLM; deterministic filing only. Runs for WATCHED projects. Default:
+   *  runRepairVerifyFilerPass. */
+  repairVerifyFiler?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
+  /** Throttle gate for repair-verify-filer: at most once per REPAIR_VERIFY_FILER_INTERVAL_MS
+   *  per project. Default: shouldRunRepairVerifyFilerPass. */
+  shouldRunRepairVerifyFiler?: (project: string) => boolean;
   /** Context-auto-recycle driver: checkpoint→clear→collab a low-context watched
    *  session (gated by per-project contextRecycleMode). Runs for every WATCHED
    *  project regardless of level, like notify. Default: runContextRecyclePass. */
@@ -428,6 +437,8 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunMissionIntake = deps.shouldRunMissionIntake ?? shouldRunMissionIntakePass;
   const repairForge = deps.repairForge ?? ((p: string, snap?: Todo[]) => runRepairForgePass(p, { todosSnapshot: snap }));
   const shouldRunRepairForge = deps.shouldRunRepairForge ?? shouldRunRepairForgePass;
+  const repairVerifyFiler = deps.repairVerifyFiler ?? ((p: string, snap?: Todo[]) => runRepairVerifyFilerPass(p, { todosSnapshot: snap }));
+  const shouldRunRepairVerifyFiler = deps.shouldRunRepairVerifyFiler ?? shouldRunRepairVerifyFilerPass;
   const recycle = deps.recycle ?? runContextRecyclePass;
   const missionLoop = deps.missionLoop ?? ((p: string, snap?: Todo[]) => runMissionLoopPass(p, { todosSnapshot: snap }));
   const shouldRunMissionLoop = deps.shouldRunMissionLoop ?? shouldRunMissionLoopPass;
@@ -603,6 +614,23 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
         if (res && typeof res === 'object' && (res as { forged?: unknown }).forged != null) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] repair-forge failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Repair-verify-filer pass: auto-file one explore per MET criterion of a converged repair
+    // mission. Scans criteria for named anchors and dedupes by criterion tag. No LLM; deterministic
+    // filing only. Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per REPAIR_VERIFY_FILER_INTERVAL_MS/project).
+    if (watched.has(project) && shouldRunRepairVerifyFiler(project)) {
+      try {
+        currentPhase = `${project}:repair-verify-filer`;
+        const res = await withPassTimeout(repairVerifyFiler(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:repair-verify-filer`);
+        // Invalidate only when explores were actually filed (new leaf nodes exist) —
+        // the no-op pass must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && ((res as { filed?: string[] }).filed ?? []).length > 0) invalidateSnapshot();
+      } catch (err) {
+        console.warn(`[orchestrator] repair-verify-filer failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
