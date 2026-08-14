@@ -548,3 +548,111 @@ describe('friction-triage: defect class gating', () => {
     expect(afterSecondPass).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 11. Provenance round-trip: stamps filingProvenance on auto-filed todos
+// ---------------------------------------------------------------------------
+
+describe('friction-triage: provenance round-trip', () => {
+  it('stamps filingProvenance auto:df3-gap-filer on an auto-filed todo while a hand-created todo reads null', async () => {
+    const { createTodo, listTodos } = await import('../todo-store');
+    const { ensureBucket } = await import('../bucket-registry');
+
+    const deps: FrictionTriageDeps = {
+      trends: () => ({
+        total: 1,
+        considered: 1,
+        byLayer: [],
+        recurring: [{ layer: 'domain' as FrictionLayer, retryReason: 'test-reason', count: 4, lastAt: new Date().toISOString(), defectClass: null }],
+      }),
+      listTodos: (p) => listTodos(p),
+      createTodo: (p, input) => createTodo(p, input),
+      ensureBucket: (p, type) => ensureBucket(p, type),
+      isActioned: () => false,
+      markActioned: async () => {},
+      threshold: 3,
+    };
+
+    await runFrictionTriagePass(project, deps);
+
+    const allTodos = listTodos(project);
+    const autoFiledTodo = allTodos.find((t) => t.title.includes('test-reason'));
+    expect(autoFiledTodo).toBeDefined();
+    expect(autoFiledTodo?.filingProvenance).toBe('auto:df3-gap-filer');
+
+    // Create a hand-made todo with no filingProvenance
+    const bucketEpics = allTodos.filter((t) => t.bucketType === 'bugfix');
+    const handMade = await createTodo(project, {
+      ownerSession: 'manual-session',
+      parentId: bucketEpics[0]?.id,
+      title: 'Hand-made todo',
+      status: 'todo',
+    });
+    expect(handMade.filingProvenance).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Sweep stale auto-filed gaps: closes todos whose reason recorded no note
+// ---------------------------------------------------------------------------
+
+describe('friction-triage: sweep stale auto-filed gaps', () => {
+  it('completes the todo whose reason recorded no note after newestNoteAt and leaves a recurred reason open', async () => {
+    const { sweepStaleAutoFiledGaps } = await import('../friction-triage');
+    const { createTodo, listTodos, getTodo, updateTodo } = await import('../todo-store');
+    const { listTriageActionedProvenance, recordFriction, markReasonActioned } = await import('../friction-store');
+    const { ensureBucket } = await import('../bucket-registry');
+
+    // Create two auto-filed todos and mark them actioned with provenance
+    const bucketId = await ensureBucket(project, 'bugfix');
+    const now = new Date();
+    const t1 = now.toISOString();
+    const t2 = new Date(now.getTime() + 1000).toISOString(); // 1 second later
+
+    // Create and mark first todo (quiet reason)
+    const todo1 = await createTodo(project, {
+      ownerSession: '__steward_friction_triage__',
+      parentId: bucketId,
+      title: '[bug] Quiet reason',
+      status: 'planned',
+      filingProvenance: 'auto:df3-gap-filer',
+    });
+    await markReasonActioned(project, 'domain', 'quiet-reason', todo1.id, { filedAt: t1, newestNoteAt: t1 });
+
+    // Create and mark second todo (recurred reason)
+    const todo2 = await createTodo(project, {
+      ownerSession: '__steward_friction_triage__',
+      parentId: bucketId,
+      title: '[bug] Recurred reason',
+      status: 'planned',
+      filingProvenance: 'auto:df3-gap-filer',
+    });
+    await markReasonActioned(project, 'domain', 'recurred-reason', todo2.id, { filedAt: t1, newestNoteAt: t1 });
+
+    // Record a friction note for the recurred reason AFTER newestNoteAt
+    await recordFriction(project, {
+      layer: 'domain',
+      retryReason: 'recurred-reason',
+      detail: 'Still happening',
+    });
+
+    // Run the sweep
+    const result = await sweepStaleAutoFiledGaps(project, {
+      listProvenance: (p) => listTriageActionedProvenance(p),
+      listFriction: (p, filter) => {
+        const { listFriction } = require('../friction-store');
+        return listFriction(p, filter);
+      },
+      getTodo: (p, id) => getTodo(p, id),
+      updateTodo: (p, id, patch) => updateTodo(p, id, patch),
+    });
+
+    expect(result.swept).toBe(1); // Only the quiet reason's todo should be swept
+
+    // Verify: quiet-reason todo is done, recurred-reason todo is still planned
+    const sweptTodo = getTodo(project, todo1.id);
+    const openTodo = getTodo(project, todo2.id);
+    expect(sweptTodo?.status).toBe('done');
+    expect(openTodo?.status).toBe('planned');
+  });
+});
