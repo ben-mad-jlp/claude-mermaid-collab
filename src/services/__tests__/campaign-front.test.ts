@@ -12,6 +12,7 @@ function makeProbe(overrides: Partial<CampaignProbe>): CampaignProbe {
     kind: 'command',
     environment: 'worktree',
     dependsOn: [],
+    declaredPaths: [],
     verdict: 'not-run',
     command: null,
     createdAt: 1,
