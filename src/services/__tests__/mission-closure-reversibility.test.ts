@@ -7,12 +7,13 @@ import {
   createTodo, _closeProject,
 } from '../todo-store';
 import {
-  upsertMission, getMission, addCriterion,
+  upsertMission, getMission, addCriterion, setMissionClosed,
   getMissionRollup, setCriterionMet, setCriterionMeasurementPendingUntil, deactivateIfTerminal,
   _resetMissionDbCache,
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { planMissionLoopStep } from '../mission-loop';
+import { _closeDb, listOpenEscalations } from '../supervisor-store';
 
 let project: string;
 
@@ -30,6 +31,7 @@ afterEach(() => {
   _closeProject(project);
   _resetMissionDbCache(project);
   _closeLedgerDb();
+  _closeDb();
   delete process.env.MERMAID_SUPERVISOR_DIR;
   rmSync(project, { recursive: true, force: true });
 });
@@ -110,5 +112,42 @@ describe('mission-closure-reversibility: awaiting-observation', () => {
     const action = planMissionLoopStep(input);
     expect(action.kind).toBe('none');
     expect(action.reason).toBe('no-action:awaiting-observation');
+  });
+});
+
+describe('mission-closure-attribution: closedBy and closure cards', () => {
+  test('raises one card and records the judge when a mission closes with an unmet criterion', async () => {
+    const id = await makeMissionNode();
+    upsertMission(project, id);
+    const c1 = addCriterion(project, id, 'first criterion (will be met)');
+    const c2 = addCriterion(project, id, 'second criterion (will stay unmet)');
+
+    // Set one criterion to met, leaving the other unmet
+    setCriterionMet(project, c1.id, true);
+
+    // Close the mission with a judge attribution
+    setMissionClosed(project, id, Date.now(), { judge: 'test-judge' });
+
+    // Verify the mission records the judge and unmet criterion evidence
+    const m = getMission(project, id)!;
+    expect(m.closedBy).toBe('test-judge');
+    expect(m.closureEvidence).toBeTruthy();
+
+    // Verify evidence contains the unmet criterion id
+    const evidence = JSON.parse(m.closureEvidence!);
+    expect(evidence.unmetCriterionIds).toContain(c2.id);
+    expect(evidence.unmetCriterionIds.length).toBe(1);
+
+    // Verify one open escalation was created with the right conditionKey
+    const allCards = listOpenEscalations();
+    const filteredCards = allCards.filter(e => e.conditionKey === `mission-closed-unmet:${id}`);
+    expect(filteredCards.length).toBe(1);
+    expect(filteredCards[0].kind).toBe('mission-closed-unmet');
+
+    // Close the mission again with the same judge — verify the card count doesn't increase
+    setMissionClosed(project, id, Date.now(), { judge: 'test-judge' });
+    const allCardsAfterSecond = listOpenEscalations();
+    const filteredCardsAfterSecond = allCardsAfterSecond.filter(e => e.conditionKey === `mission-closed-unmet:${id}`);
+    expect(filteredCardsAfterSecond.length).toBe(1);
   });
 });

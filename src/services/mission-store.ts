@@ -129,6 +129,13 @@ export interface MissionRow {
    *  which skips closed missions entirely so this can't happen going forward). Never set for
    *  abandonment (setMissionAbandoned does not touch this column). */
   closedAt: number | null;
+  /** Who closed the mission (when closedAt is set). Used for attribution when closure
+   *  leaves unmet criteria, and to identify the decision maker. */
+  closedBy: string | null;
+  /** JSON-stringified evidence of the closure: the unmet criterion ids and the judge.
+   *  Contains details like { unmetCriterionIds: [...], closedAt: ..., judge: ... }.
+   *  Set when a mission closes with >=1 unmet active criterion. */
+  closureEvidence: string | null;
   /** Set (ms epoch) when a mission was FORGED but not yet human-approved (e.g. by the doc→node
    *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
    *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
@@ -277,6 +284,8 @@ CREATE TABLE IF NOT EXISTS mission (
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
   closedAt INTEGER,
+  closedBy TEXT,
+  closureEvidence TEXT,
   budgetUsd REAL,
   handoffDocId TEXT,
   queuePos INTEGER
@@ -425,6 +434,8 @@ function openDb(project: string): Database {
   // the NEXT openDb() call, since this addColumnIfMissing runs before migrateDropPhaseMachine
   // every time and no-ops once the column already exists.
   addColumnIfMissing(db, 'mission', 'closedAt', 'closedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'closedBy', 'closedBy TEXT');
+  addColumnIfMissing(db, 'mission', 'closureEvidence', 'closureEvidence TEXT');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
   addColumnIfMissing(db, 'mission', 'forgeState', 'forgeState TEXT');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
@@ -485,6 +496,8 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     closedAt: (row.closedAt as number | null) ?? null,
+    closedBy: (row.closedBy as string | null) ?? null,
+    closureEvidence: (row.closureEvidence as string | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     forgeState: (row.forgeState as 'forging' | 'forge-failed' | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
@@ -688,14 +701,78 @@ export async function setMissionAbandoned(project: string, todoId: string, aband
  *  mission's derived status reads 'converged' — makes terminality durable so a later land that
  *  happens to reopen one of the mission's criteria (unverifyCriteriaForLandedPaths) cannot
  *  un-converge stopped history. NOT called for abandonment — setMissionAbandoned keeps its own
- *  status and never touches this column. */
-export function setMissionClosed(project: string, todoId: string, at: number | null): void {
+ *  status and never touches this column.
+ *
+ *  When a mission closes with unmet criteria, records WHO closed it (attribution) and evidence
+ *  of what was left unmet, and raises one deduped human card for operator awareness. */
+export function setMissionClosed(
+  project: string,
+  todoId: string,
+  at: number | null,
+  attribution?: { judge: string; evidence?: string | null }
+): void {
   const id = resolveMissionTodoId(project, todoId);
   if (!id) throw new Error(`mission not found: ${todoId}`);
-  const res = openDb(project)
-    .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(at, nowMs(), id);
-  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+
+  const db = openDb(project);
+
+  // Reopen path: clear all closure-related fields
+  if (at == null) {
+    const res = db
+      .prepare('UPDATE mission SET closedAt = NULL, closedBy = NULL, closureEvidence = NULL, updatedAt = ? WHERE todoId = ?')
+      .run(nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+    return;
+  }
+
+  // Closure path: compute unmet criteria and decide whether to record attribution + raise card
+  const criteria = listCriteria(project, id);
+  const unmet = criteria
+    .filter(c => c.status !== 'dropped' && !c.met)
+    .map(c => c.id)
+    .sort();
+
+  const judge = attribution?.judge ?? 'unknown';
+
+  if (unmet.length === 0) {
+    // Clean convergence: no unmet criteria, update as before
+    const res = db
+      .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
+      .run(at, nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+  } else {
+    // Dirty closure: record attribution and raise a card
+    const closureEvidenceObj = {
+      unmetCriterionIds: unmet,
+      closedAt: at,
+      judge,
+    };
+    const closureEvidenceStr = JSON.stringify(closureEvidenceObj);
+
+    const res = db
+      .prepare('UPDATE mission SET closedAt = ?, closedBy = ?, closureEvidence = ?, updatedAt = ? WHERE todoId = ?')
+      .run(at, judge, closureEvidenceStr, nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+
+    // Raise one deduped human card — wrapped in try/catch so a supervisor-store failure never breaks closure
+    try {
+      const missionNode = getTodo(project, id);
+      const session = missionNode?.ownerSession ?? 'conductor';
+      createEscalation({
+        project,
+        session,
+        kind: 'mission-closed-unmet',
+        audience: 'human',
+        operatorGated: false,
+        todoId: id,
+        conditionKey: `mission-closed-unmet:${id}`,
+        conditionTuple: unmet,
+        questionText: `Mission ${id} was closed by ${judge} with ${unmet.length} unmet criterion/criteria: ${unmet.join(', ')}.`,
+      });
+    } catch {
+      // The card is advisory. A supervisor-db hiccup must NEVER break the closure.
+    }
+  }
 }
 
 export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
@@ -886,7 +963,7 @@ export function deactivateIfTerminal(project: string, todoId: string): void {
   // than relying on isMissionTerminal happening to return false.
   if (m.status === 'awaiting-observation') return;
   if (isMissionTerminal(m) && m.status === 'converged' && m.closedAt == null) {
-    setMissionClosed(project, m.todoId, Date.now());
+    setMissionClosed(project, m.todoId, Date.now(), { judge: 'self-heal' });
   }
   if (m.active && isMissionTerminal(m)) {
     setMissionActive(project, m.todoId, false);
