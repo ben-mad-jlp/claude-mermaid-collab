@@ -21,6 +21,14 @@ import {
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
 import { canonicalProjectRoot } from '../store-paths';
+import {
+  runRigReset,
+  getRigResetRecord,
+  listRigResetRecords,
+  _resetRigResetDbCache,
+  type RigResetDeps,
+  type OpenedProject,
+} from '../campaign-rig-reset';
 
 let project: string;
 
@@ -32,6 +40,7 @@ beforeEach(() => {
 afterEach(() => {
   _closeProject(project);
   _resetCampaignDbCache(project);
+  _resetRigResetDbCache(project);
   _resetMissionDbCache(project);
   _closeLedgerDb();
   _closeAllCollabDbs();
@@ -183,5 +192,111 @@ describe('campaign-rig-reset', () => {
 
     expect(rigVerdict.environment).toBe('rig');
     expect(rigVerdict.verdict).toBe('fail');
+  });
+
+  it('restores the target directory to the named commit before a rig probe runs', async () => {
+    // Create a campaign with one rig probe.
+    const campaign = createCampaign(project, {
+      title: 'Rig Reset Order Test',
+      probes: [
+        { kind: 'command', environment: 'rig', command: 'true' },
+      ],
+    });
+
+    const probes = listProbes(project, campaign.id);
+    const probe = probes[0];
+
+    // Create a shared spy array to track call order.
+    const calls: string[] = [];
+
+    // Create mock deps that track invocation order.
+    const deps: RigResetDeps = {
+      restoreToCommit: async (targetDir: string, commitSha: string) => {
+        calls.push('restoreToCommit');
+        expect(targetDir).toBe('/fake/target');
+        expect(commitSha).toBe('abc123def456');
+      },
+      startApp: async (targetDir: string) => {
+        calls.push('startApp');
+        expect(targetDir).toBe('/fake/target');
+        return {} as any;
+      },
+      openProject: async (handle: any, targetDir: string) => {
+        calls.push('openProject');
+        expect(targetDir).toBe('/fake/target');
+        return { members: ['file1.txt', 'file2.txt'] };
+      },
+      readManifestCount: async (targetDir: string) => {
+        calls.push('readManifestCount');
+        expect(targetDir).toBe('/fake/target');
+        return 2;
+      },
+      now: () => 1000,
+    };
+
+    // Run the rig reset.
+    await runRigReset(project, probe.id, {
+      targetDir: '/fake/target',
+      commitSha: 'abc123def456',
+    }, deps);
+
+    // Verify the order of calls.
+    expect(calls).toEqual([
+      'restoreToCommit',
+      'startApp',
+      'openProject',
+      'readManifestCount',
+    ]);
+    expect(calls.indexOf('restoreToCommit')).toBeLessThan(calls.indexOf('startApp'));
+    expect(calls.indexOf('startApp')).toBeLessThan(calls.indexOf('openProject'));
+  });
+
+  it('records both the opened member count and the manifest count on the reset record', async () => {
+    // Create a campaign with one rig probe.
+    const campaign = createCampaign(project, {
+      title: 'Rig Reset Counts Test',
+      probes: [
+        { kind: 'command', environment: 'rig', command: 'true' },
+      ],
+    });
+
+    const probes = listProbes(project, campaign.id);
+    const probe = probes[0];
+
+    // Create deps that return specific counts (deliberately unequal).
+    const deps: RigResetDeps = {
+      restoreToCommit: async () => {},
+      startApp: async () => ({} as any),
+      openProject: async (): Promise<OpenedProject> => ({
+        members: ['a.txt', 'b.txt', 'c.txt'], // 3 members
+      }),
+      readManifestCount: async () => 5, // 5 in manifest
+      now: () => 2000,
+    };
+
+    // Run the rig reset.
+    const record = await runRigReset(project, probe.id, {
+      targetDir: '/fake/target',
+      commitSha: 'xyz789abc123',
+    }, deps);
+
+    // Verify the record has both distinct counts.
+    expect(record.openedMemberCount).toBe(3);
+    expect(record.manifestCount).toBe(5);
+    expect(record.probeId).toBe(probe.id);
+    expect(record.commitSha).toBe('xyz789abc123');
+    expect(record.resetAt).toBe(2000);
+
+    // Verify we can read it back via getRigResetRecord.
+    const retrieved = getRigResetRecord(project, probe.id);
+    expect(retrieved).toBeDefined();
+    expect(retrieved!.openedMemberCount).toBe(3);
+    expect(retrieved!.manifestCount).toBe(5);
+
+    // Verify listRigResetRecords includes it.
+    const records = listRigResetRecords(project, probe.id);
+    expect(records).toHaveLength(1);
+    expect(records[0].openedMemberCount).toBe(3);
+    expect(records[0].manifestCount).toBe(5);
   });
 });
