@@ -52,6 +52,7 @@ export type MissionStatus =
   | 'building'        // leaves in flight AND nothing left to discover/verify (quietest non-terminal state)
   | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
   | 'needs-discovery' // some criterion has no LIVE serving epic (per-criterion — others may be building)
+  | 'awaiting-observation' // an open measurement window; no work owed (NON-TERMINAL)
   | 'converged'       // every criterion met
   | 'waiting'         // enqueued behind the session's active mission — active=false && queuePos != null; not yet the session's turn to run
   | 'closed';         // closedAt set — frozen converged history
@@ -880,6 +881,10 @@ export function setMissionActive(project: string, todoId: string, active: boolea
 export function deactivateIfTerminal(project: string, todoId: string): void {
   const m = getMission(project, todoId);
   if (!m) return;
+  // An awaiting-observation mission is non-terminal: the measurement window is open and it must
+  // stay active so the loop re-reads it when the window elapses. Guard this explicitly rather
+  // than relying on isMissionTerminal happening to return false.
+  if (m.status === 'awaiting-observation') return;
   if (isMissionTerminal(m) && m.status === 'converged' && m.closedAt == null) {
     setMissionClosed(project, m.todoId, Date.now());
   }
@@ -1730,6 +1735,11 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // Serve-inert criteria (dropped and awaiting-observation) derive no mission-scalar action at all.
   // Reading activeActions at EVERY arm below makes that invariant explicit per call site.
   const activeActions = actions.filter((a) => a !== 'dropped' && a !== 'awaiting-observation');
+  // AWAITING-OBSERVATION: one or more criteria are waiting for a measurement window to elapse;
+  // all non-dropped criteria are met. The mission stays live so the loop re-reads it when the
+  // window closes. Note activeActions.every on an empty array is vacuously true — that is
+  // intended: all remaining criteria are dropped or window-pending ⇒ still awaiting observation.
+  if (actions.some((a) => a === 'awaiting-observation') && activeActions.every((a) => a === 'met')) return 'awaiting-observation';
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
   // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
