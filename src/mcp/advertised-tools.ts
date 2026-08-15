@@ -86,6 +86,11 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     const m = require('./epic-tools.js');
     return m.EPIC_TOOL_DEFS;
   })();
+  const CAMPAIGN_TOOL_DEFS = (() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const m = require('./campaign-tools.js');
+    return m.CAMPAIGN_TOOL_DEFS;
+  })();
   const DECISION_TOOL_DEFS = (() => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const m = require('./decision-tools.js');
@@ -121,6 +126,7 @@ function getGroupRegistry(): Record<string, Array<{ name: string; [k: string]: a
     },
     SUPERVISOR: SUPERVISOR_TOOL_DEFS,
     EPIC: EPIC_TOOL_DEFS,
+    CAMPAIGN: CAMPAIGN_TOOL_DEFS,
     DECISION: DECISION_TOOL_DEFS,
     MISSION: MISSION_TOOL_DEFS,
     WORKGRAPH: WORKGRAPH_TOOL_DEFS,
@@ -299,6 +305,7 @@ export const ADVERTISED_ORDER: OrderEntry[] = [
   { group: 'EPIC', name: 'mutation_probe' },
   { group: 'EPIC', name: 'quarantine_test' },
   { group: 'EPIC', name: 'list_quarantine' },
+  { group: 'CAMPAIGN' },
   { group: 'SYSTEM', name: 'runtime_config' },
   { group: 'SYSTEM', name: 'set_watchdog_threshold' },
   { group: 'SYSTEM', name: 'set_context_recycle' },
