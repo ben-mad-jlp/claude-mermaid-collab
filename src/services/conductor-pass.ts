@@ -28,6 +28,7 @@ import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, typ
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
+import { runVerifyOwedArm } from './conductor-verify-owed-arm.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
 import { runUnlandedEpicLandArm, type UnlandedEpicArmResult } from './conductor-unlanded-epic-arm.js';
@@ -343,6 +344,8 @@ export interface ConductorPassDeps {
   closeArm?: typeof runTestOnlyCloseArm;
   /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
   verifyPanelArm?: typeof runVerifyPanelArm;
+  /** Injectable verify-owed backstop observer arm (test spy). Defaults to runVerifyOwedArm. */
+  verifyOwedArm?: typeof runVerifyOwedArm;
   /** Injectable card-triage arm (test spy). Defaults to runCardTriageArm. */
   cardTriageArm?: typeof runCardTriageArm;
   /** Injectable deterministic land arm (test spy). Defaults to runConductorLandArm. */
@@ -1195,6 +1198,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   } catch {
     wakeBlock = undefined;
+  }
+
+  // VERIFY OWED BACKSTOP ARM. Pure observer: scans criteria for verify-owed staleness and
+  // raises (or bumps) the shared backstop card. Never short-circuits the pass — the arm
+  // only raises a card, it never returns a pass result itself.
+  try {
+    await (deps.verifyOwedArm ?? runVerifyOwedArm)(project, missionId, session, {});
+  } catch {
+    // fail-open: an arm fault must not affect the rest of the pass.
   }
 
   // VERIFY PANEL ARM. Auto-fire the three-lens panel for every high-stakes criterion
