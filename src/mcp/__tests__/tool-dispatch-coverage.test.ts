@@ -32,6 +32,7 @@ import { DIAGRAM_TOOL_DEFS, handleDiagramTool } from '../diagram-tools.js';
 import { DESIGN_TOOL_DEFS, handleDesignTool } from '../design-tools.js';
 import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from '../supervisor-tools.js';
 import { EPIC_TOOL_DEFS, handleEpicTool } from '../epic-tools.js';
+import { CAMPAIGN_TOOL_DEFS, handleCampaignTool } from '../campaign-tools.js';
 import { WORKGRAPH_TOOL_DEFS, handleWorkgraphTool } from '../workgraph-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from '../system-tools.js';
@@ -216,6 +217,16 @@ describe('tool dispatch coverage', () => {
 
   it('handleEpicTool returns null for an unknown name (fall-through sentinel)', async () => {
     expect(await handleEpicTool('definitely_not_an_epic_tool', {})).toBeNull();
+  });
+
+  it('every CAMPAIGN_TOOL_DEFS name is wired in handleCampaignTool', async () => {
+    for (const def of CAMPAIGN_TOOL_DEFS) {
+      expect(await isRecognized(handleCampaignTool, def.name)).toBe(true);
+    }
+  });
+
+  it('handleCampaignTool returns null for an unknown name (fall-through sentinel)', async () => {
+    expect(await handleCampaignTool('definitely_not_a_campaign_tool', {})).toBeNull();
   });
 
   it('WORKGRAPH_TOOL_DEFS declares exactly the expected workgraph surface', () => {
