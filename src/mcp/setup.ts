@@ -67,6 +67,7 @@ import {
 import { DESIGN_TOOL_DEFS, handleDesignTool } from './design-tools.js';
 import { SUPERVISOR_TOOL_DEFS, handleSupervisorTool } from './supervisor-tools.js';
 import { EPIC_TOOL_DEFS, handleEpicTool } from './epic-tools.js';
+import { CAMPAIGN_TOOL_DEFS, handleCampaignTool } from './campaign-tools.js';
 import { DECISION_TOOL_DEFS, handleDecisionTool } from './decision-tools.js';
 import { SYSTEM_TOOL_DEFS, handleSystemTool } from './system-tools.js';
 import { SESSION_TOOL_DEFS, handleSessionTool } from './session-tools.js';
@@ -300,6 +301,10 @@ export async function setupMCPServer(): Promise<Server> {
         // Epic-lifecycle tool group lives in ./epic-tools.ts; delegate by name.
         const epicResult = await handleEpicTool(name, args);
         if (epicResult !== null) return epicResult;
+
+        // Campaign tool group lives in ./campaign-tools.ts; delegate by name.
+        const campaignResult = await handleCampaignTool(name, args);
+        if (campaignResult !== null) return campaignResult;
 
         // Decision/spec/cartographer tool group lives in ./decision-tools.ts; delegate by name.
         const decisionResult = await handleDecisionTool(name, args);

@@ -6213,6 +6213,121 @@
       }
     },
     {
+      "name": "forge_campaign",
+      "description": "Forge a new campaign with validated probes. Each probe is a deterministic check (kind=\"command\") that can depend on other probes. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (where the campaign is created)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Campaign title."
+          },
+          "probes": {
+            "type": "array",
+            "description": "Array of probes to validate and create. Each probe is an object with: ref (string), kind (\"command\"), environment (\"worktree\"|\"rig\"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "description": "Reference identifier for this probe (used in dependsOn; resolved to a uuid on creation)."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "command"
+                  ],
+                  "description": "Probe kind (only \"command\" in v1)."
+                },
+                "environment": {
+                  "type": "string",
+                  "enum": [
+                    "worktree",
+                    "rig"
+                  ],
+                  "description": "Probe environment (\"worktree\" for normal execution, \"rig\" for rig-managed environments)."
+                },
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to execute."
+                },
+                "dependsOn": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional list of probe refs this probe depends on (must pass before this runs)."
+                },
+                "declaredPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Files this probe operates on (for scoping and tracking)."
+                },
+                "asserts": {
+                  "type": "object",
+                  "description": "Optional validation hints (e.g., { exitCode: 0 }) — used during forge validation but not stored."
+                }
+              },
+              "required": [
+                "ref",
+                "kind",
+                "environment",
+                "command"
+              ]
+            }
+          }
+        },
+        "required": [
+          "project",
+          "title",
+          "probes"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List all campaigns in a project with their probe counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Read a single campaign with all its probes, probe verdicts, and the front (probes ready to run).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign id."
+          }
+        },
+        "required": [
+          "project",
+          "campaignId"
+        ]
+      }
+    },
+    {
       "name": "runtime_config",
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
