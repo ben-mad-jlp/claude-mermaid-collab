@@ -45,4 +45,105 @@ describe('attributeFloorFailures', () => {
     expect(floorFailBlock).toBeDefined();
     expect(floorFailBlock?.[0]).toContain('attributeFloorFailures');
   });
+
+  it('carries the file list on the job error payload in both cases', () => {
+    // Test trunk-red verdict
+    const trunkRedGate = {
+      status: 'fail' as const,
+      declared: true,
+      manifestPath: '/test',
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['test'],
+      specFiles: [],
+      epicTipSha: 'abc123',
+      baseSha: 'def456',
+      floorAttribution: {
+        verdict: 'trunk-red' as const,
+        files: ['src/bar.test.ts', 'src/foo.test.ts'],
+      },
+    };
+
+    // Import the necessary helpers
+    const coordinatorLand = require('../coordinator-land');
+    const landAttributionFields = coordinatorLand.landAttributionFields;
+
+    // Test trunk-red case
+    const trunkRedFields = landAttributionFields(trunkRedGate);
+    expect(trunkRedFields.attributedFiles).toEqual(['src/bar.test.ts', 'src/foo.test.ts']);
+    expect(trunkRedFields.landAttribution).toBe('trunk-red');
+
+    // Simulate the outcome that the proof-failure path returns
+    const trunkRedOutcome = {
+      ok: false,
+      landed: false,
+      reason: 'trunk-red',
+      epicId: 'epic123',
+      epicBranch: 'collab/epic/12345678',
+      ...trunkRedFields,
+    };
+
+    // Simulate the epic-tools payload spread
+    const trunkRedPayload = {
+      ...trunkRedOutcome,
+      landedBy: 'Landed-By: Human <user@example.com>',
+      actor: 'human',
+    };
+
+    // Verify the spread includes the attributed files
+    const parsed = JSON.parse(JSON.stringify(trunkRedPayload));
+    expect(parsed.attributedFiles).toEqual(['src/bar.test.ts', 'src/foo.test.ts']);
+    expect(parsed.landAttribution).toBe('trunk-red');
+
+    // Test gate-regression case
+    const gateRegressionGate = {
+      status: 'fail' as const,
+      declared: true,
+      manifestPath: '/test',
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['test'],
+      specFiles: [],
+      epicTipSha: 'abc123',
+      baseSha: 'def456',
+      floorAttribution: {
+        verdict: 'gate-regression' as const,
+        files: ['src/new.test.ts'],
+      },
+    };
+
+    const gateRegressionFields = landAttributionFields(gateRegressionGate);
+    expect(gateRegressionFields.attributedFiles).toEqual(['src/new.test.ts']);
+    expect(gateRegressionFields.landAttribution).toBe('gate-regression');
+
+    // Simulate the outcome and payload for gate-regression
+    const gateRegressionOutcome = {
+      ok: false,
+      landed: false,
+      reason: 'gate-regression',
+      epicId: 'epic123',
+      epicBranch: 'collab/epic/12345678',
+      ...gateRegressionFields,
+    };
+
+    const gateRegressionPayload = {
+      ...gateRegressionOutcome,
+      landedBy: 'Landed-By: Human <user@example.com>',
+      actor: 'human',
+    };
+
+    const parsedRegression = JSON.parse(JSON.stringify(gateRegressionPayload));
+    expect(parsedRegression.attributedFiles).toEqual(['src/new.test.ts']);
+    expect(parsedRegression.landAttribution).toBe('gate-regression');
+
+    // Verify the wiring: epic-tools.ts line 107 spreads result with ...result
+    const epicToolsFile = join(import.meta.dir, '..', '..', 'mcp', 'epic-tools.ts');
+    const epicToolsContent = readFileSync(epicToolsFile, 'utf-8');
+    // The payload is spread as `{ ...result, landedBy, actor }` at the markJobFailed call
+    expect(epicToolsContent).toContain('{ ...result, landedBy: trailer, actor: actor.kind }');
+  });
 });
