@@ -324,6 +324,23 @@ export function namesTestInvocation(text: string, declaredFiles: readonly string
   return namesAssertion;
 }
 
+/** True when the criterion names BOTH a test/spec FILE and the NAME of an assertion inside it.
+ *  Deliberately narrower than namesTestInvocation: it needs no runner invocation and no declared
+ *  change-set, because a MISSION criterion has neither — it is validated with declaredFiles empty,
+ *  which makes namesTestInvocation abstain and leaves an otherwise-citable criterion to be
+ *  convicted by the absence rule. A test path plus an assertion name is itself the citation: a
+ *  reviewer opens that file and looks for that name. Requires a *.test.* / *.spec.* filename, so
+ *  it cannot be satisfied by an arbitrary source path, and requires a quoted assertion name, so it
+ *  cannot be satisfied by a vague "the tests pass" claim. */
+export function namesTestFileAndAssertion(text: string): boolean {
+  const namesTestFile = /\b[\w./-]*[\w-]+\.(?:test|spec)\.(?:[jt]sx?|mjs|cjs)\b/i.test(text);
+  if (!namesTestFile) return false;
+  return (
+    /\b(?:it|test|describe)\s*\(\s*['"`][^'"`]{3,}['"`]/.test(text) ||
+    /\bassert(?:s|ing)?\b[^.]{0,40}['"`][^'"`]{3,}['"`]/i.test(text)
+  );
+}
+
 /** A criterion that asserts a positive, readable property of a concrete OUTPUT-ARTIFACT file (a
  *  report/score/data file — .md/.json/.csv/.log/…, NOT source code) is CITABLE: the review reads
  *  that artifact, regardless of which command produced it. This is the measurement/spike shape
@@ -578,9 +595,29 @@ export function classifyCriterion(
     };
   }
 
-  // Rule 3: CONVICT on absence
+  // Rule 3: CONVICT on absence — UNLESS the criterion names a test file AND an assertion in it.
+  //
+  // The absence patterns match a bare WORD anywhere in the text ("unchanged", "untouched",
+  // "no longer", "without …ing"). That is right for a bare assertion — "Implementation
+  // untouched" names nothing checkable and must still be refused. It is wrong when the same
+  // sentence carries a concrete citation, where the absence word is a qualifier on an INPUT
+  // rather than the claim: "admits the verify arm past a serve signature unchanged from the
+  // prior pass, asserted by it('…') in src/services/__tests__/foo.test.ts".
+  //
+  // Why this narrow predicate and not namesTestInvocation: that helper abstains whenever
+  // declaredFiles is empty (see its step (ii)) because it cannot check change-set membership.
+  // MISSION criteria are always validated with no declared files, so the test shape can never
+  // acquit one — which is precisely how a citable criterion gets convicted. Here the file path
+  // plus the assertion name IS the citation; there is no change-set to check it against.
+  //
+  // Why not namesDaemonProvableProof: it is deliberately generous (a bare `git diff`, any source
+  // path) and would rescue exactly the vague absences this rule exists to refuse — verified, it
+  // breaks eight existing assertions including "bare git diff stays convicted as absence".
+  //
+  // Cost of the false convictions this fixes, measured: one leaf blocked outright, a second
+  // parked on the same wall, and four forge round-trips (friction 192f35cf).
   const rule3 = convictOnAbsence(text);
-  if (rule3.uncitable) {
+  if (rule3.uncitable && !namesTestFileAndAssertion(text)) {
     return {
       text,
       citable: false,
