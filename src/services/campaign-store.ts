@@ -56,6 +56,7 @@ export interface CampaignProbe {
 
 /** Input shape for creating/adding a probe. */
 export interface ProbeInput {
+  id?: string;
   kind: ProbeKind;
   environment: ProbeEnvironment;
   command?: string | null;
@@ -291,7 +292,7 @@ export function createCampaign(
       db.prepare(
         'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
-        randomUUID(),
+        probe.id ?? randomUUID(),
         campaignId,
         probe.kind,
         probe.environment,
@@ -376,7 +377,7 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
   assertProbeInput(input);
 
   const db = openCampaignDb(project);
-  const probeId = randomUUID();
+  const probeId = input.id ?? randomUUID();
   const ts = nowMs();
 
   db.prepare(
