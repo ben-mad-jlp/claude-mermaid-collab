@@ -78,8 +78,13 @@ export interface RepairForgeDeps {
   isBucketItem?: (project: string, todoId: string) => boolean;
   /** List missions in a project. Default: listMissions. */
   listMissions?: (project: string, allTodos?: Todo[]) => MissionSummary[];
-  /** Forge a mission from input spec. Default: forgeMission. */
-  forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string }>;
+  /** Forge a mission from input spec. Default: forgeMission.
+   *  The resolved value carries the forge's accounting (optional for test fakes):
+   *  - missionId: the created mission id (required)
+   *  - criteria?: array of created criteria (optional, used for result counts)
+   *  - consumedBucketItems?: { consumed: string[] } (optional, used for consumption accounting)
+   */
+  forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string; criteria?: unknown[]; consumedBucketItems?: { consumed: string[] } }>;
   /** Create an escalation card. Default: createEscalation. Must be injectable for tests (throws on tmp paths). */
   createEscalation?: (input: Parameters<typeof createEscalation>[0]) => ReturnType<typeof createEscalation>;
   /** Record auto-action audit events. Default: recordAutoAction. */
@@ -256,6 +261,12 @@ export async function runRepairForgePass(
   const forgeResult = await forgeFn(project, forgeInput);
   const missionId = forgeResult.missionId;
 
+  // Extract the actual counts from the forge result, with fallbacks to spec.
+  // This handles both real forgeMission (which returns full accounting) and test fakes
+  // that return only { missionId }.
+  const consumed = forgeResult.consumedBucketItems?.consumed ?? spec.consumesTodoIds;
+  const criteriaCount = forgeResult.criteria?.length ?? spec.criteria.length;
+
   // STEP 5: Issue exactly ONE approval card for the whole mission.
   // Wrap in try/catch to rollback the mission if card creation fails.
   try {
@@ -267,7 +278,7 @@ export async function runRepairForgePass(
       operatorGated: true,
       todoId: missionId,
       conditionKey: `repair-forge:${missionId}`,
-      questionText: `Approve auto-forged repair mission: ${batch.length} bugfix${batch.length === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.${triggerSuffix}`,
+      questionText: `Approve auto-forged repair mission: ${criteriaCount} bugfix${criteriaCount === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.${triggerSuffix}`,
       options: [
         { id: 'approve', label: 'Approve & activate', detail: 'Ratify the mission and drive it.' },
         { id: 'dismiss', label: 'Dismiss', detail: 'Close the mission without acting on it.' },
@@ -305,16 +316,16 @@ export async function runRepairForgePass(
     reason: `trigger=${trigger}; batch=${batch.length}; budget=${spec.budgetUsd}`,
     detail: {
       missionId,
-      consumed: spec.consumesTodoIds,
-      criteriaCount: spec.criteria.length,
+      consumed,
+      criteriaCount,
     },
   });
 
   return {
     forged: {
       missionId,
-      consumed: spec.consumesTodoIds,
-      criteriaCount: spec.criteria.length,
+      consumed,
+      criteriaCount,
       budgetUsd: spec.budgetUsd,
     },
     reason: 'forged',
