@@ -25,6 +25,11 @@ import {
   setNodeProfileOverride,
   copyNodeProfilesTo,
   emitAutoCollapseNotices,
+  type CampaignLevel,
+  CAMPAIGN_DEFAULT,
+  getCampaignLevel,
+  setCampaignLevel,
+  isCampaignEnabled,
   _closeDb,
 } from '../orchestrator-config';
 import { listEscalations, _closeDb as supervisorCloseDb } from '../supervisor-store';
@@ -340,5 +345,40 @@ describe('copyNodeProfilesTo (push to all projects)', () => {
     // Overwritten should report it
     expect(result.overwritten).toContainEqual({ project: '/proj/force-dst', kinds: ['implement'] });
     expect(result.preserved).toEqual([]); // nothing preserved in force mode
+  });
+});
+
+describe('per-project campaign switch', () => {
+  it('an unset project reads back CAMPAIGN_DEFAULT', () => {
+    expect(getCampaignLevel('/proj/campaign-unset')).toBe(CAMPAIGN_DEFAULT);
+  });
+
+  it('a legacy row with campaignLevel NULL reads back CAMPAIGN_DEFAULT, not off', () => {
+    // Simulate a legacy row created before the campaignLevel column existed
+    // (NULL campaignLevel, but with the orchestrator level set via setOrchestratorLevel)
+    _closeDb();
+    const dbPath = join(process.env.MERMAID_SUPERVISOR_DIR!, 'supervisor.db');
+    const manualDb = new Database(dbPath);
+    manualDb.prepare(
+      'INSERT OR REPLACE INTO orchestrator_config (project, level, updatedAt) VALUES (?, ?, ?)'
+    ).run('/proj/campaign-legacy', 'on', Date.now());
+    manualDb.close();
+
+    // Verify the row reads back with the default (not 'off')
+    expect(getCampaignLevel('/proj/campaign-legacy')).toBe(CAMPAIGN_DEFAULT);
+  });
+
+  it('setCampaignLevel off round-trips and isCampaignEnabled returns false', () => {
+    const project = '/proj/campaign-off-test';
+    setCampaignLevel(project, 'off');
+    expect(getCampaignLevel(project)).toBe('off');
+    expect(isCampaignEnabled(project)).toBe(false);
+  });
+
+  it('an unrecognised value clamps to CAMPAIGN_DEFAULT rather than off', () => {
+    const project = '/proj/campaign-unknown';
+    setCampaignLevel(project, 'bogus' as CampaignLevel);
+    expect(getCampaignLevel(project)).toBe(CAMPAIGN_DEFAULT);
+    expect(isCampaignEnabled(project)).toBe(true);
   });
 });
