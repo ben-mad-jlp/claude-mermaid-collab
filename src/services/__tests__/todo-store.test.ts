@@ -1261,6 +1261,30 @@ describe('steward verbs', () => {
     expect(r.retryCount).toBe(0);
   });
 
+  test("resetTodo('ready') on an in_progress todo: ONE call writes stored status AND stamps approval — no residual in_progress", async () => {
+    // Epic RELEASED so the parent-unreleased claimability rung doesn't gate the leaf.
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E', kind: 'epic', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'leaf', parentId: epic.id, status: 'planned' });
+    await updateTodo(project, t.id, { status: 'ready' }); // approve so the claim can succeed
+
+    // Claim the todo — a genuine claim, never a hand-written row.
+    const claimed = await claimTodo(project, t.id, 'coordinator', 60_000);
+    expect(claimed).not.toBeNull();
+    expect(getTodo(project, t.id)!.status).toBe('in_progress');
+
+    // Reset to 'ready' exactly once.
+    await resetTodo(project, t.id, 'ready');
+
+    // Re-read and verify: stored status must be 'planned', not residual 'in_progress',
+    // and approval must be stamped so it's claimable again.
+    const row = getTodo(project, t.id)!;
+    const [view] = deriveTodoViews(project, [row]);
+    expect(view.storedStatus).toBe('planned');
+    expect(view.storedStatus).not.toBe('in_progress');
+    expect(row.approvedAt).not.toBeNull();
+    expect(view.isClaimable).toBe(true);
+  });
+
   test('resetTodo auto-resolves the todo\'s open escalations (re-promote supersedes stale red)', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
     // A blocker raised against this todo (the 'paused on a human' red signal).
