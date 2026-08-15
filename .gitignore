@@ -94,3 +94,7 @@ Thumbs.db
 # main checkout (adopt/FI refuse on ANY dirt — this class blocked integration repeatedly).
 .collab/leak-quarantine/
 proj-test/
+
+# Deploy staging output from scripts/pack-app-asar.ts — regenerable, and its presence
+# in the main checkout blocks adopt_branch_as_epic and raises main-checkout-residue.
+desktop/out-asar/
