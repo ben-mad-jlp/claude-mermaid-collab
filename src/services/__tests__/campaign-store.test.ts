@@ -8,6 +8,8 @@ import {
   listProbes,
   addProbe,
   getCampaign,
+  recordProbeVerdict,
+  resetProbeVerdict,
   listCampaigns,
   _resetCampaignDbCache,
   type ProbeInput,
@@ -123,6 +125,114 @@ describe('campaign-store', () => {
 
     // Attempt to add a probe without environment.
     expect(() => addProbe(project, campaign.id, { kind: 'command' } as any)).toThrow();
+  });
+
+  test('round-trips declaredPaths through addProbe and listProbes', () => {
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      probes: [],
+    });
+
+    // Add a probe with declaredPaths.
+    const declaredPaths = ['src/foo.ts', 'src/bar.ts'];
+    const probe = addProbe(project, campaign.id, {
+      kind: 'command',
+      environment: 'worktree',
+      command: 'echo test',
+      declaredPaths,
+    });
+
+    // The returned probe should have declaredPaths.
+    expect(probe.declaredPaths).toEqual(declaredPaths);
+
+    // Listed probes should preserve declaredPaths.
+    const listed = listProbes(project, campaign.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].declaredPaths).toEqual(declaredPaths);
+  });
+
+  test('defaults declaredPaths to an empty array when omitted', () => {
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      probes: [],
+    });
+
+    // Add a probe without declaredPaths.
+    const probe = addProbe(project, campaign.id, {
+      kind: 'command',
+      environment: 'worktree',
+      command: 'echo test',
+    });
+
+    // The returned probe should have an empty declaredPaths array.
+    expect(probe.declaredPaths).toEqual([]);
+
+    // Listed probes should show empty declaredPaths.
+    const listed = listProbes(project, campaign.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].declaredPaths).toEqual([]);
+  });
+
+  test('refuses a probe whose declaredPaths holds an empty entry', () => {
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      probes: [],
+    });
+
+    // Attempt to add a probe with an empty string in declaredPaths.
+    expect(() =>
+      addProbe(project, campaign.id, {
+        kind: 'command',
+        environment: 'worktree',
+        command: 'echo test',
+        declaredPaths: ['src/foo.ts', '', 'src/bar.ts'],
+      })
+    ).toThrow();
+
+    // Attempt to add a probe with a whitespace-only string in declaredPaths.
+    expect(() =>
+      addProbe(project, campaign.id, {
+        kind: 'command',
+        environment: 'worktree',
+        command: 'echo test',
+        declaredPaths: ['src/foo.ts', '  ', 'src/bar.ts'],
+      })
+    ).toThrow();
+  });
+
+  test('resetProbeVerdict returns a recorded pass to not-run', () => {
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      probes: [
+        { kind: 'command', environment: 'worktree', command: 'true' },
+      ],
+    });
+
+    const probes = listProbes(project, campaign.id);
+    expect(probes).toHaveLength(1);
+    const probe = probes[0];
+
+    // Initially the verdict should be 'not-run'.
+    expect(probe.verdict).toBe('not-run');
+
+    // Record a pass verdict.
+    recordProbeVerdict(project, {
+      probeId: probe.id,
+      verdict: 'pass',
+      environment: 'worktree',
+      commitSha: 'abc123',
+    });
+
+    // Verify the verdict was recorded.
+    let listedAfterRecord = listProbes(project, campaign.id);
+    expect(listedAfterRecord[0].verdict).toBe('pass');
+
+    // Reset the verdict to 'not-run'.
+    resetProbeVerdict(project, probe.id);
+
+    // Verify the verdict is now 'not-run' again.
+    let listedAfterReset = listProbes(project, campaign.id);
+    expect(listedAfterReset[0].verdict).toBe('not-run');
   });
 
   test('listCampaigns returns campaigns for the project and grows by exactly one per createCampaign', () => {
