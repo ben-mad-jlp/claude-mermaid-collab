@@ -7,13 +7,18 @@
  */
 import Database from 'bun:sqlite';
 import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
 import { openCollabDb, closeCollabDb } from './collab-db.ts';
 import {
   campaignFront,
   listProbeVerdicts,
+  listProbes,
+  recordProbeVerdict,
   type CampaignProbe,
   type ProbeVerdictRecord,
+  type RecordedVerdict,
 } from './campaign-store.ts';
 import { forgeMission, type ForgeMissionInput, type ForgeMissionResult } from '../mcp/tools/mission-forge.ts';
 import { getMission, isMissionTerminal } from './mission-store.ts';
@@ -34,6 +39,8 @@ export interface CampaignPassResult {
   forged: Array<{ signature: string; missionId: string; probeIds: string[] }>;
   /** Probes that were skipped because they already hold an open linked mission. */
   skipped: string[];
+  /** Probe ids that were re-executed this pass (verdict changed from 'not-run' to recorded). */
+  executed: string[];
 }
 
 /** Injectable dependencies for runCampaignPass. */
@@ -44,6 +51,14 @@ export interface CampaignPassDeps {
   campaignFront?: typeof campaignFront;
   /** List recorded verdicts for a probe. Defaults to the live listProbeVerdicts implementation. */
   listProbeVerdicts?: typeof listProbeVerdicts;
+  /** List all probes for a campaign. Defaults to the live listProbes implementation. */
+  listProbes?: typeof listProbes;
+  /** Record a probe verdict. Defaults to the live recordProbeVerdict implementation. */
+  recordProbeVerdict?: typeof recordProbeVerdict;
+  /** Execute a probe command and return its verdict. Defaults to the live defaultExecProbe implementation. */
+  execProbe?: (probe: CampaignProbe) => Promise<{ verdict: RecordedVerdict; evidence?: string | null }>;
+  /** Resolve the current commit sha. Defaults to the live defaultCommitSha implementation. */
+  commitSha?: () => string;
   /** Determine if a mission is still open. Defaults to checking via getMission + isMissionTerminal. */
   isMissionOpen?: (project: string, missionId: string) => boolean;
   /** Current time in milliseconds. Defaults to Date.now. */
@@ -98,6 +113,9 @@ export function _resetCampaignPassDbCache(project?: string): void {
   }
 }
 
+/** Timeout in milliseconds for probe command execution. */
+export const PROBE_EXEC_TIMEOUT_MS = 30000;
+
 /**
  * Pure: select the failure signature for a probe from its recorded verdicts.
  *
@@ -137,6 +155,65 @@ export function failureSignature(probe: CampaignProbe, verdicts: ProbeVerdictRec
     .slice(0, 200);
 
   return normalized;
+}
+
+/**
+ * Default implementation: execute a probe command in the project root and return its verdict.
+ * Exit code 0 -> 'pass', any other -> 'fail'. Captures stdout + stderr as evidence.
+ * Throws if the probe has no command.
+ */
+export async function defaultExecProbe(
+  project: string,
+  probe: CampaignProbe,
+): Promise<{ verdict: RecordedVerdict; evidence?: string | null }> {
+  if (!probe.command || !probe.command.trim()) {
+    throw new Error(`probe ${probe.id} has no command`);
+  }
+
+  const execFileAsync = promisify(execFile);
+  const projectRoot = canonicalProjectRoot(project);
+
+  try {
+    await execFileAsync('/bin/sh', ['-c', probe.command], {
+      cwd: projectRoot,
+      timeout: PROBE_EXEC_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024, // 1MB
+      shell: false,
+    });
+
+    // Exit code 0 = pass
+    return { verdict: 'pass' as const, evidence: null };
+  } catch (err: any) {
+    // Any error (including timeout) = fail
+    let evidence: string | null = null;
+
+    if (err.stdout || err.stderr) {
+      const combined = `${err.stdout || ''}${err.stderr || ''}`.trim();
+      evidence = combined.length > 0 ? combined.slice(0, 4000) : null;
+    }
+
+    return { verdict: 'fail' as const, evidence };
+  }
+}
+
+/**
+ * Resolve the current commit sha in the project root.
+ * Never throws, never returns empty string. Returns 'unknown' on any error.
+ */
+function defaultCommitSha(project: string): string {
+  try {
+    const execFileSync = require('node:child_process').execFileSync;
+    const projectRoot = canonicalProjectRoot(project);
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: 5000,
+    })
+      .trim();
+    return sha.length > 0 ? sha : 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
 /**
@@ -224,16 +301,18 @@ export function probeCriterionText(probe: CampaignProbe): string {
  * Run the campaign pass: group failing probes by signature and forge missions.
  *
  * Order of operations:
+ * 0. Execute every 'not-run' probe and record its verdict.
  * 1. Get the campaign front (probes with verdict === 'fail').
  * 2. For each, skip if it already has an open linked mission.
  * 3. Group the remainder by failureSignature.
  * 4. Per group, forge one mission with criteria = group.probes.map(probeCriterionText).
  * 5. Link every probe in the group to the returned missionId.
  *
- * Fail-open at three levels: outer try/catch for the whole operation, per-probe
- * try/catch for verdict/link reads, and per-group try/catch for forge+link.
+ * Fail-open at four levels: outermost try/catch for the whole operation, a per-stage
+ * try/catch for re-execution, per-probe try/catch for verdict/link reads, and per-group
+ * try/catch for forge+link.
  *
- * Returns { groups, forged, skipped } even when a forge throws (partial success).
+ * Returns { groups, forged, skipped, executed } even when a forge throws (partial success).
  */
 export async function runCampaignPass(
   project: string,
@@ -244,11 +323,43 @@ export async function runCampaignPass(
   try {
     const frontFn = deps.campaignFront ?? campaignFront;
     const verdictsFn = deps.listProbeVerdicts ?? listProbeVerdicts;
+    const listProbesFn = deps.listProbes ?? listProbes;
+    const recordVerdictFn = deps.recordProbeVerdict ?? recordProbeVerdict;
+    const execProbeFn = deps.execProbe ?? ((probe: CampaignProbe) => defaultExecProbe(project, probe));
+    const commitShaFn = deps.commitSha ?? (() => defaultCommitSha(project));
     const forgeReq = deps.forgeMission ?? forgeMission;
     const isMissionOpenFn = deps.isMissionOpen ?? ((proj: string, missionId: string) => {
       const mission = getMission(proj, missionId);
       return mission != null && !isMissionTerminal(mission);
     });
+
+    // 0. Re-execute every 'not-run' probe and record its verdict.
+    const executed: string[] = [];
+    try {
+      const allProbes = listProbesFn(project, campaignId);
+      const notRunProbes = allProbes.filter((p) => p.verdict === 'not-run');
+      const sha = commitShaFn();
+
+      for (const probe of notRunProbes) {
+        try {
+          const result = await execProbeFn(probe);
+          recordVerdictFn(project, {
+            probeId: probe.id,
+            verdict: result.verdict,
+            environment: probe.environment,
+            commitSha: sha,
+            evidence: result.evidence ?? null,
+          });
+          executed.push(probe.id);
+        } catch {
+          // Fail-open per-probe: one throwing exec/record leaves the probe at 'not-run'
+          // and doesn't prevent others from executing.
+        }
+      }
+    } catch {
+      // Fail-open for the entire re-execution stage: a throwing listProbes or other
+      // stage-level error means no probes are re-executed, but the pass continues.
+    }
 
     // 1. Get the campaign front and filter to failing probes.
     const front = frontFn(project, campaignId);
@@ -343,6 +454,7 @@ export async function runCampaignPass(
       groups: groupResults,
       forged,
       skipped,
+      executed,
     };
   } catch {
     // Fail-open outermost: a throwing store read or front derivation yields empty result.
@@ -350,6 +462,7 @@ export async function runCampaignPass(
       groups: [],
       forged: [],
       skipped: [],
+      executed: [],
     };
   }
 }
