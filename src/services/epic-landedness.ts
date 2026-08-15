@@ -24,7 +24,7 @@
 
 import type { Todo } from './todo-store.js';
 import { getEpicLandRecord } from './epic-land-record-store.js';
-import { getEpicLandReadiness, type LandFinding } from './epic-land-readiness.js';
+import { getEpicLandReadiness, type LandFinding, isAbsenceFinding } from './epic-land-readiness.js';
 import { epicBranchName } from './epic-branch-status.js';
 import { getTrunkLandIndex, lookupEpicLand } from './trunk-land-index.js';
 
@@ -127,12 +127,18 @@ export function hasGitReachedMaster(project: string, epicId: string): boolean {
  * Shells out to git via makeCommitProbe; runs async and never throws on probe failure
  * (returns safe-default indeterminate shape). Filtering on reachability-relevant findings:
  * 'missing' and 'stranded' block work acceptance; 'orphaned-proof' is a different concern.
+ *
+ * @param readiness Optional injected readiness reader for testability; defaults to getEpicLandReadiness
  */
-export async function isEpicWorkReachable(project: string, epicId: string): Promise<EpicWorkReachability> {
+export async function isEpicWorkReachable(
+  project: string,
+  epicId: string,
+  readiness: (p: string, e: string) => Promise<Awaited<ReturnType<typeof getEpicLandReadiness>>> = getEpicLandReadiness,
+): Promise<EpicWorkReachability> {
   try {
-    const report = await getEpicLandReadiness(project, epicId);
+    const report = await readiness(project, epicId);
     return {
-      reachable: !report.blocking,
+      reachable: report.findings.filter(isAbsenceFinding).length === 0,
       indeterminate: false,
       stranded: report.findings.filter((f) => f.kind === 'missing' || f.kind === 'stranded'),
     };

@@ -40,6 +40,20 @@ export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<Commit
 export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled' | 'adopted';
 export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified' | 'unlanded';
 
+/** Absence findings — work that is genuinely absent from the epic branch (vs unlanded but present). */
+export const ABSENCE_FINDING_KINDS: readonly FindingKind[] = [
+  'missing',
+  'stranded',
+  'dup-unverified',
+  'adopt-unverified',
+  'orphaned-proof',
+];
+
+/** True if a finding represents work that is genuinely absent (not merely unlanded). */
+export function isAbsenceFinding(f: LandFinding): boolean {
+  return ABSENCE_FINDING_KINDS.includes(f.kind);
+}
+
 /** Provenance handle written by adoptBranchAsEpic: `adopt_branch_as_epic:<sha8>`.
  *  The bare verb (no sha) is the pre-2026-08-07 form and carries no evidence. */
 const ADOPTED_RE = /^adopt_branch_as_epic(?::([0-9a-fA-F]{4,40}))?$/;
