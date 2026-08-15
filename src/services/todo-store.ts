@@ -1397,7 +1397,7 @@ const nowIso = () => new Date().toISOString();
  *     "leave caller/existing value unchanged"; null = "clear")
  *
  * Mapping (MANUAL STATUS WRITES table):
- *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; keep status as-is/'planned'
+ *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; move terminal/in-flight to 'planned', else keep status as-is
  *   blocked            → hold:    heldAt=now, heldReason='manual';            keep status as-is/'planned'
  *   in_progress        → REJECT (throw) — a human inventing a claim is nonsensical
  *   planned|backlog|todo→ un-approve/park: approvedAt=null;                   status='planned'
@@ -1435,11 +1435,12 @@ function translateStatusWrite(
   switch (requested) {
     case 'ready':
       // "approve to run" — identical to the Planner's approve verb. Never store the
-      // derived 'ready'; never leave it on a TERMINAL status (an un-complete routes
+      // derived 'ready'; never leave it on a TERMINAL or IN-FLIGHT status (an un-complete routes
       // through 'ready' and must move the row off 'done'/'dropped' back to 'planned'
-      // so it re-derives claimable). Otherwise keep the existing pre-terminal status.
+      // so it re-derives claimable; a claimed row being approved must also clear its
+      // in-flight status). Otherwise keep the existing pre-terminal status.
       return {
-        storedStatus: (currentStatus === 'ready' || currentStatus === 'done' || currentStatus === 'dropped')
+        storedStatus: (currentStatus === 'ready' || currentStatus === 'in_progress' || currentStatus === 'done' || currentStatus === 'dropped')
           ? 'planned' : currentStatus,
         approvedAt: ts,
         ...(approvedBy != null ? { approvedBy } : {}),
