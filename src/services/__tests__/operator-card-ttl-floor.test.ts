@@ -18,9 +18,11 @@ import { join } from 'node:path';
 const supDir = mkdtempSync(join(tmpdir(), 'octf-sup-'));
 process.env.MERMAID_SUPERVISOR_DIR = supDir;
 
+import { runReconcilePass } from '../reconcile-pass';
 import {
   createEscalation,
   getEscalation,
+  listOpenEscalations,
   OPERATOR_CARD_MIN_TTL_MS,
   _closeDb,
 } from '../supervisor-store';
@@ -44,6 +46,18 @@ afterAll(() => {
   rmSync(todoBase, { recursive: true, force: true });
   delete process.env.MERMAID_SUPERVISOR_DIR;
 });
+
+/** Run the reconcile pass with Date.now shifted forward by `deltaMs`. */
+async function runPassAt(project: string, deltaMs: number): Promise<void> {
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base + deltaMs;
+  try {
+    await runReconcilePass(project);
+  } finally {
+    Date.now = realNow;
+  }
+}
 
 describe('operator-gated cards — TTL floor', () => {
   it('stamps a six-hour expiry floor on an operator-gated card that supplies none', () => {
@@ -80,5 +94,52 @@ describe('operator-gated cards — TTL floor', () => {
     expect(escalation.expiresAt).toBe(escalation.createdAt + shortTimeout);
     const reread = getEscalation(escalation.id);
     expect(reread?.expiresAt).toBe(escalation.createdAt + shortTimeout);
+  });
+});
+
+describe('reconcile sweep — honors the OPERATOR_CARD_MIN_TTL_MS floor on operator-gated cards', () => {
+  it('retains an operator-gated card when swept five minutes after creation', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 'operator-1',
+      kind: 'decision',
+      audience: 'human',
+      operatorGated: true,
+      questionText: 'operator, decide this',
+      // Note: no timeoutMs supplied; expiresAt will be stamped with OPERATOR_CARD_MIN_TTL_MS floor
+    });
+
+    // Sweep at +5 minutes — well before the 6-hour floor
+    await runPassAt(project, 5 * 60 * 1000);
+
+    // Card must still be open
+    expect(getEscalation(escalation.id)?.status).toBe('open');
+    expect(listOpenEscalations().map((e) => e.id)).toContain(escalation.id);
+  });
+
+  it('reaps an operator-gated card when swept past its expiresAt', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 'operator-2',
+      kind: 'decision',
+      audience: 'human',
+      operatorGated: true,
+      questionText: 'operator, decide this',
+      // Note: no timeoutMs supplied; expiresAt will be stamped with OPERATOR_CARD_MIN_TTL_MS floor
+    });
+
+    // Sweep at +6 hours + 1 minute — past the floor deadline
+    await runPassAt(project, OPERATOR_CARD_MIN_TTL_MS + 60_000);
+
+    // Card must be reaped as stale with timeout-default resolution
+    const closed = getEscalation(escalation.id);
+    expect(closed?.status).toBe('stale');
+    expect(closed?.resolvedBy).toBe('timeout-default');
+    expect(closed?.resolutionNote).toContain('timeout-default: human never answered within');
+
+    // Card must not appear in open list
+    expect(listOpenEscalations().map((e) => e.id)).not.toContain(escalation.id);
   });
 });
