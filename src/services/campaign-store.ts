@@ -24,6 +24,9 @@ export type ProbeEnvironment = 'worktree';
 /** Closed union of probe verdicts. */
 export type ProbeVerdict = 'not-run' | 'pass' | 'fail';
 
+/** Recorded verdicts (exclude 'not-run' which is a probe state, never a verdict). */
+export type RecordedVerdict = Exclude<ProbeVerdict, 'not-run'>;
+
 /** A campaign row: the container for a set of probes. */
 export interface CampaignRow {
   id: string;
@@ -52,6 +55,26 @@ export interface ProbeInput {
   dependsOn?: string[];
 }
 
+/** A recorded verdict row: provenance for a probe's test result. */
+export interface ProbeVerdictRecord {
+  id: number;
+  probeId: string;
+  verdict: RecordedVerdict;
+  environment: ProbeEnvironment;
+  commitSha: string;
+  evidence: string | null;
+  recordedAt: number;
+}
+
+/** Input shape for recording a probe verdict. */
+export interface ProbeVerdictInput {
+  probeId: string;
+  verdict: RecordedVerdict;
+  environment: ProbeEnvironment;
+  commitSha: string;
+  evidence?: string | null;
+}
+
 const CAMPAIGN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
@@ -70,6 +93,16 @@ CREATE TABLE IF NOT EXISTS campaign_probe (
   createdAt INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_campaign ON campaign_probe(campaignId);
+CREATE TABLE IF NOT EXISTS campaign_probe_verdict (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  probeId TEXT NOT NULL REFERENCES campaign_probe(id) ON DELETE CASCADE,
+  verdict TEXT NOT NULL CHECK (verdict IN ('pass','fail')),
+  environment TEXT NOT NULL CHECK (environment IN ('worktree')),
+  commitSha TEXT NOT NULL,
+  evidence TEXT,
+  recordedAt INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_verdict(probeId);
 `;
 
 /**
@@ -124,6 +157,27 @@ function assertProbeInput(input: ProbeInput): void {
   const validKinds: ProbeKind[] = ['command'];
   if (!validKinds.includes(input.kind)) {
     throw new Error(`invalid probe kind: ${input.kind}`);
+  }
+}
+
+/** Validate a verdict input: fail loud, no defaults. Environment and commitSha are required.
+ *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall. */
+function assertVerdictInput(input: ProbeVerdictInput): void {
+  if (!input.environment || !input.environment.trim()) {
+    throw new Error('probe verdict environment is required');
+  }
+  const validEnvironments: ProbeEnvironment[] = ['worktree'];
+  if (!validEnvironments.includes(input.environment)) {
+    throw new Error(`invalid probe verdict environment: ${input.environment}`);
+  }
+  if (!input.commitSha || !input.commitSha.trim()) {
+    throw new Error('probe verdict commitSha is required');
+  }
+  if (!input.verdict || !['pass', 'fail'].includes(input.verdict)) {
+    throw new Error(`invalid probe verdict: ${input.verdict}`);
+  }
+  if (!input.probeId) {
+    throw new Error('probe verdict probeId is required');
   }
 }
 
@@ -249,6 +303,75 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
     command: input.command ?? null,
     createdAt: ts,
   };
+}
+
+/**
+ * Record a probe verdict with provenance (environment and commit sha). Validates the input
+ * and throws on error before any INSERT. On success, updates campaign_probe.verdict and
+ * returns the recorded verdict row.
+ */
+export function recordProbeVerdict(project: string, input: ProbeVerdictInput): ProbeVerdictRecord {
+  assertVerdictInput(input);
+
+  const db = openCampaignDb(project);
+  const ts = nowMs();
+
+  db.exec('BEGIN');
+  try {
+    // Insert the provenance row into campaign_probe_verdict.
+    const insertStmt = db.prepare(
+      'INSERT INTO campaign_probe_verdict (probeId, verdict, environment, commitSha, evidence, recordedAt) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    insertStmt.run(
+      input.probeId,
+      input.verdict,
+      input.environment,
+      input.commitSha,
+      input.evidence ?? null,
+      ts,
+    );
+
+    // Update the campaign_probe.verdict to match the recorded verdict.
+    db.prepare('UPDATE campaign_probe SET verdict = ? WHERE id = ?').run(input.verdict, input.probeId);
+
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  // Return the recorded verdict row with lastInsertRowid.
+  const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+  return {
+    id: lastInsertRowid.id,
+    probeId: input.probeId,
+    verdict: input.verdict,
+    environment: input.environment,
+    commitSha: input.commitSha,
+    evidence: input.evidence ?? null,
+    recordedAt: ts,
+  };
+}
+
+/**
+ * List all recorded verdicts for a probe, ordered by recordedAt then id.
+ * Returns an empty array if the probe id is unknown.
+ */
+export function listProbeVerdicts(project: string, probeId: string): ProbeVerdictRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign_probe_verdict WHERE probeId = ? ORDER BY recordedAt, id')
+    .all(probeId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    probeId: row.probeId,
+    verdict: row.verdict as RecordedVerdict,
+    environment: row.environment as ProbeEnvironment,
+    commitSha: row.commitSha,
+    evidence: row.evidence,
+    recordedAt: row.recordedAt,
+  }));
 }
 
 export { deriveFront, campaignFront } from './campaign-front.ts';
