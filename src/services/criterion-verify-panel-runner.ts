@@ -4,7 +4,9 @@
  *  builds prompts, plans model assignments, spawns lens nodes in parallel,
  *  parses and joins verdicts, and records the final result. */
 
-import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts } from './criterion-verify-panel.js';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn } from './criterion-verify-panel.js';
 import { planPanelModels, assertDistinctPanel, PANEL_LENS_TIMEOUT_MS } from './criterion-verify-panel-plan.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
@@ -94,9 +96,53 @@ export async function runCriterionVerifyPanel(
     verifiedAtSha: criterion.verifiedAtSha,
   };
 
+  // 2a. Compute assertion facts: resolve candidate paths and read file text safely
+  let assertionFacts: AssertionFact[] | undefined;
+  try {
+    // Candidate paths = evidencePaths + test files named in criterion text
+    const testPathPattern = /[\w./-]*[\w-]+\.(?:test|spec)\.tsx?\b/g;
+    const namedTestPaths = new Set<string>();
+    let testMatch;
+    while ((testMatch = testPathPattern.exec(criterion.text)) !== null) {
+      namedTestPaths.add(testMatch[0]);
+    }
+
+    const candidatePaths = new Set<string>([
+      ...criterion.evidencePaths,
+      ...namedTestPaths,
+    ]);
+
+    // Read each file and build facts array
+    const files: Array<{ path: string; text: string }> = [];
+    for (const candidatePath of candidatePaths) {
+      try {
+        const fullPath = isAbsolute(candidatePath) ? candidatePath : join(project, candidatePath);
+        const text = readFileSync(fullPath, 'utf8');
+        files.push({ path: candidatePath, text });
+      } catch {
+        // File missing or unreadable; contribute nothing to facts
+      }
+    }
+
+    // For each parsed assertion name, find first file that declares it
+    const parsedNames = parseNamedAssertions(criterion.text);
+    assertionFacts = parsedNames.map((name) => {
+      for (const file of files) {
+        const caller = declaringCallerIn(file.text, name);
+        if (caller !== null) {
+          return { name, path: file.path, caller };
+        }
+      }
+      return { name, path: null, caller: null };
+    });
+  } catch {
+    // Fail-safe: if any error occurs, degrade to undefined (no facts)
+    assertionFacts = undefined;
+  }
+
   const prompts: Record<VerifyLens, string> = {} as any;
   for (const lens of lenses) {
-    prompts[lens] = buildLensVerifyPrompt(lens, ctx);
+    prompts[lens] = buildLensVerifyPrompt(lens, ctx, assertionFacts);
   }
 
   // 3. Plan models and assert distinctness BEFORE any invoke
