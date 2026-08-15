@@ -32,7 +32,11 @@ describe('repair-mission-forge module', () => {
     expect(REPAIR_BUDGET_USD).toBe(25);
   });
 
-  test('criteria deep-equal the input fixedMeans strings verbatim', () => {
+  // Content is preserved verbatim — punctuation, backticks, quotes and interior newlines all
+  // survive — but leading/trailing whitespace is trimmed. That trim is deliberate: it matches
+  // mission-forge.ts:145 (`trim().filter(Boolean)`), which drops a whitespace-only criterion
+  // outright, so repair-forge trims to produce the same criterion the forge would accept.
+  test('criteria preserve fixedMeans content, trimmed at the edges to match the forge contract', () => {
     const now = Date.now();
     const ageMs = REPAIR_AGE_MS;
 
@@ -77,7 +81,7 @@ describe('repair-mission-forge module', () => {
     expect(spec.criteria).toEqual([
       '`backticks` and "quotes"',
       'Fixed B\nwith newline',
-      '  leading space and trailing space  ',
+      'leading space and trailing space',
     ]);
   });
 
