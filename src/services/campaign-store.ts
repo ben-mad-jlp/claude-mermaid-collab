@@ -49,6 +49,7 @@ export interface CampaignProbe {
   kind: ProbeKind;
   environment: ProbeEnvironment;
   dependsOn: string[];
+  declaredPaths: string[];
   verdict: ProbeVerdict;
   command: string | null;
   createdAt: number;
@@ -60,6 +61,7 @@ export interface ProbeInput {
   environment: ProbeEnvironment;
   command?: string | null;
   dependsOn?: string[];
+  declaredPaths?: string[];
 }
 
 /** A recorded verdict row: provenance for a probe's test result. */
@@ -89,6 +91,7 @@ const PROBE_TABLE_DDL = `
   kind TEXT NOT NULL CHECK (kind IN ('command')),
   environment TEXT NOT NULL CHECK (environment IN ('worktree','rig')),
   dependsOn TEXT NOT NULL DEFAULT '[]',
+  declaredPaths TEXT NOT NULL DEFAULT '[]',
   verdict TEXT NOT NULL DEFAULT 'not-run' CHECK (verdict IN ('not-run', 'pass', 'fail')),
   command TEXT,
   createdAt INTEGER NOT NULL
@@ -190,6 +193,25 @@ function widenProbeEnvironmentChecks(db: Database): void {
   }
 }
 
+/**
+ * Idempotent migration to add declaredPaths column to campaign_probe table.
+ * Uses PRAGMA table_info to check if the column exists; adds it if missing.
+ * Safe to call multiple times and on tables that already have the column.
+ */
+function addProbeDeclaredPathsColumn(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign_probe)")
+    .all() as Array<{ name: string }>;
+
+  const hasColumn = tableInfo.some((col) => col.name === 'declaredPaths');
+  if (hasColumn) {
+    return; // Column already exists, no-op.
+  }
+
+  // Add the column with a default value.
+  db.prepare("ALTER TABLE campaign_probe ADD COLUMN declaredPaths TEXT NOT NULL DEFAULT '[]'").run();
+}
+
 function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -206,6 +228,9 @@ function openCampaignDb(project: string): Database {
 
   // Idempotent migration: widen CHECK clauses on existing tables to accept 'rig'.
   widenProbeEnvironmentChecks(db);
+
+  // Idempotent migration: add declaredPaths column to campaign_probe if missing.
+  addProbeDeclaredPathsColumn(db);
 
   prepared.add(project);
   return db;
@@ -239,6 +264,19 @@ function assertProbeInput(input: ProbeInput): void {
   const validKinds: ProbeKind[] = ['command'];
   if (!validKinds.includes(input.kind)) {
     throw new Error(`invalid probe kind: ${input.kind}`);
+  }
+  if (input.declaredPaths !== undefined) {
+    if (!Array.isArray(input.declaredPaths)) {
+      throw new Error('probe declaredPaths must be an array');
+    }
+    for (const entry of input.declaredPaths) {
+      if (typeof entry !== 'string') {
+        throw new Error('probe declaredPaths entries must be strings');
+      }
+      if (!entry.trim()) {
+        throw new Error('probe declaredPaths entries must not be empty');
+      }
+    }
   }
 }
 
@@ -289,13 +327,14 @@ export function createCampaign(
 
     for (const probe of probes) {
       db.prepare(
-        'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
         randomUUID(),
         campaignId,
         probe.kind,
         probe.environment,
         JSON.stringify(probe.dependsOn ?? []),
+        JSON.stringify(probe.declaredPaths ?? []),
         'not-run',
         probe.command ?? null,
         ts,
@@ -332,7 +371,7 @@ export function getCampaign(project: string, campaignId: string): CampaignRow | 
 
 /**
  * List all probes for a campaign, ordered by createdAt then id.
- * dependsOn is parsed from JSON to string[].
+ * dependsOn and declaredPaths are parsed from JSON to string[].
  */
 export function listProbes(project: string, campaignId: string): CampaignProbe[] {
   const db = openCampaignDb(project);
@@ -346,6 +385,7 @@ export function listProbes(project: string, campaignId: string): CampaignProbe[]
     kind: row.kind as ProbeKind,
     environment: row.environment as ProbeEnvironment,
     dependsOn: JSON.parse(row.dependsOn),
+    declaredPaths: JSON.parse(row.declaredPaths),
     verdict: row.verdict as ProbeVerdict,
     command: row.command,
     createdAt: row.createdAt,
@@ -363,13 +403,14 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
   const ts = nowMs();
 
   db.prepare(
-    'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     probeId,
     campaignId,
     input.kind,
     input.environment,
     JSON.stringify(input.dependsOn ?? []),
+    JSON.stringify(input.declaredPaths ?? []),
     'not-run',
     input.command ?? null,
     ts,
@@ -381,6 +422,7 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
     kind: input.kind,
     environment: input.environment,
     dependsOn: input.dependsOn ?? [],
+    declaredPaths: input.declaredPaths ?? [],
     verdict: 'not-run',
     command: input.command ?? null,
     createdAt: ts,
@@ -454,6 +496,16 @@ export function listProbeVerdicts(project: string, probeId: string): ProbeVerdic
     evidence: row.evidence,
     recordedAt: row.recordedAt,
   }));
+}
+
+/**
+ * Reset a probe's verdict to 'not-run', clearing its previous verdict state.
+ * This primitive is a reset state change with no provenance row: it writes nothing to
+ * campaign_probe_verdict and only updates campaign_probe.verdict.
+ */
+export function resetProbeVerdict(project: string, probeId: string): void {
+  const db = openCampaignDb(project);
+  db.prepare('UPDATE campaign_probe SET verdict = ? WHERE id = ?').run('not-run', probeId);
 }
 
 export { deriveFront, campaignFront } from './campaign-front.ts';
