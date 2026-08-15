@@ -95,6 +95,80 @@ describe('operator-gated cards — TTL floor', () => {
     const reread = getEscalation(escalation.id);
     expect(reread?.expiresAt).toBe(escalation.createdAt + shortTimeout);
   });
+
+  it('retains an operator-gated card when swept five minutes after creation', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 's3',
+      kind: 'decision',
+      audience: 'human',
+      operatorGated: true,
+      questionText: 'operator, you must decide this',
+      // Note: no timeoutMs supplied, so it floors to OPERATOR_CARD_MIN_TTL_MS
+    });
+
+    // Sweep at +5 minutes; the card should still be open
+    await runPassAt(project, 5 * 60 * 1000);
+    expect(listOpenEscalations().map(e => e.id)).toContain(escalation.id);
+    const reopened = getEscalation(escalation.id);
+    expect(reopened?.status).toBe('open');
+  });
+
+  it('reaps an operator-gated card when swept past its expiresAt', async () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 's4',
+      kind: 'decision',
+      audience: 'human',
+      operatorGated: true,
+      questionText: 'operator, you must decide this',
+      // Note: no timeoutMs supplied, so it floors to OPERATOR_CARD_MIN_TTL_MS
+    });
+
+    // Sweep at +6 hours + 1 minute; the card should be reaped with timeout-default reason
+    await runPassAt(project, OPERATOR_CARD_MIN_TTL_MS + 60_000);
+    expect(listOpenEscalations().map(e => e.id)).not.toContain(escalation.id);
+    const reaped = getEscalation(escalation.id);
+    expect(reaped?.status).toBe('stale');
+    expect(reaped?.resolvedBy).toBe('timeout-default');
+    expect(reaped?.resolutionNote).toContain('timeout-default: human never answered within');
+  });
+
+  it('stamps the six-hour floor on a human-audience card that is not operator-gated', () => {
+    const project = freshProject();
+    // This is the direct GAP-1 regression test: a human-audience card without operatorGated flag
+    const { escalation } = createEscalation({
+      project,
+      session: 's5',
+      kind: 'blocker',
+      audience: 'human',
+      // Note: operatorGated is omitted (defaults to false)
+      questionText: 'human, you should know about this',
+      // Note: no timeoutMs supplied
+    });
+
+    // The floor should apply to human-audience cards even without operatorGated=true
+    expect(escalation.expiresAt).not.toBeNull();
+    expect(escalation.expiresAt! - escalation.createdAt).toBe(OPERATOR_CARD_MIN_TTL_MS);
+
+    // Re-read to confirm the floor is persisted
+    const reread = getEscalation(escalation.id);
+    expect(reread?.expiresAt).not.toBeNull();
+    expect(reread?.expiresAt! - reread?.createdAt!).toBe(OPERATOR_CARD_MIN_TTL_MS);
+
+    // Verify that internal-audience cards still get null expiresAt (legacy behavior)
+    const internalCard = createEscalation({
+      project,
+      session: 's6',
+      kind: 'blocker',
+      audience: 'internal',
+      questionText: 'internal daemon self-talk',
+      // Note: no timeoutMs supplied
+    });
+    expect(internalCard.escalation.expiresAt).toBeNull();
+  });
 });
 
 describe('reconcile sweep — honors the OPERATOR_CARD_MIN_TTL_MS floor on operator-gated cards', () => {
