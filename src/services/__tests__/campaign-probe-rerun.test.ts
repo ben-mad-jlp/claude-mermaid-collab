@@ -121,9 +121,12 @@ describe('campaign-probe-rerun', () => {
     });
 
     const probes = listProbes(project, campaign.id);
-    const p1 = probes[0];
-    const p2 = probes[1];
-    const p3 = probes[2];
+    // Select by command, never by index: all three probes are created in the same
+    // millisecond, so `ORDER BY createdAt, id` falls through to random UUID order and
+    // an index-based pick silently tests a different probe on every run.
+    const p1 = probes.find((p) => p.command === 'test1')!;
+    const p2 = probes.find((p) => p.command === 'test2')!;
+    const p3 = probes.find((p) => p.command === 'test3')!;
 
     // Record 'pass' on all three probes initially.
     recordProbeVerdict(project, {
