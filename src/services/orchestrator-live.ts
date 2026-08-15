@@ -17,7 +17,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig, isAutoFixEnabled, isExplorerEnabled } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig, isAutoFixEnabled, isExplorerEnabled, isCampaignEnabled } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
 import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
@@ -29,6 +29,7 @@ import { runFrictionTriagePass, shouldRunFrictionTriagePass, sweepStaleAutoFiled
 import { runMissionIntakePass, shouldRunMissionIntakePass } from './mission-intake.js';
 import { runRepairForgePass, shouldRunRepairForgePass } from './repair-mission-pass.js';
 import { runRepairVerifyFilerPass, shouldRunRepairVerifyFilerPass } from './repair-verify-filer.js';
+import { runCampaignPassForProject, shouldRunCampaignPass } from './campaign-scheduling.js';
 import { listTodos, type Todo } from './todo-store.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
@@ -387,6 +388,18 @@ export interface TickDeps {
    *  BEFORE shouldRunRepairVerifyFiler, which stamps its own throttle clock. Default:
    *  isExplorerEnabled. */
   isExplorerEnabled?: (project: string) => boolean;
+  /** Campaign pass dispatcher: runs every campaign of the project through the landed pass.
+   *  Existence-gated (a project with no campaign row costs nothing). Default:
+   *  runCampaignPassForProject. */
+  campaignPass?: (project: string) => Promise<unknown>;
+  /** Throttle gate for the campaign pass: at most once per CAMPAIGN_PASS_INTERVAL_MS
+   *  per project. Note: this is NOT pure — a `true` return stamps the per-project clock
+   *  (campaign-scheduling.ts:31-35). Default: shouldRunCampaignPass. */
+  shouldRunCampaignPass?: (project: string) => boolean;
+  /** Per-project CAMPAIGN switch. False ⇒ the campaign pass is skipped entirely for this
+   *  project. Evaluated BEFORE shouldRunCampaignPass — that gate stamps the throttle clock as
+   *  a side effect, so an off switch must never reach it. Default: isCampaignEnabled. */
+  isCampaignEnabled?: (project: string) => boolean;
   /** Auto-file verify explores for converged repair missions: scans repair missions for
    *  MET criteria with named anchors and files one explore leaf per criterion (deduped).
    *  No LLM; deterministic filing only. Runs for WATCHED projects. Default:
@@ -455,6 +468,9 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const shouldRunRepairForge = deps.shouldRunRepairForge ?? shouldRunRepairForgePass;
   const autoFixEnabled = deps.isAutoFixEnabled ?? isAutoFixEnabled;
   const explorerEnabled = deps.isExplorerEnabled ?? isExplorerEnabled;
+  const campaignPass = deps.campaignPass ?? ((p: string) => runCampaignPassForProject(p));
+  const shouldRunCampaign = deps.shouldRunCampaignPass ?? shouldRunCampaignPass;
+  const campaignEnabled = deps.isCampaignEnabled ?? isCampaignEnabled;
   const repairVerifyFiler = deps.repairVerifyFiler ?? ((p: string, snap?: Todo[]) => runRepairVerifyFilerPass(p, { todosSnapshot: snap }));
   const shouldRunRepairVerifyFiler = deps.shouldRunRepairVerifyFiler ?? shouldRunRepairVerifyFilerPass;
   const recycle = deps.recycle ?? runContextRecyclePass;
@@ -681,6 +697,25 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
           // Audit is fail-open; ignore any error.
         }
         console.warn(`[orchestrator] repair-verify-filer failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Campaign pass: run every campaign of the project through the landed pass (probe
+    // execution and issue filing). Existence-gated (a project with no campaign row costs
+    // nothing). Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per CAMPAIGN_PASS_INTERVAL_MS/project).
+    // ORDERING IS LOAD-BEARING: campaignEnabled(project) MUST come before
+    // shouldRunCampaign(project). The latter is NOT pure — it stamps the per-project
+    // throttle clock as a side effect — so evaluating it first would burn the campaign's
+    // 5-minute clock on every tick even with campaigns off, silently rate-limiting for
+    // 5 minutes after the operator flips the switch back on.
+    if (watched.has(project) && campaignEnabled(project) && shouldRunCampaign(project)) {
+      try {
+        currentPhase = `${project}:campaign-pass`;
+        await withPassTimeout(campaignPass(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:campaign-pass`);
+      } catch (err) {
+        console.warn(`[orchestrator] campaign-pass failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
