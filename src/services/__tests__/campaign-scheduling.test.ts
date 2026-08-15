@@ -83,6 +83,7 @@ describe('campaign-scheduling', () => {
           groups: [],
           forged: [],
           skipped: [],
+          executed: [],
         } as CampaignPassResult;
       };
 
@@ -130,6 +131,7 @@ describe('campaign-scheduling', () => {
           groups: [],
           forged: [],
           skipped: [],
+          executed: [],
         } as CampaignPassResult;
       };
 
