@@ -38,7 +38,7 @@ export interface CommitProbeResult {
 export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
 export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled' | 'adopted';
-export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified';
+export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified' | 'unlanded';
 
 /** Provenance handle written by adoptBranchAsEpic: `adopt_branch_as_epic:<sha8>`.
  *  The bare verb (no sha) is the pre-2026-08-07 form and carries no evidence. */
@@ -70,9 +70,10 @@ export interface LandFinding {
   title: string;
   /** 'missing' = no commit on ANY ref (accepted nothing).
    *  'stranded' = a commit exists on some ref but is NOT reachable from the epic tip.
+   *  'unlanded' = a commit is reachable from the epic tip but NOT from the trunk.
    *  'orphaned-proof' = a non-terminal descendant tagged with a criterion this epic serves. */
   kind: FindingKind;
-  /** Populated for 'stranded': where the work actually sits. */
+  /** Populated for 'stranded' or 'unlanded': where the work actually sits. */
   strayShas: string[];
   reason: string;
 }
@@ -141,6 +142,7 @@ export async function buildLandReadiness(
   project: string = '',
   reachProbe?: ReachProbe,
   trunkRef?: string,
+  classifyUnlanded: boolean = true,
 ): Promise<LandReadinessReport> {
   const epicBranch = epicBranchName(epicId);
 
@@ -341,8 +343,37 @@ export async function buildLandReadiness(
     checked++;
     const p = await probe(desc.id);
 
-    if (p.onEpicTip.length > 0 || (p.onTrunk?.length ?? 0) > 0) {
-      // Landed on the epic tip or trunk. Check for duplicates (keyed on epic tip only).
+    if ((p.onTrunk?.length ?? 0) > 0) {
+      // Landed on trunk. Check for duplicates (keyed on epic tip only).
+      if (p.onEpicTip.length > 2) {
+        duplicateCommits.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          count: p.onEpicTip.length,
+          shas: p.onEpicTip,
+        });
+      }
+    } else if (p.onEpicTip.length > 0 && classifyUnlanded && trunkRef) {
+      // Reachable from epic tip but not from trunk: unlanded commit.
+      // Check for duplicates (keyed on epic tip only).
+      if (p.onEpicTip.length > 2) {
+        duplicateCommits.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          count: p.onEpicTip.length,
+          shas: p.onEpicTip,
+        });
+      }
+      findings.push({
+        todoId: desc.id,
+        title: desc.title ?? '',
+        kind: 'unlanded',
+        strayShas: p.onEpicTip,
+        reason: `unlanded: ${p.onEpicTip.join(', ')} — reachable from ${epicBranch}, absent from ${trunkRef}`,
+      });
+    } else if (p.onEpicTip.length > 0) {
+      // Reachable from epic tip but classifyUnlanded is false or trunkRef is missing.
+      // Check for duplicates (keyed on epic tip only).
       if (p.onEpicTip.length > 2) {
         duplicateCommits.push({
           todoId: desc.id,
@@ -492,7 +523,11 @@ export function _resetPresenceSweepCounter(): void {
 }
 
 /** DB-backed wrapper: load the project's work-graph and report land readiness. */
-export async function getEpicLandReadiness(project: string, epicId: string): Promise<LandReadinessReport> {
+export async function getEpicLandReadiness(
+  project: string,
+  epicId: string,
+  opts?: { classifyUnlanded?: boolean },
+): Promise<LandReadinessReport> {
   _presenceSweepCounter.count++;
   const todos = listTodos(project, { includeCompleted: true });
   const epicBranch = epicBranchName(epicId);
@@ -504,5 +539,6 @@ export async function getEpicLandReadiness(project: string, epicId: string): Pro
     project,
     makeReachProbe(project, epicBranch),
     trunkRef,
+    opts?.classifyUnlanded ?? false,
   );
 }
