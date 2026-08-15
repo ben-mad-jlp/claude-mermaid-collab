@@ -96,6 +96,7 @@ import { ScopeIncidentError } from '../agent/worktree-manager';
 import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
 import { planTierEscalation, type TierEscalationPlan } from './tier-escalation';
 import { isLightPathParityMet } from './review-depth-parity';
+import { leafExecutorCondition, leafParkReasonClass } from './leaf-executor-condition-keys';
 
 const defaultRunGit: GitRunner = async (cwd, args) => {
   const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -449,6 +450,8 @@ export interface LeafExecutorDeps {
     kind: string;
     todoId?: string | null;
     questionText: string;
+    conditionKey?: string;
+    conditionTuple?: string[];
   }) => void;
   /** SR-3: raise/find the ONE open split proposal for this leaf. Never materializes children.
    *  Default → `proposeSplit`. Unwired (`?.`) ⇒ the caller skips straight to the FLOOR. */
@@ -1563,6 +1566,7 @@ export async function runLeaf(
               `SECURITY — leaf ${leaf.id} (${leaf.title ?? 'untitled'}): ${v.message}\n\n` +
               `This is reported for a human to review. A leaf needing privilege it does not ` +
               `hold must raise a blocker escalation naming the missing step instead.`,
+            ...leafExecutorCondition(v.kind, leaf.id.slice(0, 8), 'security-violation'),
           });
         } catch { /* escalation is best-effort — never break the run */ }
       }
@@ -1928,6 +1932,7 @@ export async function runLeaf(
             `OPTIMISTIC-MERGE REVERT FAILED for "${leaf.title ?? leaf.id}" — merge ${mergeSha} on epic branch ` +
             `${epicBranch} may still be present (rejected code not confirmed removed). ${revertFailDetail ?? ''} ` +
             `Manual verification/revert required before this epic can safely land.`,
+          ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), epicId.slice(0, 8), 'optimistic-merge-revert-failed'),
         });
         reason = `optimistic-merge-revert-failed: ${reason}`;
       } else {
@@ -1971,6 +1976,7 @@ export async function runLeaf(
       questionText:
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
+      ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), leafParkReasonClass(reason)),
     });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason, ...(baseRedDetail ? { baseRed: baseRedDetail } : {}) });
   };
@@ -2006,7 +2012,9 @@ export async function runLeaf(
       `node-could-not-start: ${kind} node failed with zero tokens — ` +
       `provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
     deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
-      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${stableFacts} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
+      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${stableFacts} Check the node-profile row for this project/kind: the model does not belong to the provider.`,
+      ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), kind, 'node-could-not-start'),
+    });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
@@ -2250,7 +2258,7 @@ export async function runLeaf(
     const tail = lastLines(effectiveBase.output, 10);
     const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
     const card = effectiveBase.fresh ? await resolveFreshBaseRedCard({ epicBranch, command: cmd, output: effectiveBase.output, isBranchDiffEmpty: deps.isEpicBranchDiffEmpty, remeasureBase: deps.remeasureBaseOnce }) : null;
-    if (card) deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id, questionText: card.questionText });
+    if (card) deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id, questionText: card.questionText, ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), epicId.slice(0, 8), 'epic-base-red') });
     if (!effectiveBase.fresh || card) {
       const baseRedDetail = effectiveBase.status === 'fail' ? (() => { const failingFiles = extractGateFailingFiles(effectiveBase.output ?? ''); return { command: cmd, failingFiles, signature: gateFailureSignature(cmd, failingFiles) }; })() : undefined;
       return parkBlocked(reason, null, baseRedDetail);
@@ -3090,6 +3098,7 @@ export async function runLeaf(
             `FIX: recover/inspect the main checkout for uncommitted work (\`git -C ${deps.mainCheckoutRoot ?? '<main-checkout>'} status\`), then re-run implement; the executor's write-leak sweep relocates leaked FILE writes but cannot relocate a test run. ` +
             `(2) a sibling leaf already landed the same change on the epic base. (3) implement genuinely produced no edits. ` +
             `Needs a human/conductor call: accept as already-satisfied, or re-run implement.`,
+          ...leafExecutorCondition('empty-diff-declared-changes', leaf.id.slice(0, 8), 'empty-diff-declared-changes'),
         });
         return parkBlocked(
           workingRootEscape ? 'empty-diff-after-working-root-escape' : 'empty-diff-spec-demands-changes',
@@ -3263,6 +3272,7 @@ export async function runLeaf(
                 questionText:
                   `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
                   `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. Nothing was committed.`,
+                ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), 'scope-incident'),
               });
               return parkBlocked('scope-incident');
             }
@@ -3680,6 +3690,7 @@ export async function runLeaf(
                 `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
                 `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
                 `the wrong files. Nothing was committed.`,
+              ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), 'scope-incident'),
             });
             return parkBlocked('scope-incident', reviewVerdict);
           }
