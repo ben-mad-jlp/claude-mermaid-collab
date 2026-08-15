@@ -20,7 +20,7 @@
 //
 // Hermetic: every test runs against a fresh mkdtemp project; no real .collab/*.db and no
 // ~/.mermaid-collab access.
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe('repair-forge consumption parity', () => {
-  test('promotes exactly the items whose specs became criteria', async () => {
+  it('promotes exactly the items whose specs became criteria', async () => {
     const bucketId = await ensureBucket(project, 'bugfix');
 
     // Create three bugfix leaves with specs: citable, whitespace-only, citable.
@@ -252,7 +252,7 @@ describe('repair-forge consumption parity', () => {
     expect(titleCount).not.toBe(batch.length);
   });
 
-  test('leaves all candidate items eligible when criteria generation rejects one', async () => {
+  it('leaves every candidate item eligible when criteria generation rejects one', async () => {
     _resetRepairForgeThrottle(project);
     const bucketId = await ensureBucket(project, 'bugfix');
 
@@ -307,5 +307,50 @@ describe('repair-forge consumption parity', () => {
       expect(leaf.status).not.toBe('done');
       expect(leaf.promotedTo).toBe(null);
     }
+  });
+
+  it('leaves the mission count identical when criteria generation rejects one', async () => {
+    _resetRepairForgeThrottle(project);
+    const bucketId = await ensureBucket(project, 'bugfix');
+
+    // Seed 5 bugfix leaves, with index 1 carrying an uncitable criterion.
+    for (let i = 0; i < 5; i++) {
+      await createTodo(project, {
+        ownerSession: 'test-session',
+        kind: 'leaf',
+        title: `Bugfix ${i + 1}`,
+        parentId: bucketId,
+        bugfixSpec: {
+          observedFailure: `Observed failure ${i + 1}`,
+          evidence: `/test/path.ts:${10 + i}`,
+          fixedMeans:
+            i === 1 ? 'all tests pass and the build is green' // UNCITABLE: command result
+              : `Fixed means criterion ${i + 1}`,
+        },
+      });
+    }
+
+    const before = listMissions(project, { withFacts: false, includeArchived: true }).length;
+
+    // Run the pass; forgeMission will reject due to uncitable criteria.
+    let err: unknown;
+    try {
+      await runRepairForgePass(project, {
+        threshold: 5,
+        forge: forgeMission,
+        createEscalation: () => ({
+          escalation: {} as any,
+          isNew: true,
+        }),
+      });
+    } catch (e) {
+      err = e;
+    }
+
+    // The pass should have thrown UncitableMissionCriteriaError.
+    expect(err).toBeInstanceOf(UncitableMissionCriteriaError);
+
+    // Mission count must not change.
+    expect(listMissions(project, { withFacts: false, includeArchived: true }).length).toBe(before);
   });
 });
