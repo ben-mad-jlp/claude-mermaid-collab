@@ -24,7 +24,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectCompileCheck } from './compile-gate.ts';
-import { getEpicLandReadiness } from './epic-land-readiness.ts';
+import { getEpicLandReadiness, isAbsenceFinding } from './epic-land-readiness.ts';
 import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.ts';
 import { memoizedTsc, type TscRunner } from './tsc-memo.ts';
 
@@ -367,7 +367,7 @@ export const realRunners: ProofRunners = {
   },
   async unlandedLeaves(project: string, epicId: string) {
     try {
-      return (await getEpicLandReadiness(project, epicId)).findings;
+      return (await getEpicLandReadiness(project, epicId)).findings.filter(isAbsenceFinding);
     } catch {
       return [];
     }
@@ -413,11 +413,12 @@ export async function validateStewardProof(
     // (4) G9 — PRESENCE: every accepted CODE leaf beneath the epic has a commit reachable
     // from the epic tip. Complements the correctness gate; presence != correctness.
     const unlanded = await r.unlandedLeaves(ctx.project, proof.epicId);
-    if (unlanded.length > 0) {
+    const absenceFindings = unlanded.filter(isAbsenceFinding);
+    if (absenceFindings.length > 0) {
       return {
         ok: false,
         reason: 'epic-leaves-unlanded',
-        detail: unlanded.map((f: any) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
+        detail: absenceFindings.map((f: any) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
       };
     }
     return { ok: true, reason: 'ok' };
