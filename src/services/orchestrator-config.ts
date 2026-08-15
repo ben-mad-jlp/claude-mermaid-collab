@@ -84,6 +84,28 @@ export const EXPLORER_LEVELS: ExplorerLevel[] = ['off', 'on'];
  *  change. Legacy rows read NULL → 'on' with no migration step. */
 export const EXPLORER_DEFAULT: ExplorerLevel = 'on';
 
+/** CAMPAIGN — the fifth operator lever. It gates the campaign pass (a pass that runs
+ *  probes and files issues). The pass is gated by the existence of a campaign with
+ *  declared probes (campaign store, mission d2cbb008), so a project that has never forged
+ *  a campaign spends nothing with the switch on.
+ *
+ *  off — the daemon never runs the campaign pass for this project.
+ *  on  — the campaign pass runs exactly as configured.
+ */
+export type CampaignLevel = 'off' | 'on';
+
+export const CAMPAIGN_LEVELS: CampaignLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. The campaign pass is a new feature with an existence gate
+ *  (no campaign = no spend), so an absent or unrecognised stored value MUST read back
+ *  as 'on' — an explicit operator opt-OUT, never a silent behaviour change for projects
+ *  that have a campaign. Legacy rows read NULL → 'on' with no migration step.
+ *
+ *  NOTE: The default MUST be 'on', not 'off'. The read shape coerces (row?.campaignLevel === 'off' ? 'off' : CAMPAIGN_DEFAULT)
+ *  ensures an unset project reads back consistently. If the default were 'off', then setCampaignLevel(p,'on')
+ *  would not round-trip and the lever would be inoperable. */
+export const CAMPAIGN_DEFAULT: CampaignLevel = 'on';
+
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   on: 1,
@@ -159,6 +181,11 @@ function openDb(): Database {
   // and the repair-verify-filer pass. NULL = EXPLORER_DEFAULT ('on'), so every legacy row
   // keeps today's behaviour without a migration step. Filing/promotion is NEVER gated.
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN explorerLevel TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project CAMPAIGN switch — gates the campaign pass (probe runs
+  // and filing). NULL = CAMPAIGN_DEFAULT ('on'), so every legacy row keeps today's behaviour
+  // without a migration step. The pass is gated by campaign existence, so zero-cost for
+  // projects without a campaign.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN campaignLevel TEXT'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -434,6 +461,40 @@ export function setExplorerLevel(project: string, level: ExplorerLevel): void {
  *  a clock (shouldRunRepairVerifyFilerPass does), or an off switch would still burn it. */
 export function isExplorerEnabled(project: string): boolean {
   return getExplorerLevel(project) !== 'off';
+}
+
+// --- Per-project CAMPAIGN switch (gates the campaign pass) ---
+
+/** The persisted Campaign level for a project.
+ *
+ *  DEFAULT IS 'on': The campaign pass is new with an existence gate (no campaign = no spend),
+ *  so a project with no row — and a legacy row written before the campaignLevel column
+ *  existed (NULL) — reads back as 'on'. Only an explicit stored 'off' gates the pass. */
+export function getCampaignLevel(project: string): CampaignLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT campaignLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { campaignLevel: string | null } | undefined;
+  return row?.campaignLevel === 'off' ? 'off' : CAMPAIGN_DEFAULT;
+}
+
+/** Persist the Campaign level for a project. An unrecognised value clamps to the
+ *  CAMPAIGN_DEFAULT ('on') — never to 'off'. Transient project paths are refused. */
+export function setCampaignLevel(project: string, level: CampaignLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: CampaignLevel = level === 'off' ? 'off' : CAMPAIGN_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, campaignLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET campaignLevel = excluded.campaignLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** May the campaign pass run (probe execution and filing) for this project?
+ *  Like isAutoFixEnabled, this MUST be evaluated LEFT of any throttle helper that stamps
+ *  a clock, or an off switch would still burn the throttle clock even with campaigns off. */
+export function isCampaignEnabled(project: string): boolean {
+  return getCampaignLevel(project) !== 'off';
 }
 
 // --- Per-(project, node-kind) model + effort overrides (leaf-executor claude nodes) ---
