@@ -18,14 +18,21 @@ import { openCollabDb, closeCollabDb, _closeAllCollabDbs } from './collab-db.ts'
 /** Closed union of probe kinds (v1: only 'command'). Future widening happens here alone. */
 export type ProbeKind = 'command';
 
-/** Closed union of probe environments (v1: only 'worktree'). Future widening happens here alone. */
-export type ProbeEnvironment = 'worktree';
+/** Closed union of probe environments ('worktree', 'rig'). Future widening happens here alone. */
+export type ProbeEnvironment = 'worktree' | 'rig';
 
 /** Closed union of probe verdicts. */
 export type ProbeVerdict = 'not-run' | 'pass' | 'fail';
 
 /** Recorded verdicts (exclude 'not-run' which is a probe state, never a verdict). */
 export type RecordedVerdict = Exclude<ProbeVerdict, 'not-run'>;
+
+/**
+ * Rig run verdict — a RUN OUTCOME, not a stored probe state. A 'rig-fault' run leaves the
+ * probe's stored verdict (ProbeVerdict) untouched, so rig-fault is separate from the closed
+ * union of stored verdicts ('not-run', 'pass', 'fail') and the campaign_probe.verdict CHECK.
+ */
+export type RigRunVerdict = RecordedVerdict | 'rig-fault';
 
 /** A campaign row: the container for a set of probes. */
 export interface CampaignRow {
@@ -75,6 +82,29 @@ export interface ProbeVerdictInput {
   evidence?: string | null;
 }
 
+/** Factored DDL for campaign_probe table (used in CAMPAIGN_SCHEMA and migration). */
+const PROBE_TABLE_DDL = `
+  id TEXT PRIMARY KEY,
+  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('command')),
+  environment TEXT NOT NULL CHECK (environment IN ('worktree','rig')),
+  dependsOn TEXT NOT NULL DEFAULT '[]',
+  verdict TEXT NOT NULL DEFAULT 'not-run' CHECK (verdict IN ('not-run', 'pass', 'fail')),
+  command TEXT,
+  createdAt INTEGER NOT NULL
+`;
+
+/** Factored DDL for campaign_probe_verdict table (used in CAMPAIGN_SCHEMA and migration). */
+const PROBE_VERDICT_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  probeId TEXT NOT NULL REFERENCES campaign_probe(id) ON DELETE CASCADE,
+  verdict TEXT NOT NULL CHECK (verdict IN ('pass','fail')),
+  environment TEXT NOT NULL CHECK (environment IN ('worktree','rig')),
+  commitSha TEXT NOT NULL,
+  evidence TEXT,
+  recordedAt INTEGER NOT NULL
+`;
+
 const CAMPAIGN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
@@ -82,26 +112,9 @@ CREATE TABLE IF NOT EXISTS campaign (
   title TEXT NOT NULL,
   createdAt INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS campaign_probe (
-  id TEXT PRIMARY KEY,
-  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('command')),
-  environment TEXT NOT NULL CHECK (environment IN ('worktree')),
-  dependsOn TEXT NOT NULL DEFAULT '[]',
-  verdict TEXT NOT NULL DEFAULT 'not-run' CHECK (verdict IN ('not-run', 'pass', 'fail')),
-  command TEXT,
-  createdAt INTEGER NOT NULL
-);
+CREATE TABLE IF NOT EXISTS campaign_probe (${PROBE_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_campaign ON campaign_probe(campaignId);
-CREATE TABLE IF NOT EXISTS campaign_probe_verdict (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  probeId TEXT NOT NULL REFERENCES campaign_probe(id) ON DELETE CASCADE,
-  verdict TEXT NOT NULL CHECK (verdict IN ('pass','fail')),
-  environment TEXT NOT NULL CHECK (environment IN ('worktree')),
-  commitSha TEXT NOT NULL,
-  evidence TEXT,
-  recordedAt INTEGER NOT NULL
-);
+CREATE TABLE IF NOT EXISTS campaign_probe_verdict (${PROBE_VERDICT_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_verdict(probeId);
 `;
 
@@ -111,6 +124,71 @@ CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_ve
  * clear the prepared marker along with the handle.
  */
 const prepared = new Set<string>();
+
+/**
+ * Idempotent widening migration for campaign_probe and campaign_probe_verdict tables.
+ * On a fresh database CAMPAIGN_SCHEMA creates the widened schema. On a live database
+ * with narrow CHECK clauses, this function rebuilds the tables in-place to accept 'rig'.
+ *
+ * Foreign keys are ON for the database handle (enforceForeignKeys in collab-db), so
+ * dropping campaign_probe would cascade-delete all campaign_probe_verdict rows. The
+ * migration: (1) disables FK, (2) rebuilds child table first, then parent, (3) restores FK.
+ * Rebuilding via the standard sqlite pattern: CREATE TABLE _new, INSERT SELECT explicit columns,
+ * DROP old, RENAME _new, recreate indexes. Columns are copied explicitly to guard against
+ * future additions.
+ */
+function widenProbeEnvironmentChecks(db: Database): void {
+  // Check which tables need widening by reading their current DDL.
+  const tableInfo = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type='table' AND name IN ('campaign_probe','campaign_probe_verdict')")
+    .all() as Array<{ name: string; sql: string }>;
+
+  const needsWiden = tableInfo.filter((t) => !t.sql.includes("'rig'"));
+  if (needsWiden.length === 0) {
+    return; // Both tables already accept 'rig', no-op.
+  }
+
+  // Disable foreign key constraints for the rebuild.
+  db.prepare('PRAGMA foreign_keys = OFF').run();
+  try {
+    db.exec('BEGIN');
+    try {
+      // Rebuild campaign_probe_verdict first (child table).
+      const verdictTable = needsWiden.find((t) => t.name === 'campaign_probe_verdict');
+      if (verdictTable) {
+        db.exec(`
+          CREATE TABLE campaign_probe_verdict_new (${PROBE_VERDICT_TABLE_DDL});
+          INSERT INTO campaign_probe_verdict_new (id, probeId, verdict, environment, commitSha, evidence, recordedAt)
+          SELECT id, probeId, verdict, environment, commitSha, evidence, recordedAt FROM campaign_probe_verdict;
+          DROP TABLE campaign_probe_verdict;
+          ALTER TABLE campaign_probe_verdict_new RENAME TO campaign_probe_verdict;
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_verdict(probeId)');
+      }
+
+      // Rebuild campaign_probe (parent table).
+      const probeTable = needsWiden.find((t) => t.name === 'campaign_probe');
+      if (probeTable) {
+        db.exec(`
+          CREATE TABLE campaign_probe_new (${PROBE_TABLE_DDL});
+          INSERT INTO campaign_probe_new (id, campaignId, kind, environment, dependsOn, verdict, command, createdAt)
+          SELECT id, campaignId, kind, environment, dependsOn, verdict, command, createdAt FROM campaign_probe;
+          DROP TABLE campaign_probe;
+          ALTER TABLE campaign_probe_new RENAME TO campaign_probe;
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_campaign_probe_campaign ON campaign_probe(campaignId)');
+      }
+
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  } finally {
+    // Restore foreign key constraints.
+    db.prepare('PRAGMA foreign_keys = ON').run();
+  }
+}
 
 function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
@@ -125,6 +203,10 @@ function openCampaignDb(project: string): Database {
 
   // Idempotent DDL: runs once per prepared handle, no-ops on later calls.
   db.exec(CAMPAIGN_SCHEMA);
+
+  // Idempotent migration: widen CHECK clauses on existing tables to accept 'rig'.
+  widenProbeEnvironmentChecks(db);
+
   prepared.add(project);
   return db;
 }
@@ -150,7 +232,7 @@ function assertProbeInput(input: ProbeInput): void {
   if (!input.environment) {
     throw new Error('probe environment is required');
   }
-  const validEnvironments: ProbeEnvironment[] = ['worktree'];
+  const validEnvironments: ProbeEnvironment[] = ['worktree', 'rig'];
   if (!validEnvironments.includes(input.environment)) {
     throw new Error(`invalid probe environment: ${input.environment}`);
   }
@@ -166,7 +248,7 @@ function assertVerdictInput(input: ProbeVerdictInput): void {
   if (!input.environment || !input.environment.trim()) {
     throw new Error('probe verdict environment is required');
   }
-  const validEnvironments: ProbeEnvironment[] = ['worktree'];
+  const validEnvironments: ProbeEnvironment[] = ['worktree', 'rig'];
   if (!validEnvironments.includes(input.environment)) {
     throw new Error(`invalid probe verdict environment: ${input.environment}`);
   }
