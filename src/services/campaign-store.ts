@@ -331,6 +331,23 @@ export function getCampaign(project: string, campaignId: string): CampaignRow | 
 }
 
 /**
+ * List all campaigns for a project, ordered by createdAt then id.
+ */
+export function listCampaigns(project: string): CampaignRow[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign WHERE project = ? ORDER BY createdAt, id')
+    .all(canonicalProjectRoot(project)) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    project: row.project,
+    title: row.title,
+    createdAt: row.createdAt,
+  }));
+}
+
+/**
  * List all probes for a campaign, ordered by createdAt then id.
  * dependsOn is parsed from JSON to string[].
  */

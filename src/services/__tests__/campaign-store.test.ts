@@ -8,6 +8,7 @@ import {
   listProbes,
   addProbe,
   getCampaign,
+  listCampaigns,
   _resetCampaignDbCache,
   type ProbeInput,
 } from '../campaign-store';
@@ -122,5 +123,25 @@ describe('campaign-store', () => {
 
     // Attempt to add a probe without environment.
     expect(() => addProbe(project, campaign.id, { kind: 'command' } as any)).toThrow();
+  });
+
+  test('listCampaigns returns campaigns for the project and grows by exactly one per createCampaign', () => {
+    const before = listCampaigns(project);
+    const beforeCount = before.length;
+
+    const campaign = createCampaign(project, {
+      title: 'Counted Campaign',
+    });
+
+    const after = listCampaigns(project);
+    const afterCount = after.length;
+
+    // Assert the count grew by exactly one.
+    expect(afterCount).toBe(beforeCount + 1);
+
+    // Assert the new campaign is in the list with matching title.
+    const found = after.find((c) => c.id === campaign.id);
+    expect(found).toBeDefined();
+    expect(found?.title).toBe('Counted Campaign');
   });
 });
