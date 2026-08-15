@@ -1,5 +1,5 @@
 // Runs via `bun test` (uses bun:sqlite) — excluded from vitest (Node) in vitest.config.ts.
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe('forge-campaign-validation', () => {
-  test('leaves the campaign count identical when one probe of three omits a runner', () => {
+  it('leaves the campaign count identical when one probe of three omits a runner', () => {
     const beforeCount = listCampaigns(project).length;
 
     const threeProbes: ProbeForgeInput[] = [
@@ -77,7 +77,7 @@ describe('forge-campaign-validation', () => {
     expect(afterCount).toBe(beforeCount);
   });
 
-  test('names every offending probe in one refusal', () => {
+  it('names every offending probe in one refusal', () => {
     const twoProbes: ProbeForgeInput[] = [
       {
         ref: 'bad-command',
@@ -117,7 +117,7 @@ describe('forge-campaign-validation', () => {
     expect(caughtError!.offenders.map(o => o.ref).sort()).toEqual(['bad-command', 'bad-env']);
   });
 
-  test('refuses a dependency graph containing a cycle', () => {
+  it('refuses a dependency graph containing a cycle', () => {
     const beforeCount = listCampaigns(project).length;
 
     const cycleProbes: ProbeForgeInput[] = [
@@ -146,7 +146,7 @@ describe('forge-campaign-validation', () => {
     expect(afterCount).toBe(beforeCount);
   });
 
-  test('accepts a probe asserting a fact about an artifact outside the repository', () => {
+  it('accepts a probe asserting a fact about an artifact outside the repository', () => {
     const probes: ProbeForgeInput[] = [
       {
         ref: 'check-external',
