@@ -1086,6 +1086,46 @@ export class UncitableMissionCriterionError extends Error {
   }
 }
 
+/** Thrown by assertAllMissionCriteriaCitable when one or more criteria fail the
+ *  citability gate. Aggregates all offenders before throwing, so callers see the
+ *  full list in one round trip. The message lists EVERY offender with its index
+ *  and prescriptive reason. */
+export class UncitableMissionCriteriaError extends Error {
+  readonly code = 'uncitable-mission-criteria';
+  readonly offenders: Array<{ index: number; text: string; reason: string }>;
+
+  constructor(offenders: Array<{ index: number; text: string; reason: string }>) {
+    const offenderLines = offenders
+      .map((o) => `  [${o.index}] ${o.reason} (criterion: "${o.text}")`)
+      .join('\n');
+    super(`uncitable-mission-criteria: ${offenders.length} criterion(criteria) failed validation:\n${offenderLines}`);
+    this.name = 'UncitableMissionCriteriaError';
+    this.offenders = offenders;
+  }
+}
+
+/** Aggregate validator: checks all criteria for citability BEFORE throwing.
+ *  If any criteria are uncitable, throws UncitableMissionCriteriaError once with
+ *  every offender listed. Returns void if all criteria are citable. Does NOT
+ *  short-circuit at the first failure. */
+export function assertAllMissionCriteriaCitable(texts: string[]): void {
+  const offenders: Array<{ index: number; text: string; reason: string }> = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const text = texts[i]!;
+    const verdict = classifyCriterion(text, []);
+    if (!verdict.citable) {
+      const kind = verdict.kind ?? 'command-result';
+      const reason = verdict.reason ?? `${verdict.text} ${compliantShapeFor(kind as never, text)}`;
+      offenders.push({ index: i, text, reason });
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new UncitableMissionCriteriaError(offenders);
+  }
+}
+
 /** Thrown when a criterion drop carries no recorded reason. The audit columns
  *  (droppedReason/droppedBy/droppedAt) exist precisely so a drop is accountable; an
  *  unreasoned drop is indistinguishable from quietly deleting an inconvenient goal. */
