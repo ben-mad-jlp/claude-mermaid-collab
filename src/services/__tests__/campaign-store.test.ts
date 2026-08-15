@@ -10,6 +10,7 @@ import {
   getCampaign,
   recordProbeVerdict,
   resetProbeVerdict,
+  listCampaigns,
   _resetCampaignDbCache,
   type ProbeInput,
 } from '../campaign-store';
@@ -232,5 +233,25 @@ describe('campaign-store', () => {
     // Verify the verdict is now 'not-run' again.
     let listedAfterReset = listProbes(project, campaign.id);
     expect(listedAfterReset[0].verdict).toBe('not-run');
+  });
+
+  test('listCampaigns returns campaigns for the project and grows by exactly one per createCampaign', () => {
+    const before = listCampaigns(project);
+    const beforeCount = before.length;
+
+    const campaign = createCampaign(project, {
+      title: 'Counted Campaign',
+    });
+
+    const after = listCampaigns(project);
+    const afterCount = after.length;
+
+    // Assert the count grew by exactly one.
+    expect(afterCount).toBe(beforeCount + 1);
+
+    // Assert the new campaign is in the list with matching title.
+    const found = after.find((c) => c.id === campaign.id);
+    expect(found).toBeDefined();
+    expect(found?.title).toBe('Counted Campaign');
   });
 });

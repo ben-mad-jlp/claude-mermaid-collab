@@ -57,6 +57,7 @@ export interface CampaignProbe {
 
 /** Input shape for creating/adding a probe. */
 export interface ProbeInput {
+  id?: string;
   kind: ProbeKind;
   environment: ProbeEnvironment;
   command?: string | null;
@@ -329,7 +330,7 @@ export function createCampaign(
       db.prepare(
         'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
-        randomUUID(),
+        probe.id ?? randomUUID(),
         campaignId,
         probe.kind,
         probe.environment,
@@ -370,6 +371,23 @@ export function getCampaign(project: string, campaignId: string): CampaignRow | 
 }
 
 /**
+ * List all campaigns for a project, ordered by createdAt then id.
+ */
+export function listCampaigns(project: string): CampaignRow[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign WHERE project = ? ORDER BY createdAt, id')
+    .all(canonicalProjectRoot(project)) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    project: row.project,
+    title: row.title,
+    createdAt: row.createdAt,
+  }));
+}
+
+/**
  * List all probes for a campaign, ordered by createdAt then id.
  * dependsOn and declaredPaths are parsed from JSON to string[].
  */
@@ -399,7 +417,7 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
   assertProbeInput(input);
 
   const db = openCampaignDb(project);
-  const probeId = randomUUID();
+  const probeId = input.id ?? randomUUID();
   const ts = nowMs();
 
   db.prepare(
