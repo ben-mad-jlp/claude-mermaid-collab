@@ -174,38 +174,55 @@ export function repairBatchTrigger(
 /**
  * Build a repair mission spec from a batch of requests.
  *
- * Throws if batch is empty or null.
+ * Throws if batch is empty or null, or if no batch item produces a non-empty criterion.
  *
- * - criteria[i] is the exact fixedMeans string from batch[i].spec
- * - consumesTodoIds[i] is batch[i].request.id
+ * - criteria[i] and consumesTodoIds[i] describe the same item from the paired list
+ *   (pairs where item.spec.fixedMeans trims to a non-empty string)
+ * - criteria[i] is the trimmed fixedMeans string (byte-identical to what forgeMission will store)
+ * - consumesTodoIds[i] is the request.id from the paired item
  * - budgetUsd is always REPAIR_BUDGET_USD
- * - title and description are synthesized prose
+ * - title, description, and provenance are synthesized from the paired list
  */
 export function buildRepairMissionSpec(batch: RepairBatchItem[]): RepairMissionSpec {
   if (!batch || batch.length === 0) {
     throw new Error('buildRepairMissionSpec: batch must not be empty');
   }
 
-  const criteria = batch.map((item) => item.spec.fixedMeans);
-  const consumesTodoIds = batch.map((item) => item.request.id);
+  // Build a single paired list: keep only items whose fixedMeans trims to non-empty.
+  // This predicate matches mission-forge.ts:145 (`trim().filter(Boolean)`).
+  const paired: Array<{ item: RepairBatchItem; criterionText: string }> = [];
+  for (const item of batch) {
+    const criterionText = item.spec.fixedMeans.trim();
+    if (criterionText) {
+      paired.push({ item, criterionText });
+    }
+  }
 
-  // Synthesize title and description.
-  const title = `Auto-forge repair mission: ${batch.length} bugfix${batch.length === 1 ? '' : 'es'}`;
+  if (paired.length === 0) {
+    throw new Error('buildRepairMissionSpec: no batch item produced a criterion');
+  }
 
-  // Description includes provenance: each request's observedFailure and evidence.
-  const provenance = batch
-    .map((item, idx) => {
+  // Derive both arrays from the single paired list.
+  const criteria = paired.map((p) => p.criterionText);
+  const consumesTodoIds = paired.map((p) => p.item.request.id);
+
+  // Synthesize title and description from the paired list.
+  const title = `Auto-forge repair mission: ${criteria.length} bugfix${criteria.length === 1 ? '' : 'es'}`;
+
+  // Description includes provenance: each paired request's observedFailure and evidence.
+  const provenance = paired
+    .map((p, idx) => {
       const num = idx + 1;
       return [
-        `### Request ${num}: ${item.request.title || '(untitled)'}`,
-        `- **Observed failure**: ${item.spec.observedFailure}`,
-        `- **Evidence**: ${item.spec.evidence}`,
+        `### Request ${num}: ${p.item.request.title || '(untitled)'}`,
+        `- **Observed failure**: ${p.item.spec.observedFailure}`,
+        `- **Evidence**: ${p.item.spec.evidence}`,
       ].join('\n');
     })
     .join('\n\n');
 
   const description = [
-    `Auto-forged repair mission from ${batch.length} open bugfix request${batch.length === 1 ? '' : 's'}.`,
+    `Auto-forged repair mission from ${criteria.length} open bugfix request${criteria.length === 1 ? '' : 's'}.`,
     '',
     '## Provenance',
     '',
