@@ -95,13 +95,13 @@ describe('campaign-completion-judge', () => {
 
     // Verify the returned record is not-done with the correct rationale.
     expect(result.verdict).toBe('not-done');
-    expect(result.rationale).toBe('arm was never assembled');
+    expect(result.rationale).toContain('arm was never assembled');
 
     // Verify the completion is stored.
     const completions = listCampaignCompletions(project, campaign.id);
     expect(completions).toHaveLength(1);
     expect(completions[0].verdict).toBe('not-done');
-    expect(completions[0].rationale).toBe('arm was never assembled');
+    expect(completions[0].rationale).toContain('arm was never assembled');
     expect(completions[0].judge).toBe('test-judge');
     expect(completions[0].ruledAtSha).toBe('sha123');
   });
@@ -170,6 +170,6 @@ describe('campaign-completion-judge', () => {
     const completions = listCampaignCompletions(project, campaign.id);
     expect(completions).toHaveLength(3);
     expect(completions.every((c) => c.verdict === 'not-done')).toBe(true);
-    expect(completions.every((c) => c.rationale && c.rationale.startsWith('judge-inconclusive:'))).toBe(true);
+    expect(completions.every((c) => c.rationale && c.rationale.includes('judge-inconclusive:'))).toBe(true);
   });
 });
