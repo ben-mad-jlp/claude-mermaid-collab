@@ -41,6 +41,8 @@ import { recordSelfLand, isSelfProject } from './deploy-service';
 import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, isMissionEpic, MISSION_AUTOLAND_ARMED } from './coordinator-live';
 import { teardownEpic } from './epic-teardown';
 import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot } from './land-workgraph-guard';
+import { listCampaigns } from './campaign-store';
+import { resetProbesForLand } from './campaign-probe-rerun';
 
 /** Timeout honesty: how long an 'epic-ready-to-land' card is PROMISED to live before
  *  the reconcile stale sweep may reap it. Before expiresAt existed, the sweep killed
@@ -1540,6 +1542,41 @@ export function resolveLandTarget(
 }
 
 /**
+ * Reset campaign probes whose declaredPaths were touched by a land.
+ *
+ * For each campaign in the project, call resetProbesForLand with the landed paths.
+ * Accumulates reset and kept probe IDs across all campaigns. Wraps in try/catch to
+ * ensure a probe reset throw never fails a completed land (advisory style).
+ *
+ * Dependencies are injectable for testing; defaults to live implementations.
+ */
+export async function resetCampaignProbesForLandedPaths(
+  project: string,
+  landedPaths: string[],
+  deps?: { listCampaigns?: typeof listCampaigns; resetProbesForLand?: typeof resetProbesForLand },
+): Promise<{ reset: string[]; kept: string[] }> {
+  try {
+    const listCampaignsFn = deps?.listCampaigns ?? listCampaigns;
+    const resetProbesForLandFn = deps?.resetProbesForLand ?? resetProbesForLand;
+
+    const reset: string[] = [];
+    const kept: string[] = [];
+
+    const campaigns = listCampaignsFn(project);
+    for (const campaign of campaigns) {
+      const result = await resetProbesForLandFn(project, campaign.id, landedPaths);
+      reset.push(...result.reset);
+      kept.push(...result.kept);
+    }
+
+    return { reset, kept };
+  } catch {
+    // Advisory — a probe reset must never fail a completed land.
+    return { reset: [], kept: [] };
+  }
+}
+
+/**
  * The land click (FBPE P4). Given an open 'epic-ready-to-land' escalation, RE-DERIVE
  * land-readiness server-side at click time (never trust the summary baked into the
  * card at roll-up) and, on a green proof, perform ONE --no-ff epic→master merge behind
@@ -1639,6 +1676,9 @@ export async function landEpic(
           recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, unverified: affected.length, criteria: affected.map((a) => a.criterionId) }) });
         }
       } catch { /* best-effort — never fail a completed land on the un-verify */ }
+      try {
+        await resetCampaignProbesForLandedPaths(project, land.landedPaths ?? []);
+      } catch { /* advisory — a probe reset must never fail a completed land */ }
       const selfLand = isSelfProject(targetProject);
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
