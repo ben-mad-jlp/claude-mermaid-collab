@@ -40,7 +40,8 @@ export class InvalidCampaignError extends Error {
  * 2. Pre-assign one randomUUID() per ProbeForgeInput, keyed by ref, building a
  *    Map<string,string> ref→id.
  * 3. Call createCampaign once with each probe mapped to { id, kind, environment,
- *    command, dependsOn: (p.dependsOn ?? []).map(ref => refToId.get(ref)!) }.
+ *    command, dependsOn: (p.dependsOn ?? []).map(ref => refToId.get(ref)!),
+ *    declaredPaths }.
  *    The asserts field (if present) is stripped before handing the probe to the store.
  */
 export function forgeCampaign(
@@ -61,14 +62,15 @@ export function forgeCampaign(
   }
 
   // Step 3: Call createCampaign once with ref-resolved dependsOn.
-  // Each probe's asserts is stripped; only kind, environment, command, and
-  // resolved dependsOn are passed to the store.
+  // Each probe's asserts is stripped; only kind, environment, command,
+  // resolved dependsOn, and declaredPaths are passed to the store.
   const storeProbes: ProbeInput[] = input.probes.map((p) => ({
     id: refToId.get(p.ref)!,
     kind: p.kind,
     environment: p.environment,
     command: p.command,
     dependsOn: (p.dependsOn ?? []).map((ref) => refToId.get(ref)!),
+    declaredPaths: p.declaredPaths ?? [],
   }));
 
   return createCampaign(project, { title: input.title, probes: storeProbes });
