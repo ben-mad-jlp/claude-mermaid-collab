@@ -37,6 +37,23 @@ export type RigRunVerdict = RecordedVerdict | 'rig-fault';
 /** Closed union of campaign completion verdicts. */
 export type CompletionVerdict = 'done' | 'not-done';
 
+/** A per-lens completion verdict: the judge's reasoning broken down by inspection lens. */
+export interface CompletionLensRecord {
+  id: number;
+  completionId: number;
+  lens: string;
+  verdict: CompletionVerdict;
+  reasoning: string | null;
+  recordedAt: number;
+}
+
+/** Input shape for a per-lens verdict supplied to recordCampaignCompletion. */
+export interface CompletionLensInput {
+  lens: string;
+  verdict: CompletionVerdict;
+  reasoning?: string | null;
+}
+
 /** A recorded campaign completion verdict: provenance for a campaign's completion ruling. */
 export interface CampaignCompletionRecord {
   id: number;
@@ -46,6 +63,8 @@ export interface CampaignCompletionRecord {
   ruledAtSha: string;
   rationale: string | null;
   ruledAt: number;
+  artifactsRead: string[];
+  commandsRun: string[];
 }
 
 /** Input shape for recording a campaign completion verdict. */
@@ -55,6 +74,9 @@ export interface CampaignCompletionInput {
   verdict: CompletionVerdict;
   ruledAtSha: string;
   rationale?: string | null;
+  lenses?: CompletionLensInput[];
+  artifactsRead?: string[];
+  commandsRun?: string[];
 }
 
 /** A campaign row: the container for a set of probes. */
@@ -141,7 +163,19 @@ const COMPLETION_VERDICT_TABLE_DDL = `
   verdict TEXT NOT NULL CHECK (verdict IN ('done','not-done')),
   ruledAtSha TEXT NOT NULL,
   rationale TEXT,
+  artifactsRead TEXT NOT NULL DEFAULT '[]',
+  commandsRun TEXT NOT NULL DEFAULT '[]',
   ruledAt INTEGER NOT NULL
+`;
+
+/** Factored DDL for campaign_completion_lens table (used in CAMPAIGN_SCHEMA). */
+const COMPLETION_LENS_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  completionId INTEGER NOT NULL REFERENCES campaign_completion_verdict(id) ON DELETE CASCADE,
+  lens TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('done','not-done')),
+  reasoning TEXT,
+  recordedAt INTEGER NOT NULL
 `;
 
 const CAMPAIGN_SCHEMA = `
@@ -158,6 +192,8 @@ CREATE TABLE IF NOT EXISTS campaign_probe_verdict (${PROBE_VERDICT_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_verdict(probeId);
 CREATE TABLE IF NOT EXISTS campaign_completion_verdict (${COMPLETION_VERDICT_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_verdict_campaign ON campaign_completion_verdict(campaignId);
+CREATE TABLE IF NOT EXISTS campaign_completion_lens (${COMPLETION_LENS_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_completion ON campaign_completion_lens(completionId);
 `;
 
 /**
@@ -270,7 +306,28 @@ function addCampaignGoalColumn(db: Database): void {
   db.prepare("ALTER TABLE campaign ADD COLUMN goal TEXT").run();
 }
 
-function openCampaignDb(project: string): Database {
+/**
+ * Idempotent migration to add artifactsRead and commandsRun columns to campaign_completion_verdict table.
+ * Uses PRAGMA table_info to check if columns exist; adds them if missing.
+ * Safe to call multiple times and on tables that already have the columns.
+ */
+function addCompletionExaminedColumns(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign_completion_verdict)")
+    .all() as Array<{ name: string }>;
+
+  const hasArtifactsRead = tableInfo.some((col) => col.name === 'artifactsRead');
+  const hasCommandsRun = tableInfo.some((col) => col.name === 'commandsRun');
+
+  if (!hasArtifactsRead) {
+    db.prepare("ALTER TABLE campaign_completion_verdict ADD COLUMN artifactsRead TEXT NOT NULL DEFAULT '[]'").run();
+  }
+  if (!hasCommandsRun) {
+    db.prepare("ALTER TABLE campaign_completion_verdict ADD COLUMN commandsRun TEXT NOT NULL DEFAULT '[]'").run();
+  }
+}
+
+export function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
   if (!existsSync(project)) {
@@ -292,6 +349,9 @@ function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add goal column to campaign if missing.
   addCampaignGoalColumn(db);
+
+  // Idempotent migration: add artifactsRead and commandsRun columns to campaign_completion_verdict if missing.
+  addCompletionExaminedColumns(db);
 
   prepared.add(project);
   return db;
@@ -363,7 +423,8 @@ function assertVerdictInput(input: ProbeVerdictInput): void {
 }
 
 /** Validate a completion input: fail loud, no defaults. campaignId, judge, verdict, and ruledAtSha are required.
- *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall. */
+ *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall.
+ *  Also validates that at least one examined-evidence entry is provided (artifactsRead or commandsRun). */
 function assertCompletionInput(input: CampaignCompletionInput): void {
   if (!input.campaignId || !input.campaignId.trim()) {
     throw new Error('completion verdict campaignId is required');
@@ -376,6 +437,37 @@ function assertCompletionInput(input: CampaignCompletionInput): void {
   }
   if (!input.verdict || !['done', 'not-done'].includes(input.verdict)) {
     throw new Error(`invalid completion verdict: ${input.verdict}`);
+  }
+
+  // Validate artifactsRead if provided (type check only; whitespace entries will be filtered out)
+  const artifactsRead = input.artifactsRead ?? [];
+  if (!Array.isArray(artifactsRead)) {
+    throw new Error('completion verdict artifactsRead must be an array');
+  }
+  for (const entry of artifactsRead) {
+    if (typeof entry !== 'string') {
+      throw new Error('completion verdict artifactsRead entries must be strings');
+    }
+  }
+
+  // Validate commandsRun if provided (type check only; whitespace entries will be filtered out)
+  const commandsRun = input.commandsRun ?? [];
+  if (!Array.isArray(commandsRun)) {
+    throw new Error('completion verdict commandsRun must be an array');
+  }
+  for (const entry of commandsRun) {
+    if (typeof entry !== 'string') {
+      throw new Error('completion verdict commandsRun entries must be strings');
+    }
+  }
+
+  // Enforce the evidence floor: at least one examined-evidence entry must exist
+  const trimmedArtifacts = artifactsRead.map((a) => a.trim()).filter((a) => a);
+  const trimmedCommands = commandsRun.map((c) => c.trim()).filter((c) => c);
+  if (trimmedArtifacts.length === 0 && trimmedCommands.length === 0) {
+    throw new Error(
+      `completion verdict for campaign ${input.campaignId} records no examined evidence: artifactsRead and commandsRun are both empty`
+    );
   }
 }
 
@@ -607,9 +699,10 @@ export function resetProbeVerdict(project: string, probeId: string): void {
 }
 
 /**
- * Record a campaign completion verdict with provenance (judge, ruling sha, and rationale).
- * Validates the input and throws on error before any INSERT. Returns the recorded
- * completion record.
+ * Record a campaign completion verdict with provenance (judge, ruling sha, examined evidence, and rationale).
+ * Validates the input and throws on error before any INSERT. Returns the recorded completion record
+ * with its lenses if provided. Transactional: all lens rows are inserted within the same transaction
+ * as the parent completion row, so a refusal or lens insert failure leaves zero rows.
  */
 export function recordCampaignCompletion(project: string, input: CampaignCompletionInput): CampaignCompletionRecord {
   assertCompletionInput(input);
@@ -617,33 +710,70 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
   const db = openCampaignDb(project);
   const ts = nowMs();
 
-  db.prepare(
-    'INSERT INTO campaign_completion_verdict (campaignId, judge, verdict, ruledAtSha, rationale, ruledAt) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(
-    input.campaignId,
-    input.judge,
-    input.verdict,
-    input.ruledAtSha,
-    input.rationale ?? null,
-    ts,
-  );
+  // Trim and filter evidence arrays, keeping the original order
+  const trimmedArtifacts = (input.artifactsRead ?? []).map((a) => a.trim()).filter((a) => a);
+  const trimmedCommands = (input.commandsRun ?? []).map((c) => c.trim()).filter((c) => c);
 
-  // Return the recorded completion record with lastInsertRowid.
-  const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
-  return {
-    id: lastInsertRowid.id,
-    campaignId: input.campaignId,
-    judge: input.judge,
-    verdict: input.verdict,
-    ruledAtSha: input.ruledAtSha,
-    rationale: input.rationale ?? null,
-    ruledAt: ts,
-  };
+  db.exec('BEGIN');
+  try {
+    // Insert the parent completion record with examined evidence.
+    db.prepare(
+      'INSERT INTO campaign_completion_verdict (campaignId, judge, verdict, ruledAtSha, rationale, artifactsRead, commandsRun, ruledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      input.campaignId,
+      input.judge,
+      input.verdict,
+      input.ruledAtSha,
+      input.rationale ?? null,
+      JSON.stringify(trimmedArtifacts),
+      JSON.stringify(trimmedCommands),
+      ts,
+    );
+
+    // Get the id of the inserted completion record while still in the transaction.
+    const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+    const completionId = lastInsertRowid.id;
+
+    // Insert lens rows if provided.
+    const lenses = input.lenses ?? [];
+    if (lenses.length > 0) {
+      const lensInsertStmt = db.prepare(
+        'INSERT INTO campaign_completion_lens (completionId, lens, verdict, reasoning, recordedAt) VALUES (?, ?, ?, ?, ?)'
+      );
+      for (const lens of lenses) {
+        lensInsertStmt.run(
+          completionId,
+          lens.lens,
+          lens.verdict,
+          lens.reasoning ?? null,
+          ts,
+        );
+      }
+    }
+
+    db.exec('COMMIT');
+
+    return {
+      id: completionId,
+      campaignId: input.campaignId,
+      judge: input.judge,
+      verdict: input.verdict,
+      ruledAtSha: input.ruledAtSha,
+      rationale: input.rationale ?? null,
+      ruledAt: ts,
+      artifactsRead: trimmedArtifacts,
+      commandsRun: trimmedCommands,
+    };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 /**
  * List all recorded completion verdicts for a campaign, ordered by ruledAt then id.
  * Returns an empty array if the campaign id is unknown.
+ * Parses artifactsRead and commandsRun from JSON, defaulting to empty arrays if absent.
  */
 export function listCampaignCompletions(project: string, campaignId: string): CampaignCompletionRecord[] {
   const db = openCampaignDb(project);
@@ -659,11 +789,14 @@ export function listCampaignCompletions(project: string, campaignId: string): Ca
     ruledAtSha: row.ruledAtSha,
     rationale: row.rationale,
     ruledAt: row.ruledAt,
+    artifactsRead: JSON.parse(row.artifactsRead ?? '[]'),
+    commandsRun: JSON.parse(row.commandsRun ?? '[]'),
   }));
 }
 
 /**
  * Get the latest completion verdict for a campaign, or null if none exist.
+ * Parses artifactsRead and commandsRun from JSON, defaulting to empty arrays if absent.
  */
 export function latestCampaignCompletion(project: string, campaignId: string): CampaignCompletionRecord | null {
   const db = openCampaignDb(project);
@@ -679,7 +812,29 @@ export function latestCampaignCompletion(project: string, campaignId: string): C
     ruledAtSha: row.ruledAtSha,
     rationale: row.rationale,
     ruledAt: row.ruledAt,
+    artifactsRead: JSON.parse(row.artifactsRead ?? '[]'),
+    commandsRun: JSON.parse(row.commandsRun ?? '[]'),
   } : null;
+}
+
+/**
+ * List all per-lens verdicts for a completion record, ordered by recordedAt then id.
+ * Returns an empty array if the completion id is unknown.
+ */
+export function listCompletionLenses(project: string, completionId: number): CompletionLensRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign_completion_lens WHERE completionId = ? ORDER BY recordedAt, id')
+    .all(completionId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    completionId: row.completionId,
+    lens: row.lens,
+    verdict: row.verdict as CompletionVerdict,
+    reasoning: row.reasoning,
+    recordedAt: row.recordedAt,
+  }));
 }
 
 export { deriveFront, campaignFront } from './campaign-front.ts';

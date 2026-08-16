@@ -89,6 +89,7 @@ describe('campaign-completion-verdict', () => {
       verdict: 'done',
       ruledAtSha: 'abc123def456',
       rationale: 'All probes passed successfully',
+      artifactsRead: ['campaign:' + campaign.id],
     });
 
     expect(verdict1.id).toBeDefined();
@@ -97,6 +98,7 @@ describe('campaign-completion-verdict', () => {
     expect(verdict1.verdict).toBe('done');
     expect(verdict1.ruledAtSha).toBe('abc123def456');
     expect(verdict1.rationale).toBe('All probes passed successfully');
+    expect(verdict1.artifactsRead).toEqual(['campaign:' + campaign.id]);
 
     // List all completions for the campaign.
     const completions = listCampaignCompletions(project, campaign.id);
@@ -109,6 +111,7 @@ describe('campaign-completion-verdict', () => {
       judge: 'ci-system',
       verdict: 'not-done',
       ruledAtSha: 'def456abc123',
+      commandsRun: ['test-command'],
     });
 
     // List all completions again.
@@ -121,6 +124,7 @@ describe('campaign-completion-verdict', () => {
     expect(latest?.id).toBe(verdict2.id);
     expect(latest?.verdict).toBe('not-done');
     expect(latest?.rationale).toBeNull();
+    expect(latest?.commandsRun).toEqual(['test-command']);
   });
 
   test('throws on an invalid completion verdict before writing any row', () => {

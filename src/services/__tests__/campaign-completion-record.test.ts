@@ -72,6 +72,7 @@ describe('campaign-completion-record', () => {
         verdict: 'done',
         ruledAtSha: '0123456789abcdef0123456789abcdef01234567',
         rationale,
+        artifactsRead: ['campaign:' + c.id],
       });
 
       expect(recordedVerdict.id).toBeDefined();
@@ -81,6 +82,7 @@ describe('campaign-completion-record', () => {
       expect(recordedVerdict.ruledAtSha).toBe('0123456789abcdef0123456789abcdef01234567');
       expect(recordedVerdict.rationale).toBe(rationale);
       expect(recordedVerdict.ruledAt).toBeDefined();
+      expect(recordedVerdict.artifactsRead).toEqual(['campaign:' + c.id]);
 
       // Read back via listCampaignCompletions
       const completions = listCampaignCompletions(project, c.id);
