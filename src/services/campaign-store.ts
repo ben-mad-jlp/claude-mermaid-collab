@@ -34,11 +34,35 @@ export type RecordedVerdict = Exclude<ProbeVerdict, 'not-run'>;
  */
 export type RigRunVerdict = RecordedVerdict | 'rig-fault';
 
+/** Closed union of campaign completion verdicts. */
+export type CompletionVerdict = 'done' | 'not-done';
+
+/** A recorded campaign completion verdict: provenance for a campaign's completion ruling. */
+export interface CampaignCompletionRecord {
+  id: number;
+  campaignId: string;
+  judge: string;
+  verdict: CompletionVerdict;
+  ruledAtSha: string;
+  rationale: string | null;
+  ruledAt: number;
+}
+
+/** Input shape for recording a campaign completion verdict. */
+export interface CampaignCompletionInput {
+  campaignId: string;
+  judge: string;
+  verdict: CompletionVerdict;
+  ruledAtSha: string;
+  rationale?: string | null;
+}
+
 /** A campaign row: the container for a set of probes. */
 export interface CampaignRow {
   id: string;
   project: string;
   title: string;
+  goal: string | null;
   createdAt: number;
 }
 
@@ -109,17 +133,31 @@ const PROBE_VERDICT_TABLE_DDL = `
   recordedAt INTEGER NOT NULL
 `;
 
+/** Factored DDL for campaign_completion_verdict table (used in CAMPAIGN_SCHEMA). */
+const COMPLETION_VERDICT_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
+  judge TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('done','not-done')),
+  ruledAtSha TEXT NOT NULL,
+  rationale TEXT,
+  ruledAt INTEGER NOT NULL
+`;
+
 const CAMPAIGN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
   project TEXT NOT NULL,
   title TEXT NOT NULL,
+  goal TEXT,
   createdAt INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS campaign_probe (${PROBE_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_campaign ON campaign_probe(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_probe_verdict (${PROBE_VERDICT_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_probe_verdict_probe ON campaign_probe_verdict(probeId);
+CREATE TABLE IF NOT EXISTS campaign_completion_verdict (${COMPLETION_VERDICT_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_campaign_completion_verdict_campaign ON campaign_completion_verdict(campaignId);
 `;
 
 /**
@@ -213,6 +251,25 @@ function addProbeDeclaredPathsColumn(db: Database): void {
   db.prepare("ALTER TABLE campaign_probe ADD COLUMN declaredPaths TEXT NOT NULL DEFAULT '[]'").run();
 }
 
+/**
+ * Idempotent migration to add goal column to campaign table.
+ * Uses PRAGMA table_info to check if the column exists; adds it if missing.
+ * Safe to call multiple times and on tables that already have the column.
+ */
+function addCampaignGoalColumn(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign)")
+    .all() as Array<{ name: string }>;
+
+  const hasColumn = tableInfo.some((col) => col.name === 'goal');
+  if (hasColumn) {
+    return; // Column already exists, no-op.
+  }
+
+  // Add the column without a default (nullable).
+  db.prepare("ALTER TABLE campaign ADD COLUMN goal TEXT").run();
+}
+
 function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -232,6 +289,9 @@ function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add declaredPaths column to campaign_probe if missing.
   addProbeDeclaredPathsColumn(db);
+
+  // Idempotent migration: add goal column to campaign if missing.
+  addCampaignGoalColumn(db);
 
   prepared.add(project);
   return db;
@@ -302,13 +362,30 @@ function assertVerdictInput(input: ProbeVerdictInput): void {
   }
 }
 
+/** Validate a completion input: fail loud, no defaults. campaignId, judge, verdict, and ruledAtSha are required.
+ *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall. */
+function assertCompletionInput(input: CampaignCompletionInput): void {
+  if (!input.campaignId || !input.campaignId.trim()) {
+    throw new Error('completion verdict campaignId is required');
+  }
+  if (!input.judge || !input.judge.trim()) {
+    throw new Error('completion verdict judge is required');
+  }
+  if (!input.ruledAtSha || !input.ruledAtSha.trim()) {
+    throw new Error('completion verdict ruledAtSha is required');
+  }
+  if (!input.verdict || !['done', 'not-done'].includes(input.verdict)) {
+    throw new Error(`invalid completion verdict: ${input.verdict}`);
+  }
+}
+
 /**
  * Create a campaign and its probes in one transaction. Validates every probe BEFORE
  * the first INSERT, so a bad probe leaves zero rows.
  */
 export function createCampaign(
   project: string,
-  input: { title: string; probes?: ProbeInput[] },
+  input: { title: string; goal?: string | null; probes?: ProbeInput[] },
 ): CampaignRow {
   const probes = input.probes ?? [];
 
@@ -323,8 +400,8 @@ export function createCampaign(
 
   db.exec('BEGIN');
   try {
-    db.prepare('INSERT INTO campaign (id, project, title, createdAt) VALUES (?, ?, ?, ?)')
-      .run(campaignId, canonicalProjectRoot(project), input.title, ts);
+    db.prepare('INSERT INTO campaign (id, project, title, goal, createdAt) VALUES (?, ?, ?, ?, ?)')
+      .run(campaignId, canonicalProjectRoot(project), input.title, input.goal ?? null, ts);
 
     for (const probe of probes) {
       db.prepare(
@@ -352,6 +429,7 @@ export function createCampaign(
     id: campaignId,
     project: canonicalProjectRoot(project),
     title: input.title,
+    goal: input.goal ?? null,
     createdAt: ts,
   };
 }
@@ -366,6 +444,7 @@ export function getCampaign(project: string, campaignId: string): CampaignRow | 
     id: row.id,
     project: row.project,
     title: row.title,
+    goal: row.goal ?? null,
     createdAt: row.createdAt,
   } : null;
 }
@@ -383,6 +462,7 @@ export function listCampaigns(project: string): CampaignRow[] {
     id: row.id,
     project: row.project,
     title: row.title,
+    goal: row.goal ?? null,
     createdAt: row.createdAt,
   }));
 }
@@ -524,6 +604,82 @@ export function listProbeVerdicts(project: string, probeId: string): ProbeVerdic
 export function resetProbeVerdict(project: string, probeId: string): void {
   const db = openCampaignDb(project);
   db.prepare('UPDATE campaign_probe SET verdict = ? WHERE id = ?').run('not-run', probeId);
+}
+
+/**
+ * Record a campaign completion verdict with provenance (judge, ruling sha, and rationale).
+ * Validates the input and throws on error before any INSERT. Returns the recorded
+ * completion record.
+ */
+export function recordCampaignCompletion(project: string, input: CampaignCompletionInput): CampaignCompletionRecord {
+  assertCompletionInput(input);
+
+  const db = openCampaignDb(project);
+  const ts = nowMs();
+
+  db.prepare(
+    'INSERT INTO campaign_completion_verdict (campaignId, judge, verdict, ruledAtSha, rationale, ruledAt) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(
+    input.campaignId,
+    input.judge,
+    input.verdict,
+    input.ruledAtSha,
+    input.rationale ?? null,
+    ts,
+  );
+
+  // Return the recorded completion record with lastInsertRowid.
+  const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+  return {
+    id: lastInsertRowid.id,
+    campaignId: input.campaignId,
+    judge: input.judge,
+    verdict: input.verdict,
+    ruledAtSha: input.ruledAtSha,
+    rationale: input.rationale ?? null,
+    ruledAt: ts,
+  };
+}
+
+/**
+ * List all recorded completion verdicts for a campaign, ordered by ruledAt then id.
+ * Returns an empty array if the campaign id is unknown.
+ */
+export function listCampaignCompletions(project: string, campaignId: string): CampaignCompletionRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign_completion_verdict WHERE campaignId = ? ORDER BY ruledAt, id')
+    .all(campaignId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    campaignId: row.campaignId,
+    judge: row.judge,
+    verdict: row.verdict as CompletionVerdict,
+    ruledAtSha: row.ruledAtSha,
+    rationale: row.rationale,
+    ruledAt: row.ruledAt,
+  }));
+}
+
+/**
+ * Get the latest completion verdict for a campaign, or null if none exist.
+ */
+export function latestCampaignCompletion(project: string, campaignId: string): CampaignCompletionRecord | null {
+  const db = openCampaignDb(project);
+  const row = db
+    .prepare('SELECT * FROM campaign_completion_verdict WHERE campaignId = ? ORDER BY ruledAt DESC, id DESC LIMIT 1')
+    .get(campaignId) as any;
+
+  return row ? {
+    id: row.id,
+    campaignId: row.campaignId,
+    judge: row.judge,
+    verdict: row.verdict as CompletionVerdict,
+    ruledAtSha: row.ruledAtSha,
+    rationale: row.rationale,
+    ruledAt: row.ruledAt,
+  } : null;
 }
 
 export { deriveFront, campaignFront } from './campaign-front.ts';
