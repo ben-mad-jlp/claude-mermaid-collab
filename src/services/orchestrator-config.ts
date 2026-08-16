@@ -35,6 +35,77 @@ export type LegacyOrchestratorLevel = 'auto' | 'build' | 'nudge' | 'propose' | '
 
 export const ORCH_LEVELS: OrchestratorLevel[] = ['off', 'on'];
 
+/** AutoFix — the third operator lever, beside the daemon (orchestrator level) and the
+ *  conductor toggle. It gates exactly ONE thing: the daemon's repair-forge pass
+ *  (runRepairForgePass), the one pass that spends nodes without a human asking — it
+ *  batches typed bugfix work requests, forges a repair mission, consumes the requests
+ *  and raises an approval card.
+ *
+ *  It deliberately does NOT gate the explore-finding auto-filer or record_friction:
+ *  recording a finding is harmless, losing one is not.
+ *
+ *  off — the daemon never forges a repair mission for this project.
+ *  on  — the forge runs exactly as it does today.
+ */
+export type AutoFixLevel = 'off' | 'on';
+
+export const AUTOFIX_LEVELS: AutoFixLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. The repair forge runs today for every watched project, so an absent
+ *  or unrecognised stored value MUST read back as 'on' — this switch is an explicit
+ *  operator opt-OUT, never a silent behaviour change for projects that never touch it.
+ *  Legacy rows (written before the autoFixLevel column existed) read NULL → 'on' with
+ *  no migration step. */
+export const AUTOFIX_DEFAULT: AutoFixLevel = 'on';
+
+/** EXPLORER — the fourth operator lever. It gates explore-leaf DISPATCH: with the switch
+ *  off, explore leaves are still FILED and still PROMOTED into the rolling 'Explore runs'
+ *  epic (promote-on-file, mission 949dda42) — they simply are not CLAIMED, and flipping
+ *  the switch back on drains the queue.
+ *
+ *  It deliberately does NOT gate file_explore or promote-on-file: sending filed explores
+ *  back to a bucket would recreate the unschedulable-leaf wall that promote-on-file was
+ *  built to remove, and would lose work. Pause the spend, never the memory.
+ *
+ *  It ALSO holds the repair-verify-filer pass (which auto-files explores when a repair
+ *  mission converges) — with dispatch held, filing more explores only piles up a queue
+ *  that cannot run.
+ *
+ *  off — explore leaves queue but never claim, VISIBLY: the claim-suppression report
+ *        names `explorer-off` for each held leaf.
+ *  on  — explores dispatch exactly as today.
+ */
+export type ExplorerLevel = 'off' | 'on';
+
+export const EXPLORER_LEVELS: ExplorerLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. Explores auto-run today, so an absent or unrecognised stored value
+ *  MUST read back as 'on' — an explicit operator opt-OUT, never a silent behaviour
+ *  change. Legacy rows read NULL → 'on' with no migration step. */
+export const EXPLORER_DEFAULT: ExplorerLevel = 'on';
+
+/** CAMPAIGN — the fifth operator lever. It gates the campaign pass (a pass that runs
+ *  probes and files issues). The pass is gated by the existence of a campaign with
+ *  declared probes (campaign store, mission d2cbb008), so a project that has never forged
+ *  a campaign spends nothing with the switch on.
+ *
+ *  off — the daemon never runs the campaign pass for this project.
+ *  on  — the campaign pass runs exactly as configured.
+ */
+export type CampaignLevel = 'off' | 'on';
+
+export const CAMPAIGN_LEVELS: CampaignLevel[] = ['off', 'on'];
+
+/** DEFAULT IS 'on'. The campaign pass is a new feature with an existence gate
+ *  (no campaign = no spend), so an absent or unrecognised stored value MUST read back
+ *  as 'on' — an explicit operator opt-OUT, never a silent behaviour change for projects
+ *  that have a campaign. Legacy rows read NULL → 'on' with no migration step.
+ *
+ *  NOTE: The default MUST be 'on', not 'off'. The read shape coerces (row?.campaignLevel === 'off' ? 'off' : CAMPAIGN_DEFAULT)
+ *  ensures an unset project reads back consistently. If the default were 'off', then setCampaignLevel(p,'on')
+ *  would not round-trip and the lever would be inoperable. */
+export const CAMPAIGN_DEFAULT: CampaignLevel = 'on';
+
 const LEVEL_RANK: Record<OrchestratorLevel, number> = {
   off: 0,
   on: 1,
@@ -102,6 +173,19 @@ function openDb(): Database {
   // (fall through to the env/config knob, then 'claude'). Per-kind overrides on
   // node_profile_override take precedence over this project default.
   try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN nodeProvider TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project AUTOFIX switch — gates the daemon's repair-forge pass
+  // (the only pass that spends nodes unasked). NULL = AUTOFIX_DEFAULT ('on'), so every
+  // legacy row keeps today's behaviour without a migration step.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN autoFixLevel TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project EXPLORER switch — gates explore-leaf DISPATCH (claim)
+  // and the repair-verify-filer pass. NULL = EXPLORER_DEFAULT ('on'), so every legacy row
+  // keeps today's behaviour without a migration step. Filing/promotion is NEVER gated.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN explorerLevel TEXT'); } catch { /* already present */ }
+  // Additive migration: per-project CAMPAIGN switch — gates the campaign pass (probe runs
+  // and filing). NULL = CAMPAIGN_DEFAULT ('on'), so every legacy row keeps today's behaviour
+  // without a migration step. The pass is gated by campaign existence, so zero-cost for
+  // projects without a campaign.
+  try { db.exec('ALTER TABLE orchestrator_config ADD COLUMN campaignLevel TEXT'); } catch { /* already present */ }
   // Per-(project, node-kind) model + effort overrides for the leaf-executor's claude
   // nodes. A row's NULL model/effort = inherit that node kind's NODE_PROFILE default.
   db.exec(`CREATE TABLE IF NOT EXISTS node_profile_override (
@@ -306,6 +390,111 @@ export function setProjectEffort(project: string, effort: EffortLevel | null): v
     `INSERT INTO orchestrator_config (project, level, effortOverride, updatedAt) VALUES (?, 'on', ?, ?)
      ON CONFLICT(project) DO UPDATE SET effortOverride = excluded.effortOverride, updatedAt = excluded.updatedAt`,
   ).run(project, value, Date.now());
+}
+
+// --- Per-project AUTOFIX switch (gates the daemon's repair-forge pass) ---
+
+/** The persisted AutoFix level for a project.
+ *
+ *  DEFAULT IS 'on': the repair forge runs today, so a project with no row — and a legacy
+ *  row written before the autoFixLevel column existed (NULL) — must read back as 'on'.
+ *  Only an explicit stored 'off' turns the forge off. Anything unrecognised also reads
+ *  as the default rather than silently disabling autonomy. */
+export function getAutoFixLevel(project: string): AutoFixLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT autoFixLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { autoFixLevel: string | null } | undefined;
+  return row?.autoFixLevel === 'off' ? 'off' : AUTOFIX_DEFAULT;
+}
+
+/** Persist the AutoFix level for a project. An unrecognised value clamps to the
+ *  AUTOFIX_DEFAULT ('on') — never to 'off'. Transient project paths are refused like
+ *  every other durable setter here. */
+export function setAutoFixLevel(project: string, level: AutoFixLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: AutoFixLevel = level === 'off' ? 'off' : AUTOFIX_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, autoFixLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET autoFixLevel = excluded.autoFixLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** Convenience predicate for the daemon dispatch site: is the repair forge allowed to run
+ *  for this project? MUST be evaluated BEFORE shouldRunRepairForgePass in the && chain —
+ *  that throttle gate is NOT pure (it stamps the last-run clock as a side effect), so
+ *  checking it first would burn the throttle clock even with AutoFix off. */
+export function isAutoFixEnabled(project: string): boolean {
+  return getAutoFixLevel(project) !== 'off';
+}
+
+// --- Per-project EXPLORER switch (gates explore-leaf DISPATCH + the verify-explore filer) ---
+
+/** The persisted Explorer level for a project.
+ *
+ *  DEFAULT IS 'on': explores auto-run today, so a project with no row — and a legacy row
+ *  written before the explorerLevel column existed (NULL) — reads back as 'on'. Only an
+ *  explicit stored 'off' holds explore dispatch. */
+export function getExplorerLevel(project: string): ExplorerLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT explorerLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { explorerLevel: string | null } | undefined;
+  return row?.explorerLevel === 'off' ? 'off' : EXPLORER_DEFAULT;
+}
+
+/** Persist the Explorer level for a project. An unrecognised value clamps to the
+ *  EXPLORER_DEFAULT ('on') — never to 'off'. Transient project paths are refused. */
+export function setExplorerLevel(project: string, level: ExplorerLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: ExplorerLevel = level === 'off' ? 'off' : EXPLORER_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, explorerLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET explorerLevel = excluded.explorerLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** May explore leaves be CLAIMED (and the verify-explore filer run) for this project?
+ *  Like isAutoFixEnabled, this MUST be evaluated LEFT of any throttle helper that stamps
+ *  a clock (shouldRunRepairVerifyFilerPass does), or an off switch would still burn it. */
+export function isExplorerEnabled(project: string): boolean {
+  return getExplorerLevel(project) !== 'off';
+}
+
+// --- Per-project CAMPAIGN switch (gates the campaign pass) ---
+
+/** The persisted Campaign level for a project.
+ *
+ *  DEFAULT IS 'on': The campaign pass is new with an existence gate (no campaign = no spend),
+ *  so a project with no row — and a legacy row written before the campaignLevel column
+ *  existed (NULL) — reads back as 'on'. Only an explicit stored 'off' gates the pass. */
+export function getCampaignLevel(project: string): CampaignLevel {
+  const d = openDb();
+  const row = d
+    .query('SELECT campaignLevel FROM orchestrator_config WHERE project = ?')
+    .get(project) as { campaignLevel: string | null } | undefined;
+  return row?.campaignLevel === 'off' ? 'off' : CAMPAIGN_DEFAULT;
+}
+
+/** Persist the Campaign level for a project. An unrecognised value clamps to the
+ *  CAMPAIGN_DEFAULT ('on') — never to 'off'. Transient project paths are refused. */
+export function setCampaignLevel(project: string, level: CampaignLevel): void {
+  if (refuseTransient(project)) return;
+  const safe: CampaignLevel = level === 'off' ? 'off' : CAMPAIGN_DEFAULT;
+  const d = openDb();
+  d.prepare(
+    `INSERT INTO orchestrator_config (project, level, campaignLevel, updatedAt) VALUES (?, 'on', ?, ?)
+     ON CONFLICT(project) DO UPDATE SET campaignLevel = excluded.campaignLevel, updatedAt = excluded.updatedAt`,
+  ).run(project, safe, Date.now());
+}
+
+/** May the campaign pass run (probe execution and filing) for this project?
+ *  Like isAutoFixEnabled, this MUST be evaluated LEFT of any throttle helper that stamps
+ *  a clock, or an off switch would still burn the throttle clock even with campaigns off. */
+export function isCampaignEnabled(project: string): boolean {
+  return getCampaignLevel(project) !== 'off';
 }
 
 // --- Per-(project, node-kind) model + effort overrides (leaf-executor claude nodes) ---

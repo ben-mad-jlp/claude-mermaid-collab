@@ -4,6 +4,12 @@
 
 import { coerceArrayArg } from '../mcp/arg-coercion.js';
 
+export interface AssertionFact {
+  name: string;
+  path: string | null;
+  caller: string | null;
+}
+
 export type VerifyLens = 'evidence-exists' | 'regression-red-when-neutered' | 'holds-at-head';
 
 export const VERIFY_LENSES: readonly VerifyLens[] = [
@@ -37,6 +43,58 @@ function stripSentinelFmt(text: string): string {
   return text.replace(/[`*_"']/g, '');
 }
 
+/** Parse assertion names from criterion text under any caller spelling.
+ *  Matches it/test/describe with optional .only/.skip/.todo/.failing/.concurrent/.each modifiers,
+ *  any whitespace before the opening paren, and any quote style (' " `).
+ *  Handles .each() which may be followed by another call.
+ *  Returns de-duplicated names in source order. */
+export function parseNamedAssertions(criterionText: string): string[] {
+  // Allow optional (...) arguments between modifiers and the quoted name
+  // This handles cases like describe.each(['a'])('X') where .each() is followed by ('X')
+  const pattern = /\b(?:it|test|describe)(?:\.(?:only|skip|todo|failing|concurrent|each))*(?:\s*\([^)]*\))*\s*\(\s*(['"`])([^'"`]+)\1/g;
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  let match;
+  while ((match = pattern.exec(criterionText)) !== null) {
+    const name = match[2];
+    if (!seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+
+  return names;
+}
+
+/** Find the caller identifier (it/test/describe) that declares the given assertion name in file text.
+ *  Returns the caller string, or null if not found. The name is regex-escaped and quote-anchored
+ *  so 'X' does not match 'Xtra'. Handles modifiers like .each() that may be followed by another call. */
+export function declaringCallerIn(fileText: string, name: string): string | null {
+  // Regex-escape the name to prevent special chars from being interpreted
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match any caller with modifiers and any quote style, with the name anchored by the closing quote.
+  // Allow optional (...) arguments between modifiers and the quoted name.
+  const pattern = new RegExp(
+    `\\b(it|test|describe)(?:\\.(?:only|skip|todo|failing|concurrent|each))*(?:\\s*\\([^)]*\\))*\\s*\\(\\s*(['"\`])${escapedName}\\2`,
+    'g'
+  );
+
+  const match = pattern.exec(fileText);
+  return match ? match[1] : null;
+}
+
+/** Boolean predicate: is the given assertion name declared in the file text under any caller? */
+export function assertionDeclaredIn(fileText: string, name: string): boolean {
+  return declaringCallerIn(fileText, name) !== null;
+}
+
+/** Find which parsed assertion names are missing from all supplied files. */
+export function namedAssertionMisses(criterionText: string, files: Array<{ path: string; text: string }>): string[] {
+  const parsed = parseNamedAssertions(criterionText);
+  return parsed.filter((name) => !files.some((f) => assertionDeclaredIn(f.text, name)));
+}
+
 /** Parse an LLM verdict reply for a single lens, mirroring parseVerdict at leaf-executor.ts:1685.
  *  Fail-closed: only explicit VERDICT: PASS | FAIL lines are accepted.
  *  Empty, unparseable, or 'error' replies all return 'error' to be treated as not-met by join. */
@@ -48,11 +106,12 @@ export function parseLensVerdict(text: string | undefined): 'met' | 'not-met' | 
 }
 
 /** Build the shared evidence block, identical across all three lenses.
- *  Includes criterion text, evidence prose (if any), and file paths. */
-export function buildLensEvidenceBlock(ctx: LensVerifyCtx): string {
+ *  Includes criterion text, evidence prose (if any), and file paths.
+ *  When assertionFacts is provided, also renders a '## Named assertions' section. */
+export function buildLensEvidenceBlock(ctx: LensVerifyCtx, assertionFacts?: AssertionFact[]): string {
   const pathsList = ctx.evidencePaths.length > 0 ? ctx.evidencePaths.join('\n  - ') : 'none';
 
-  return `## Criterion
+  let block = `## Criterion
 ${ctx.criterionText}
 
 ## Evidence
@@ -60,6 +119,23 @@ ${ctx.evidence ?? '(no evidence prose — verdict is pinned to HEAD at ' + ctx.v
 
 ## Evidence paths
   - ${pathsList}`;
+
+  if (assertionFacts && assertionFacts.length > 0) {
+    const assertionLines = assertionFacts.map((fact) => {
+      if (fact.path !== null && fact.caller !== null) {
+        return `  - ${fact.name} — declared in ${fact.path} as ${fact.caller}(…)`;
+      } else {
+        return `  - ${fact.name} — MISSING`;
+      }
+    }).join('\n');
+
+    block += `
+
+## Named assertions
+${assertionLines}`;
+  }
+
+  return block;
 }
 
 /** Lens-specific instruction blocks. */
@@ -86,9 +162,10 @@ or superseded at HEAD, that is FAIL.`,
 
 /** Build the verify prompt for a single lens.
  *  Composes: lens-specific instructions + shared evidence block + verdict trailer.
- *  The evidence block is built once per call and is byte-identical across all three lenses. */
-export function buildLensVerifyPrompt(lens: VerifyLens, ctx: LensVerifyCtx): string {
-  const evidenceBlock = buildLensEvidenceBlock(ctx);
+ *  The evidence block is built once per call and is byte-identical across all three lenses.
+ *  When assertionFacts is provided, all three lenses receive the same named assertions section. */
+export function buildLensVerifyPrompt(lens: VerifyLens, ctx: LensVerifyCtx, assertionFacts?: AssertionFact[]): string {
+  const evidenceBlock = buildLensEvidenceBlock(ctx, assertionFacts);
   const instructions = LENS_INSTRUCTIONS[lens];
 
   return `${instructions}

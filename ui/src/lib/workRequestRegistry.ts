@@ -1,9 +1,11 @@
 import { isEpic, type KindBearing } from './todoKind';
 
 export type WorkRequestType = 'inbox' | 'bugfix' | 'explore' | 'feature';
-export type FrictionLayer = 'domain' | 'orchestration' | 'operational';
 
-export const FRICTION_LAYERS: readonly FrictionLayer[] = ['domain', 'orchestration', 'operational'];
+// NOTE: friction LAYER (domain|orchestration|operational) is a backend concept living in
+// friction.db (src/services/friction-store.ts) and is never joined onto a todo. A duplicate
+// UI copy of it used to drive filter tabs here; the tabs could never match anything and were
+// removed. Do not re-add a UI-side layer type without a server field that actually carries it.
 
 /** Lane label + stable render order for the work-request view (explore, bugfix, feature). */
 export const WORK_REQUEST_VIEW_LABEL: Readonly<Record<'explore'|'bugfix'|'feature', string>> = {

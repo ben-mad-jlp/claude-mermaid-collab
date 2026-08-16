@@ -61,6 +61,80 @@ export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
  *  read 'deps-pending' with no landed sha to settle against. */
 export const DEP_STRAND_DECISION_KIND = 'dep-strand-decision';
 
+/** Escalation `kind` reserved for the parentless-leaf sweep: a GRANDFATHERED
+ *  `kind:'leaf'` row with no parentId (created before the store's
+ *  parentless-leaf-refused guard) is permanently unclaimable and invisible to every
+ *  epic-scoped surface (incident b053b529 sat 5+ hours). The sweep raises exactly ONE
+ *  deduped human card per orphan — never auto-drops (the row may carry real work a
+ *  human should re-home or consciously drop). Exempt from the stale-close sweep like
+ *  the other durable kinds. */
+export const PARENTLESS_LEAF_KIND = 'parentless-leaf';
+
+/** Grace period before a parentless leaf is carded — a freshly written row mid-repair
+ *  (e.g. a re-homing edit in flight) must not flap a card. */
+export const PARENTLESS_LEAF_GRACE_MS = 3_600_000; // 1h
+
+/** Deterministic identity for a parentless-leaf card: one card per orphan row —
+ *  createEscalation's conditionKey path reuses the open card and honours a resolved
+ *  row's suppression, so a second sweep never mints a rival. */
+export function parentlessLeafConditionKey(leafId: string): string {
+  return `parentless-leaf:${leafId.slice(0, 8)}`;
+}
+
+/**
+ * Raise one deduped human card per grandfathered parentless leaf older than the grace
+ * period. Injectable now/todos/createEscalation for hermetic tests; returns the ids of
+ * the leaves for which a NEW card was raised this sweep. Fail-open per row — one bad
+ * card write never aborts the sweep.
+ */
+export function sweepParentlessLeaves(
+  project: string,
+  opts?: {
+    now?: number;
+    todos?: Todo[];
+    createEscalation?: typeof createEscalation;
+    graceMs?: number;
+  },
+): string[] {
+  const now = opts?.now ?? Date.now();
+  const graceMs = opts?.graceMs ?? PARENTLESS_LEAF_GRACE_MS;
+  const createEsc = opts?.createEscalation ?? createEscalation;
+  const todos = opts?.todos ?? listTodos(project, { includeCompleted: true });
+  const carded: string[] = [];
+  for (const t of todos) {
+    try {
+      if (t.kind !== 'leaf' || t.parentId != null) continue;
+      if (t.status === 'done' || t.status === 'dropped') continue;
+      const createdMs = typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt as unknown as string).getTime();
+      if (!Number.isFinite(createdMs) || now - createdMs < graceMs) continue;
+      const shortId = t.id.slice(0, 8);
+      const res = createEsc({
+        project,
+        session: 'coordinator',
+        kind: PARENTLESS_LEAF_KIND,
+        todoId: t.id,
+        audience: 'human',
+        operatorGated: true,
+        conditionKey: parentlessLeafConditionKey(t.id),
+        conditionTuple: [PARENTLESS_LEAF_KIND, shortId],
+        questionText:
+          `Leaf "${t.title ?? shortId}" (${shortId}) has NO parent epic or bucket — it is ` +
+          `permanently unclaimable and invisible to every epic-scoped surface. It predates the ` +
+          `store's parentless-leaf-refused guard (grandfathered). Fix: re-home it under a real ` +
+          `epic or bucket (set parentId), or drop it if the work is no longer needed. It will ` +
+          `NOT be auto-dropped.`,
+      });
+      if (res && res.isNew) carded.push(t.id);
+    } catch (err) {
+      console.warn(
+        `[reconcile-pass] parentless-leaf card failed for ${t.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return carded;
+}
+
 /** Deterministic identity for a dep-strand escalation: same strander + same dependent
  *  set → same key, so `createEscalation`'s keyed dedup bumps the existing open row
  *  (or honours a resolved row's suppression) instead of minting a rival card. Sorts
@@ -172,7 +246,10 @@ export async function runReconcilePass(project: string): Promise<void> {
       // Dep-strand decision cards (3j) are durable for the same reason: they dedup on a
       // stable questionText and describe a strand that only a human edge-fix (or the 3j
       // auto-close) clears, so aging one out just re-raises it on the next tick.
-      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND) continue;
+      // Parentless-leaf cards (3k) are durable too: they dedup on a per-orphan conditionKey
+      // and describe a row only a human re-home/drop clears, so aging one out just
+      // re-raises it on the next sweep.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND || esc.kind === PARENTLESS_LEAF_KIND) continue;
       const age = now - esc.createdAt;
 
       // TIMEOUT HONESTY: a card that PRINTS a timeout (expiresAt stamped at create)
@@ -574,6 +651,25 @@ export async function runReconcilePass(project: string): Promise<void> {
   } catch (err) {
     console.warn(
       `[reconcile-pass] dangling-dependency sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // 3k. PARENTLESS-LEAF SWEEP: a grandfathered kind:'leaf' row with no parentId is
+  // permanently unclaimable (incident b053b529 — invisible 5+ hours while every epic
+  // starved). The store now refuses to CREATE one (parentless-leaf-refused), so this
+  // sweep only ever sees pre-guard rows: raise exactly one deduped human card per
+  // orphan past the 1h grace window; never auto-drop. Reuses the shared todos read.
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    if (strandReadOk) {
+      sweepParentlessLeaves(project, { now, todos: strandTodos });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] parentless-leaf sweep failed for ${project}:`,
       err instanceof Error ? err.message : err,
     );
   }

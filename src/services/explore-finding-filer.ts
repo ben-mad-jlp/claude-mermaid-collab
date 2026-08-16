@@ -15,6 +15,7 @@ import { validateBugfixFiling, type BugfixFilingInput } from './typed-filing-req
 import { type Finding } from './finding-store.js';
 import { ensureBucket } from './bucket-registry.js';
 import { findOpenTodoBySignature, createTodo, updateTodo, type CreateTodoInput } from './todo-store.js';
+import { recordAutoAction, MAX_FINDINGS_PER_REPORT } from './auto-action-audit.js';
 
 export interface ExploreFilingContext {
   leaf: { id: string };
@@ -28,6 +29,7 @@ export interface ExploreFindingFilerDeps {
   findOpenTodoBySignature?: (project: string, signature: string) => ReturnType<typeof findOpenTodoBySignature>;
   createTodo?: (project: string, input: CreateTodoInput) => Promise<Awaited<ReturnType<typeof createTodo>>>;
   updateTodo?: (project: string, id: string, patch: Parameters<typeof updateTodo>[2]) => Promise<Awaited<ReturnType<typeof updateTodo>>>;
+  recordAutoAction?: (input: Parameters<typeof recordAutoAction>[0]) => void;
 }
 
 /**
@@ -78,6 +80,7 @@ export async function autoFileExploreFindings(
   const findOpenFn = deps.findOpenTodoBySignature ?? findOpenTodoBySignature;
   const createTodoFn = deps.createTodo ?? createTodo;
   const updateTodoFn = deps.updateTodo ?? updateTodo;
+  const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
 
   // Early exit: empty findings write nothing at all.
   if (!ctx.findings || ctx.findings.length === 0) {
@@ -87,7 +90,27 @@ export async function autoFileExploreFindings(
   const results: Array<{ filed: 'created' | 'updated' | 'skipped'; todoId?: string; refusal?: string }> = [];
   let bucketId: string | null = null;
 
-  for (const finding of ctx.findings) {
+  const totalFindings = ctx.findings.length;
+  const cappedFindings = ctx.findings.slice(0, MAX_FINDINGS_PER_REPORT);
+  const overflowCount = totalFindings - MAX_FINDINGS_PER_REPORT;
+
+  // Handle overflow.
+  if (overflowCount > 0) {
+    recordAutoActionFn({
+      project,
+      action: 'finding-filed',
+      outcome: 'capped',
+      reason: `per-report-cap: ${totalFindings} findings > MAX_FINDINGS_PER_REPORT ${MAX_FINDINGS_PER_REPORT}, filed ${MAX_FINDINGS_PER_REPORT}, dropped ${overflowCount}`,
+      detail: { leafId: ctx.leaf.id, reportPath: ctx.reportPath },
+    });
+
+    // Push skipped entries for overflow findings.
+    for (let i = MAX_FINDINGS_PER_REPORT; i < ctx.findings.length; i++) {
+      results.push({ filed: 'skipped', refusal: 'per-report-cap' });
+    }
+  }
+
+  for (const finding of cappedFindings) {
     const sig = exploreFindingSignature(finding);
 
     // Extract excerpt: first bullet line containing violatedClaim or reproPath (case-insensitive),
@@ -130,7 +153,13 @@ export async function autoFileExploreFindings(
     // Validate the filing.
     const validation = validateBugfixFiling(filingInput);
     if (validation.refusal) {
-      console.warn('[explore-finding-filer] validation failed:', validation.refusal);
+      recordAutoActionFn({
+        project,
+        action: 'finding-filed',
+        outcome: 'refused',
+        reason: validation.refusal,
+        detail: { leafId: ctx.leaf.id, reportPath: ctx.reportPath, signature: sig },
+      });
       results.push({ filed: 'skipped', refusal: validation.refusal });
       continue;
     }
@@ -164,12 +193,26 @@ export async function autoFileExploreFindings(
         priority: 2,
         frictionSignature: sig,
       });
+      recordAutoActionFn({
+        project,
+        action: 'finding-filed',
+        outcome: 'performed',
+        reason: `explore-finding ${sig} from ${ctx.reportPath}`,
+        detail: { todoId: filed.id, filed: 'created', signature: sig, sourceLeafId: ctx.leaf.id },
+      });
       results.push({ filed: 'created', todoId: filed.id });
     } else {
       // Update the existing todo.
       await updateTodoFn(project, existing.id, {
         title,
         description,
+      });
+      recordAutoActionFn({
+        project,
+        action: 'finding-filed',
+        outcome: 'performed',
+        reason: `explore-finding ${sig} from ${ctx.reportPath}`,
+        detail: { todoId: existing.id, filed: 'updated', signature: sig, sourceLeafId: ctx.leaf.id },
       });
       results.push({ filed: 'updated', todoId: existing.id });
     }

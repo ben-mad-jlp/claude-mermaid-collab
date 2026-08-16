@@ -32,6 +32,13 @@ export interface MissionStallFacts {
   baseRedCooldown: boolean;
   blockedCriterionIds: string[];
   hasOpenCardForKey: boolean;
+  /** Optional: when present, enables the new stuck arm. When absent, the legacy conjunction
+   *  remains unchanged and byte-identical. Union of escalate-action ids, discover-stuck ids,
+   *  and verify-owed ids, computed by the caller. */
+  stuckCriterionIds?: string[];
+  /** Optional: the verify-owed subset of stuckCriterionIds, carried so the raise site can
+   *  rebuild the same conditionKey the facts builder used. */
+  verifyOwedCriterionIds?: string[];
 }
 
 /**
@@ -51,7 +58,64 @@ export const IN_FLIGHT_COUNTER_KEYS: (keyof MissionStallFacts)[] = [
 ];
 
 /**
- * Evaluate the stall conjunction. All arms must hold:
+ * The five counters that still veto a raise in the stuck arm (when stuckCriterionIds
+ * is present). Excludes serveableGaps, awaitingVerify, and verifyInFlight because a
+ * verify owed on a landed epic IS awaiting-verify: counting it would veto the card
+ * we need to raise.
+ */
+export const STUCK_BLOCKING_COUNTER_KEYS: (keyof MissionStallFacts)[] = [
+  'epicsBuilding',
+  'leavesRunning',
+  'landInFlight',
+  'integrating',
+  'recycling',
+];
+
+/**
+ * Criterion facts needed to evaluate verify-owed. Narrow input type, keeps the
+ * predicate module free of a mission-store import.
+ */
+export interface VerifyOwedCriterion {
+  id: string;
+  action: string;
+  servingEpicState: 'landed' | 'open' | 'none';
+  servingEpicLandedAt?: number | null;
+  servingWorkCompletedAt?: number | null;
+}
+
+/**
+ * Pure predicate: true iff the criterion has a verify-owed action on a landed serving
+ * epic, and the landed/completed time is at least thresholdMs in the past.
+ * Both timestamps null/undefined ⇒ false (fail closed: unmeasurable age must not card).
+ */
+export function isVerifyOwedPastThreshold(
+  c: VerifyOwedCriterion,
+  now: number,
+  thresholdMs: number,
+): boolean {
+  if (c.action !== 'verify') return false;
+  if (c.servingEpicState !== 'landed') return false;
+
+  const timestamp = c.servingEpicLandedAt ?? c.servingWorkCompletedAt;
+  if (timestamp == null || !Number.isFinite(timestamp)) return false;
+
+  return now - timestamp >= thresholdMs;
+}
+
+/**
+ * Condition key for a verify-owed raise: mission id + sorted hash of criterion ids.
+ * Element order never changes the key; tuple content does. Reuses hashTuple locally.
+ */
+export function verifyOwedConditionKey(missionId: string, criterionIds: string[]): string {
+  const hash = hashTuple(criterionIds);
+  return `verify-owed:${missionId}:${hash}`;
+}
+
+/**
+ * Evaluate the stall conjunction. Two modes:
+ *
+ * LEGACY MODE (stuckCriterionIds absent):
+ *  All arms must hold (byte-identical to prior behaviour):
  *  - missionActive === true
  *  - unmetCriteria >= 1
  *  - all in-flight counters === 0
@@ -60,8 +124,17 @@ export const IN_FLIGHT_COUNTER_KEYS: (keyof MissionStallFacts)[] = [
  *  - blockedCriterionIds.length >= 1
  *  - hasOpenCardForKey === false
  *
- * When stalled, return { stalled: true, conditionKey, blockedCriterionIds }.
- * When not stalled, return { stalled: false, conditionKey: null, blockedCriterionIds }.
+ * STUCK ARM (stuckCriterionIds present):
+ *  Raise on stuckCriterionIds.length >= 1 alone, vetoed by:
+ *  - missionActive === false
+ *  - budgetPaused === true
+ *  - baseRedCooldown === true
+ *  - hasOpenCardForKey === true
+ *  - any STUCK_BLOCKING_COUNTER_KEYS counter > 0
+ *  (notably: serveableGaps, awaitingVerify, verifyInFlight are NOT veto conditions)
+ *
+ * When stalled, return { stalled: true, conditionKey, blockedCriterionIds, stuckCriterionIds }.
+ * When not stalled, return { stalled: false, conditionKey: null, blockedCriterionIds, stuckCriterionIds }.
  */
 export function evaluateMissionStall(
   facts: MissionStallFacts,
@@ -70,16 +143,45 @@ export function evaluateMissionStall(
   stalled: boolean;
   conditionKey: string | null;
   blockedCriterionIds: string[];
+  stuckCriterionIds?: string[];
 } {
-  const allInFlightZero = IN_FLIGHT_COUNTER_KEYS.every((k) => facts[k] === 0);
+  // LEGACY MODE: stuckCriterionIds absent
+  if (facts.stuckCriterionIds === undefined) {
+    const allInFlightZero = IN_FLIGHT_COUNTER_KEYS.every((k) => facts[k] === 0);
+
+    const stalled =
+      facts.missionActive &&
+      facts.unmetCriteria >= 1 &&
+      allInFlightZero &&
+      !facts.budgetPaused &&
+      !facts.baseRedCooldown &&
+      facts.blockedCriterionIds.length >= 1 &&
+      !facts.hasOpenCardForKey;
+
+    if (!stalled) {
+      return {
+        stalled: false,
+        conditionKey: null,
+        blockedCriterionIds: facts.blockedCriterionIds,
+      };
+    }
+
+    return {
+      stalled: true,
+      conditionKey: missionStallConditionKey(missionId, facts.blockedCriterionIds),
+      blockedCriterionIds: facts.blockedCriterionIds,
+    };
+  }
+
+  // STUCK ARM: stuckCriterionIds present
+  const stuckBlockingZero = STUCK_BLOCKING_COUNTER_KEYS.every((k) => facts[k] === 0);
 
   const stalled =
     facts.missionActive &&
-    facts.unmetCriteria >= 1 &&
-    allInFlightZero &&
+    facts.stuckCriterionIds.length >= 1 &&
+    stuckBlockingZero &&
     !facts.budgetPaused &&
     !facts.baseRedCooldown &&
-    facts.blockedCriterionIds.length >= 1 &&
     !facts.hasOpenCardForKey;
 
   if (!stalled) {
@@ -87,13 +189,15 @@ export function evaluateMissionStall(
       stalled: false,
       conditionKey: null,
       blockedCriterionIds: facts.blockedCriterionIds,
+      stuckCriterionIds: facts.stuckCriterionIds,
     };
   }
 
   return {
     stalled: true,
-    conditionKey: missionStallConditionKey(missionId, facts.blockedCriterionIds),
+    conditionKey: missionStallConditionKey(missionId, facts.stuckCriterionIds),
     blockedCriterionIds: facts.blockedCriterionIds,
+    stuckCriterionIds: facts.stuckCriterionIds,
   };
 }
 

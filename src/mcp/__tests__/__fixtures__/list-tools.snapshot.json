@@ -5068,7 +5068,7 @@
     },
     {
       "name": "epic_land_readiness",
-      "description": "Read-only land-presence check for one epic (kind='epic'). For the epic's FULL descendant set, every descendant that is accepted/done and is a CODE leaf must have a commit whose `Collab-Todo: <id>` trailer is reachable from collab/epic/<id8>. Containers (>=1 non-dropped child), [GATE] decision nodes, the land leaf (kind='land') and nested epics are exempt and reported as exemptions. A code leaf with a commit on a stray ref is 'stranded'; one with no commit anywhere is 'missing' (accepted nothing) — both BLOCK the land. Also counts DUPLICATE trailer commits per leaf (informational only; duplicate dispatch is safe recovery, never auto-fixed). Proves work LANDED, says nothing about whether it is CORRECT. Pure git reads; reports, never fixes. Returns { epicId, epicBranch, checked, findings[], exemptions[], duplicateCommits[], blocking }.",
+      "description": "Read-only land-presence check for one epic (kind='epic'). For the epic's FULL descendant set, every descendant that is accepted/done and is a CODE leaf must have a commit whose `Collab-Todo: <id>` trailer is reachable from collab/epic/<id8>. Containers (>=1 non-dropped child), [GATE] decision nodes, the land leaf (kind='land') and nested epics are exempt and reported as exemptions. A code leaf with a commit on a stray ref is 'stranded'; one with no commit anywhere is 'missing' (accepted nothing); a leaf whose trailer commit sits on the epic branch but absent from trunk is 'unlanded' — all three BLOCK the land. Also counts DUPLICATE trailer commits per leaf (informational only; duplicate dispatch is safe recovery, never auto-fixed). Proves work LANDED, says nothing about whether it is CORRECT. Pure git reads; reports, never fixes. Returns { epicId, epicBranch, checked, findings[], exemptions[], duplicateCommits[], blocking }.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6126,7 +6126,7 @@
     },
     {
       "name": "mutation_probe",
-      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result.",
+      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result. Verdict may be graded, vacuous, incident, or unknown when the arm results conflict.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6209,6 +6209,121 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "forge_campaign",
+      "description": "Forge a new campaign with validated probes. Each probe is a deterministic check (kind=\"command\") that can depend on other probes. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (where the campaign is created)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Campaign title."
+          },
+          "probes": {
+            "type": "array",
+            "description": "Array of probes to validate and create. Each probe is an object with: ref (string), kind (\"command\"), environment (\"worktree\"|\"rig\"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "description": "Reference identifier for this probe (used in dependsOn; resolved to a uuid on creation)."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "command"
+                  ],
+                  "description": "Probe kind (only \"command\" in v1)."
+                },
+                "environment": {
+                  "type": "string",
+                  "enum": [
+                    "worktree",
+                    "rig"
+                  ],
+                  "description": "Probe environment (\"worktree\" for normal execution, \"rig\" for rig-managed environments)."
+                },
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to execute."
+                },
+                "dependsOn": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional list of probe refs this probe depends on (must pass before this runs)."
+                },
+                "declaredPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Files this probe operates on (for scoping and tracking)."
+                },
+                "asserts": {
+                  "type": "object",
+                  "description": "Optional validation hints (e.g., { exitCode: 0 }) — used during forge validation but not stored."
+                }
+              },
+              "required": [
+                "ref",
+                "kind",
+                "environment",
+                "command"
+              ]
+            }
+          }
+        },
+        "required": [
+          "project",
+          "title",
+          "probes"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List all campaigns in a project with their probe counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Read a single campaign with all its probes, probe verdicts, and the front (probes ready to run).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign id."
+          }
+        },
+        "required": [
+          "project",
+          "campaignId"
         ]
       }
     },

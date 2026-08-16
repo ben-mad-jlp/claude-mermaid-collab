@@ -142,7 +142,9 @@ const V1_CREATE: Migration = {
         lastConductorSelfKey TEXT,
         closedAt INTEGER,
         lastConductorTimeoutKey TEXT,
-        forgeState TEXT
+        forgeState TEXT,
+        closedBy TEXT,
+        closureEvidence TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_mission_hot ON mission(active) WHERE archivedAt IS NULL;
 

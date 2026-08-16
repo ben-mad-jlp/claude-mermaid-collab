@@ -157,6 +157,8 @@ export async function handleMissionTool(name: string, args: any): Promise<string
           gaps: m.rollup.gaps,
           awaitingVerify: m.rollup.awaitingVerify,
           converged: m.rollup.converged,
+          convergedWithDrops: m.rollup.convergedWithDrops,
+          terminalReason: m.rollup.terminalReason,
           handoffDocId: m.mission.handoffDocId,
         }))
         // Active-first, then most open gaps first, then title — the driven mission on top.
@@ -312,7 +314,16 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const panelVerdictsArr = normalizePanelVerdicts(panelVerdicts);
       if (!project || !criterionId) throw new Error('Missing required: project, criterionId');
       if (remove) {
-        const dropReason = reason ?? 'dropped via set_mission_criterion(remove:true)';
+        // No fabricated placeholder: a drop is an abandoned GOAL and must carry a real reason.
+        // (dropCriterion refuses an empty one anyway; refusing here names the arg to fix.)
+        if (!reason || !reason.trim()) {
+          throw new Error(
+            'set_mission_criterion(remove:true) requires `reason`: name WHY this acceptance ' +
+            'criterion is being abandoned. It is stamped into droppedReason and the mission ' +
+            'then reports terminalReason "converged-with-drops" rather than a clean convergence.',
+          );
+        }
+        const dropReason = reason.trim();
         const missionId = missionIdOfCriterion(project, criterionId);
         const crit = missionId ? listCriteria(project, missionId).find((c) => c.id === criterionId) : undefined;
         await dropCriterion(project, criterionId, { reason: dropReason, by: 'mcp:set_mission_criterion' });

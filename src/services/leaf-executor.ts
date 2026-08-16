@@ -27,6 +27,7 @@ import type { Todo } from './todo-store';
 import type { Finding } from './finding-store';
 import { splitLeafInto, getTodo } from './todo-store';
 import { findBySourceLeafId } from './finding-store';
+import { autoFileExploreFindings } from './explore-finding-filer';
 import type { LeafSplitItem, LeafSplitDecision } from './split-decision';
 import { type OrchestrationNodeKind, ORCHESTRATION_NODE_KINDS } from './node-kinds';
 import { parseSplitDecision, topoSortSplitItems, sliceCoversFiles } from './split-decision';
@@ -64,11 +65,12 @@ import { allocateLeafScratch, reapLeafScratch, leafScratchFor } from './leaf-scr
 import { recordFriction } from './friction-store';
 import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
-import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
+import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, consultStoredBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
+import { probeDepTrees, requiredDepRoots } from './dep-tree-guard.js';
 export { parseVerdict, parseVerifyGate, parseSizeManifest, joinReviewReports, VERIFY_GATE_MCP_SERVER, verbMcpTool, VERIFY_GATE_MCP_TOOL, resolveVerifyGate };
 export type {
   LeafReviewVerdict, ReviewPassResult, VerifyGateVerdict, LeafSizeManifest, ReviewLens, VerifyGateConfig,
@@ -84,6 +86,7 @@ import { runExplorePipeline } from './leaf-explore';
 import { parseDiffContract, validateContractForKind, contractCoversCitability, type DiffContract } from './diff-contract';
 import { groundReviewViaContract, contractBallotRequirements } from './diff-contract-review';
 import { validateCriteriaCitability, uncitedCriteriaAreAllCommandResults } from './criteria-citability';
+import { planCriteriaDispositions, applyCriteriaRepair, rewriteRequests, vacuousParkReason } from './blueprint-criteria-splice';
 import { proseGateDisposition, synthProseFindings } from './prose-gate-retry';
 import { recordGateEval, type RecordGateEvalInput } from './replay-corpus-store';
 import { BLUEPRINT_OUTPUT_TOKEN_CAP } from './harness-caps';
@@ -93,6 +96,7 @@ import { ScopeIncidentError } from '../agent/worktree-manager';
 import { sameReviewWall, isHardWall, type WallReasonClass, type LeafWallHistory, getLeafWallHistory } from './leaf-wall-history';
 import { planTierEscalation, type TierEscalationPlan } from './tier-escalation';
 import { isLightPathParityMet } from './review-depth-parity';
+import { leafExecutorCondition, leafParkReasonClass } from './leaf-executor-condition-keys';
 
 const defaultRunGit: GitRunner = async (cwd, args) => {
   const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -446,6 +450,8 @@ export interface LeafExecutorDeps {
     kind: string;
     todoId?: string | null;
     questionText: string;
+    conditionKey?: string;
+    conditionTuple?: string[];
   }) => void;
   /** SR-3: raise/find the ONE open split proposal for this leaf. Never materializes children.
    *  Default → `proposeSplit`. Unwired (`?.`) ⇒ the caller skips straight to the FLOOR. */
@@ -637,6 +643,14 @@ export interface LeafExecutorDeps {
    *  makeLeafExecutorDeps; tests inject a stub. Consumed via `?? findBySourceLeafId`
    *  at the leaf-explore.ts call site, never `?.` — an unwired dep must not fail open. */
   findingsForLeaf?: (project: string, leafId: string) => Promise<Finding[]>;
+  /** Explore terminal filing seam: auto-file exploration findings as bugfix todos
+   *  (explore-finding-filer.autoFileExploreFindings). Default wired to the real filer in
+   *  makeLeafExecutorDeps; tests inject a stub. Consumed via `?.` in leaf-explore.ts
+   *  after a successful report write — fail-open only (rejecting filer does not park). */
+  fileExploreFindings?: (
+    project: string,
+    ctx: { leaf: Todo; reportPath: string; report: string; findings: Finding[] },
+  ) => Promise<unknown>;
   /** L3 verify command-gate seam (epic f5c7fc46 e9ce8693): run a {@link VerifyGateConfig.command}
    *  shell gate (e.g. `pytest -q`) in the worktree. `ran:false` ⇒ the command could not execute
    *  (spawn error / missing tool) → INFRA failure → park blocked; `ran:true, ok:false` ⇒ the gate
@@ -675,6 +689,12 @@ export interface LeafExecutorDeps {
    *  first call. `fresh` is true only on the call that actually executed the commands (so the
    *  escalation is raised once, not once per leaf). Unwired ⇒ undefined ⇒ skipped. */
   ensureBaseGreen?: () => Promise<(LeafGateResult & { fresh: boolean }) | null>;
+  /** ADVISORY BASE GATE (2026-08-14): synchronous STORED-verdict consult for dispatch —
+   *  never a live run. When wired, dispatch prefers this over awaiting `ensureBaseGreen`;
+   *  a MISS (null) releases the leaf immediately and `ensureBaseGreen` is kicked off
+   *  fire-and-forget through the coalescer so the verdict exists for the next asker.
+   *  Unwired ⇒ legacy behaviour (await `ensureBaseGreen`). */
+  consultBaseVerdict?: () => (LeafGateResult & { fresh: boolean }) | null;
   /** G2 base-red re-probe: how many commits the epic branch is behind trunk. Used to decide
    *  whether a forward-integrate + re-probe is worth attempting before parking. Unwired ⇒
    *  undefined ⇒ treated as 0 (never behind) ⇒ no re-probe attempted. */
@@ -876,6 +896,7 @@ import type { LeafNodeKind, LeafNodeGroup, BallotPromptRequirement } from './lea
 import {
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
   VERIFY_GATE_VERB, buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
+  buildCriterionRewritePrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
   NODE_KIND_DESCRIPTIONS, MATRIX_HIDDEN_NODE_KINDS, LEAF_NODE_GROUPS, leafSessionKey,
@@ -883,6 +904,7 @@ import {
 
 export {
   buildNodePrompt, buildBlueprintRefreshPrompt, buildCriteriaRepairPrompt,
+  buildCriterionRewritePrompt,
   buildBlueprintRepairPrompt, buildBlueprintSummarizePrompt, buildVerifyPrompt,
   buildReviewPrompt, workingRootLines, REVIEW_LENS_INSTRUCTIONS,
   blueprintPath, verifyPlanPath, verifyResultPath, verifyReportPath, reviewReportPath, exploreReportPath,
@@ -1544,6 +1566,7 @@ export async function runLeaf(
               `SECURITY — leaf ${leaf.id} (${leaf.title ?? 'untitled'}): ${v.message}\n\n` +
               `This is reported for a human to review. A leaf needing privilege it does not ` +
               `hold must raise a blocker escalation naming the missing step instead.`,
+            ...leafExecutorCondition(v.kind, leaf.id.slice(0, 8), 'security-violation'),
           });
         } catch { /* escalation is best-effort — never break the run */ }
       }
@@ -1909,6 +1932,7 @@ export async function runLeaf(
             `OPTIMISTIC-MERGE REVERT FAILED for "${leaf.title ?? leaf.id}" — merge ${mergeSha} on epic branch ` +
             `${epicBranch} may still be present (rejected code not confirmed removed). ${revertFailDetail ?? ''} ` +
             `Manual verification/revert required before this epic can safely land.`,
+          ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), epicId.slice(0, 8), 'optimistic-merge-revert-failed'),
         });
         reason = `optimistic-merge-revert-failed: ${reason}`;
       } else {
@@ -1952,6 +1976,7 @@ export async function runLeaf(
       questionText:
         `Leaf-executor parked "${leaf.title ?? leaf.id}" — ${reason} ` +
         `(attempts=${state.attempt}, nodesSpent=${state.nodesSpent}).`,
+      ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), leafParkReasonClass(reason)),
     });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason, ...(baseRedDetail ? { baseRed: baseRedDetail } : {}) });
   };
@@ -1987,7 +2012,9 @@ export async function runLeaf(
       `node-could-not-start: ${kind} node failed with zero tokens — ` +
       `provider='${sf.provider}' model='${sf.model}'. ${sf.detail}`;
     deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id,
-      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${stableFacts} Check the node-profile row for this project/kind: the model does not belong to the provider.` });
+      questionText: `Leaf-executor could not START the ${kind} node for "${leaf.title ?? leaf.id}" — ${stableFacts} Check the node-profile row for this project/kind: the model does not belong to the provider.`,
+      ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), kind, 'node-could-not-start'),
+    });
     return finishWith({ outcome: 'blocked', attempts: state.attempt, nodesSpent: state.nodesSpent, reason });
   };
 
@@ -2175,7 +2202,26 @@ export async function runLeaf(
   // ZERO leaves of any shape and spends ZERO nodes (nodesSpent stays 0 in the terminal
   // record). Cached once per epic (deps.ensureBaseGreen) — this call is cheap on every
   // leaf after the first.
-  const base = await deps.ensureBaseGreen?.();
+  //
+  // ADVISORY (2026-08-14): when `consultBaseVerdict` is wired, dispatch reads the STORED
+  // verdict only — it never awaits a live 10–20min gate run (2026-08-14: three leaves
+  // starved all morning behind serial gates, and empirically almost every base-red is a
+  // flake; the LAND gate is the real correctness wall). A stored pass or NO verdict
+  // releases the leaf immediately; a miss ALSO kicks the measurement off in the
+  // background through the coalescer (single-flight, capped) so the next asker has a
+  // verdict to consult. Only a recent real red (fail, within the FAIL freshness cap,
+  // naming failing tests — enforced inside consultStoredBaseGreen) holds.
+  let base: (LeafGateResult & { fresh: boolean }) | null | undefined;
+  if (deps.consultBaseVerdict) {
+    base = deps.consultBaseVerdict();
+    if (!base && deps.ensureBaseGreen) {
+      void deps.ensureBaseGreen().catch((e) => {
+        console.log(`[leaf-executor] background base-gate measure failed (advisory — leaf already released): ${e instanceof Error ? e.message : String(e)}`);
+      });
+    }
+  } else {
+    base = await deps.ensureBaseGreen?.();
+  }
   // BASE-REPAIR EXEMPTION (bug 65345589): an epic whose PURPOSE is greening a red base
   // lane is otherwise deadlocked by this very hold — its leaves ARE the fix for the lane
   // that holds them (observed: sixth-drain epic 6560e5e1 'Green the ^ui/ vitest lane',
@@ -2202,13 +2248,17 @@ export async function runLeaf(
       if (reprobe) effectiveBase = reprobe;
     }
   }
+  if (effectiveBase?.infraDegraded) {
+    console.log(`[leaf-executor] leaf ${leaf.id.slice(0, 8)}: infra-degraded base — released, re-measure will retry`);
+    effectiveBase = undefined;
+  }
   if (effectiveBase && effectiveBase.status !== 'pass' && !baseRepairEpic) {
     const head = effectiveBase.status === 'error' ? 'epic-base-gate-could-not-run' : 'epic-base-red';
     const cmd = effectiveBase.command ?? 'gate';
     const tail = lastLines(effectiveBase.output, 10);
     const reason = tail ? `${head}: ${cmd}\n--- output (tail) ---\n${tail}` : `${head}: ${cmd}`;
     const card = effectiveBase.fresh ? await resolveFreshBaseRedCard({ epicBranch, command: cmd, output: effectiveBase.output, isBranchDiffEmpty: deps.isEpicBranchDiffEmpty, remeasureBase: deps.remeasureBaseOnce }) : null;
-    if (card) deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id, questionText: card.questionText });
+    if (card) deps.escalate({ project, session: sessionKey, kind: 'blocker', todoId: leaf.id, questionText: card.questionText, ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), epicId.slice(0, 8), 'epic-base-red') });
     if (!effectiveBase.fresh || card) {
       const baseRedDetail = effectiveBase.status === 'fail' ? (() => { const failingFiles = extractGateFailingFiles(effectiveBase.output ?? ''); return { command: cmd, failingFiles, signature: gateFailureSignature(cmd, failingFiles) }; })() : undefined;
       return parkBlocked(reason, null, baseRedDetail);
@@ -2614,19 +2664,21 @@ export async function runLeaf(
     const citationExistsAtBase = (p: string, l: number) =>
       resolvedBaseCitations.get(`${p}:${l}`) ?? false;
 
+    // SEAM: one citability gate-eval row (replay corpus). Reads the LIVE blueprintBody, so it
+    // always records the text the verdict it carries was computed from. Telemetry — never throws.
+    const evalCitability = async (verdict: string, reasons: string) => {
+      try {
+        await deps.recordGateEval?.(project, {
+          gate: 'citability', leafId: leaf.id, inputText: blueprintBody,
+          changeSet: declaredForCriteria, verdict, reasons,
+        });
+      } catch { /* replay corpus is telemetry — never break the run */ }
+    };
+
     await prewarmBaseCitations(blueprintBody);
     let citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
     if (!smallTier) {
-      try {
-        await deps.recordGateEval?.(project, {
-          gate: 'citability',
-          leafId: leaf.id,
-          inputText: blueprintBody,
-          changeSet: declaredForCriteria,
-          verdict: citability.status,
-          reasons: citability.reasons.join('; '),
-        });
-      } catch { /* replay corpus is telemetry — never break the run */ }
+      await evalCitability(citability.status, citability.reasons.join('; '));
       // Phase 2 (typed-contract gating): when the flag is ON AND the leaf has a valid,
       // non-underspecified typed contract that COVERS citability (≥1 mechanically-citable
       // requirement: symbol-present / named-test / threshold), an 'uncitable' PROSE verdict is
@@ -2639,68 +2691,60 @@ export async function runLeaf(
         leafContract !== null &&
         contractCoversCitability(leafContract);
       if (citability.status === 'uncitable' && typedCitabilityAdvisory) {
-        try {
-          await deps.recordGateEval?.(project, {
-            gate: 'citability',
-            leafId: leaf.id,
-            inputText: blueprintBody,
-            changeSet: declaredForCriteria,
-            verdict: 'advisory-typed-contract',
-            reasons: `typed-contract covers citability (leafKind=${leafContract!.leafKind}); prose-uncitable treated as advisory: ${citability.reasons.join('; ')}`,
-          });
-        } catch { /* replay corpus is telemetry — never break the run */ }
+        await evalCitability(
+          'advisory-typed-contract',
+          `typed-contract covers citability (leafKind=${leafContract!.leafKind}); prose-uncitable treated as advisory: ${citability.reasons.join('; ')}`,
+        );
       }
       if (citability.status === 'uncitable' && !typedCitabilityAdvisory) {
-        // REPAIR ONCE: re-prompt the blueprint node with the offending criterion QUOTED and the
-        // rule restated. Never silently drop or rewrite a criterion — it is the leaf's contract.
-        const repairSpec = {
-          ...buildSpec('blueprint', cwd),
-          prompt: buildCriteriaRepairPrompt(leaf, blueprintBody, citability),
-        };
-        const repair = await runNode('blueprint', repairSpec);
-        if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
-        if (repair.rateLimited) return pausedResult('blueprint', repair);
-        if (!checkBudget()) return parkBlocked('node-budget-exhausted');
-        if (repair.ok) {
-          const reText = await deps.readBlueprint?.(cwd, leaf).catch(() => undefined);
-          const reBody = (reText && reText.trim() ? reText : repair.text) ?? '';
-          const reManifest = parseSizeManifest(reText, repair.text);
-          // Rebind manifest/blueprintBody to the revised blueprint for downstream use
-          if (reText && reText.trim()) manifestText = reText;
-          if (reManifest) manifest = reManifest;
-          blueprintBody = reBody;
-          // Re-persist the repaired blueprint (best-effort, same try/catch)
-          if (reText && reManifest) {
-            try {
-              await deps.persistBlueprint?.({
-                project,
-                leaf,
-                attempt: state.attempt,
-                manifest: reManifest,
-                blueprintMd: reText,
-              });
-            } catch {
-              /* persistence is durable-telemetry — never break the run */
-            }
-          }
-          // Re-validate the repaired criteria
-          const redeclaredForCriteria = reManifest
-            ? [...new Set([...reManifest.filesToCreate, ...reManifest.filesToEdit, ...reManifest.tasks.flatMap(t => t.files)])]
-            : [];
-          const redeclaredTestOnly = redeclaredForCriteria.length > 0 && redeclaredForCriteria.every(isTestFilePath);
-          await prewarmBaseCitations(reBody);
-          citability = validateCriteriaCitability(reBody, redeclaredForCriteria, { testOnly: redeclaredTestOnly, citationExistsAtBase });
-          try {
-            await deps.recordGateEval?.(project, {
-              gate: 'citability',
-              leafId: leaf.id,
-              inputText: reBody,
-              changeSet: redeclaredForCriteria,
-              verdict: citability.status,
-              reasons: citability.reasons.join('; '),
-            });
-          } catch { /* replay corpus is telemetry — never break the run */ }
+        // REPAIR ONCE, ROUTED ON THE OFFENCE KIND (blueprint-criteria-splice.ts carries the full
+        // rationale). command-result offenders are spliced OUT for ZERO nodes (the mechanical gate
+        // already runs them); absence / out-of-diff offenders get ONE node asked for ONLY the
+        // replacement sentence. Both are LINE SPLICES: every other criterion and the trailing json
+        // fence stay byte-identical, so `manifest`/`declaredForCriteria` are still valid below.
+        // FLOOR GUARD: zero surviving criteria proves nothing and passes everything ⇒ splice
+        // NOTHING and park it as a spec defect for a human.
+        const plan = planCriteriaDispositions(blueprintBody, citability.offenders);
+        if (plan.vacuous) {
+          const vacuousReason = vacuousParkReason(plan, citability.reasons);
+          await evalCitability('vacuous-after-disposition', vacuousReason);
+          try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
+          try { clearLeafBlueprint(leaf.id); } catch { /* cache clear is best-effort */ }
+          return parkBlocked(vacuousReason);
         }
+
+        // TARGETED REWRITE — ONE node covering every absence/out-of-diff offender. The node writes
+        // nothing: its reply IS the answer (one numbered line per offender).
+        let rewriteReply = '';
+        if (plan.rewrites.length > 0) {
+          const repair = await runNode('blueprint', {
+            ...buildSpec('blueprint', cwd),
+            prompt: buildCriterionRewritePrompt(leaf, rewriteRequests(plan)),
+          });
+          if (repair.startFailure) return parkNodeStartFailure('blueprint', repair);
+          if (repair.rateLimited) return pausedResult('blueprint', repair);
+          if (!checkBudget()) return parkBlocked('node-budget-exhausted');
+          if (repair.ok) rewriteReply = repair.text ?? repair.stdout ?? '';
+        }
+
+        const spliced = applyCriteriaRepair(blueprintBody, plan, rewriteReply);
+        if (spliced.changed) {
+          blueprintBody = spliced.md;
+          manifestText = spliced.md;
+          // Write the spliced blueprint back so implement/review read the repaired criteria.
+          try { await deps.writeArtifact?.(cwd, blueprintPath(leaf), spliced.md); } catch { /* best-effort */ }
+          if (manifest) {
+            try {
+              await deps.persistBlueprint?.({ project, leaf, attempt: state.attempt, manifest, blueprintMd: spliced.md });
+            } catch { /* persistence is durable-telemetry — never break the run */ }
+          }
+        }
+
+        // Re-validate ONCE against the SAME declared change-set (the manifest fence is untouched).
+        await prewarmBaseCitations(blueprintBody);
+        citability = validateCriteriaCitability(blueprintBody, declaredForCriteria, { testOnly: criteriaTestOnly, citationExistsAtBase });
+        await evalCitability(citability.status, `disposition-routed repair: ${spliced.deleted} deleted, ${spliced.rewritten} rewritten, ${plan.rewrites.length > 0 ? 1 : 0} node; ${citability.reasons.join('; ')}`);
+
         const bpShadow = deps.gateShadowMode?.(project) ?? false;
         if (citability.status === 'uncitable' && !bpShadow) {
           try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
@@ -3054,6 +3098,7 @@ export async function runLeaf(
             `FIX: recover/inspect the main checkout for uncommitted work (\`git -C ${deps.mainCheckoutRoot ?? '<main-checkout>'} status\`), then re-run implement; the executor's write-leak sweep relocates leaked FILE writes but cannot relocate a test run. ` +
             `(2) a sibling leaf already landed the same change on the epic base. (3) implement genuinely produced no edits. ` +
             `Needs a human/conductor call: accept as already-satisfied, or re-run implement.`,
+          ...leafExecutorCondition('empty-diff-declared-changes', leaf.id.slice(0, 8), 'empty-diff-declared-changes'),
         });
         return parkBlocked(
           workingRootEscape ? 'empty-diff-after-working-root-escape' : 'empty-diff-spec-demands-changes',
@@ -3227,6 +3272,7 @@ export async function runLeaf(
                 questionText:
                   `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
                   `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. Nothing was committed.`,
+                ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), 'scope-incident'),
               });
               return parkBlocked('scope-incident');
             }
@@ -3644,6 +3690,7 @@ export async function runLeaf(
                 `Leaf "${leaf.title ?? leaf.id}" produced NO change inside its declared scope (${declaredFiles.join(', ') || 'none'}). ` +
                 `Dirty-but-out-of-scope: ${e.outOfScope.slice(0, 20).join(', ')}. The blueprint's scope is wrong, or a node edited ` +
                 `the wrong files. Nothing was committed.`,
+              ...leafExecutorCondition('blocker', leaf.id.slice(0, 8), 'scope-incident'),
             });
             return parkBlocked('scope-incident', reviewVerdict);
           }
@@ -3971,6 +4018,7 @@ export async function makeLeafExecutorDeps(
       await fs.writeFile(full, content, 'utf8');
     },
     findingsForLeaf: findBySourceLeafId,
+    fileExploreFindings: autoFileExploreFindings,
     // L3 command-gate (epic f5c7fc46): run the config's shell gate in the worktree. A spawn
     // failure (missing tool) ⇒ ran:false (infra → block); a non-zero exit ⇒ ran:true/ok:false
     // (a finding). Output is captured (stdout+stderr) for the report.
@@ -4150,6 +4198,13 @@ export async function makeLeafExecutorDeps(
     // cached `fail` is re-verified (bounded by shouldHonourCachedBaseGate's attempt/TTL
     // policy) rather than pinning the epic red forever on one contention/flake red.
     // `fresh:true` only on a call that actually executed the commands.
+    // ADVISORY dispatch consult: stored verdict only (epic row + shared base_gate_verdict),
+    // zero live runs. A gate CONFIG error still surfaces (and parks) exactly as before.
+    consultBaseVerdict: () => {
+      const early = gateResultForDeclaration(gateDecl);
+      if (early) return { ...early, fresh: true };
+      return consultStoredBaseGreen({ epicId, targetProject, epicBaseSha, gateCfg });
+    },
     ensureBaseGreen: async () => {
       const early = gateResultForDeclaration(gateDecl);
       if (early) return { ...early, fresh: true }; // escalate once; never cache a config error as a base fact
@@ -4167,7 +4222,8 @@ export async function makeLeafExecutorDeps(
         runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
           epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined,
           { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
-          impacted),
+          impacted,
+          { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }),
       });
     },
     // G2 base-red re-probe: how many commits the epic branch is behind trunk.
@@ -4197,7 +4253,8 @@ export async function makeLeafExecutorDeps(
           runGate: (p, impacted) => runBaseGate(p, gateCfg, defaultGateSpawn,
             newSha ? { project: targetProject, baseSha: newSha } : undefined,
             { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
-            impacted),
+            impacted,
+            { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }),
         });
       } catch { return null; }
     },
@@ -4205,7 +4262,7 @@ export async function makeLeafExecutorDeps(
     // Through the coalescer (single-flight + concurrency cap) but WITHOUT a verdict scope:
     // an explicit re-measure answered from the stored verdict would be a lie — the caller
     // asked for a fresh run precisely because the cached picture is suspect.
-    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }), { project: targetProject, epicId }); } catch { return null; } },
+    remeasureBaseOnce: async () => { try { await wm.ensureEpic(epicId, targetProject); return await runBaseGateShared(baseGateKey(targetProject, epicBaseSha, gateCfg), () => runBaseGate(targetProject, gateCfg, defaultGateSpawn, epicBaseSha ? { project: targetProject, baseSha: epicBaseSha } : undefined, { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) }, undefined, { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }), { project: targetProject, epicId }); } catch { return null; } },
     // Live git-backed default for the floor-path base-freshness pre-check: is `epicBranch`'s
     // CURRENT tip still an ancestor of the lane worktree's HEAD? Delegates to the
     // WorktreeManager so the git plumbing lives in one place.

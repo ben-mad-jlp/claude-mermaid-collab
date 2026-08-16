@@ -23,7 +23,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
-import { isBucketEpicUI, workRequestTypeOfTodo, FRICTION_LAYERS, WORK_REQUEST_VIEW_LABEL, WORK_REQUEST_VIEW_ORDER, normalizeWorkRequestType, type FrictionLayer } from '@/lib/workRequestRegistry';
+import { isBucketEpicUI, workRequestTypeOfTodo, WORK_REQUEST_VIEW_LABEL, WORK_REQUEST_VIEW_ORDER, normalizeWorkRequestType } from '@/lib/workRequestRegistry';
 import { criterionTagFor } from '@/lib/criterionTag';
 
 export interface PlanKanbanProps {
@@ -288,7 +288,6 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       .map((v) => ({ type: v, label: WORK_REQUEST_VIEW_LABEL[v], items: byType.get(v)!.slice().sort(byWaveOrder) }));
   }, [todos, waveMap]);
 
-  const [frictionFilter, setFrictionFilter] = useState<FrictionLayer | 'all'>('all');
 
   const visibleLanes = useMemo(
     () =>
@@ -444,35 +443,6 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
             <header className="flex items-center gap-2 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
               <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Work requests</span>
             </header>
-            <div className="px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 flex gap-1 flex-wrap">
-              <button
-                type="button"
-                data-testid="friction-filter-all"
-                onClick={() => setFrictionFilter('all')}
-                className={`text-3xs px-2 py-0.5 rounded transition-colors ${
-                  frictionFilter === 'all'
-                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 font-semibold'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                all
-              </button>
-              {FRICTION_LAYERS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  data-testid={`friction-filter-${tag}`}
-                  onClick={() => setFrictionFilter(tag)}
-                  className={`text-3xs px-2 py-0.5 rounded transition-colors capitalize ${
-                    frictionFilter === tag
-                      ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 font-semibold'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
             <div className="space-y-2 p-1.5">
               {workRequestViews.map((lane) => (
                 <div key={lane.type} data-testid={`work-request-view-${lane.type}`} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
@@ -481,15 +451,9 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   </header>
                   <div className="flex flex-wrap gap-1.5 p-1.5">
                     {lane.items
-                      .filter((t) => frictionFilter === 'all' || t.frictionLayer === frictionFilter)
                       .map((t) => (
                         <div key={t.id} className="space-y-1 w-56">
                           <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />
-                          {t.frictionLayer != null && (
-                            <span data-testid="friction-layer-tag" data-friction-layer={t.frictionLayer} className="inline-block text-3xs px-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
-                              {t.frictionLayer}
-                            </span>
-                          )}
                           <button
                             type="button"
                             data-testid="promote-to-epic"

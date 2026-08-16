@@ -1,6 +1,6 @@
 // Runs via `bun test` (uses bun:sqlite) — excluded from vitest (Node).
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordFriction, listFriction, countFriction, _closeProject, getWatchState, setWatchState } from '../friction-store';
@@ -43,6 +43,80 @@ describe('friction-store', () => {
     // @ts-expect-error — invalid layer at the type level too
     await expect(recordFriction(project, { todoId: 't', layer: 'bogus', retryReason: 'x' })).rejects.toThrow('layer must be one of');
     await expect(recordFriction(project, { todoId: 't', layer: 'domain', retryReason: '' })).rejects.toThrow('retryReason is required');
+  });
+
+  it('classifies quarantine-deflaked as a success-signal', async () => {
+    const note = await recordFriction(project, {
+      layer: 'orchestration',
+      retryReason: 'quarantine-deflaked',
+    });
+    expect(note.defectClass).toBe('success-signal');
+    // Verify read-back via listFriction too
+    const listed = listFriction(project);
+    expect(listed.length).toBe(1);
+    expect(listed[0].defectClass).toBe('success-signal');
+  });
+
+  it('classifies an ordinary retry reason as a defect', async () => {
+    const note = await recordFriction(project, {
+      layer: 'orchestration',
+      retryReason: 'gate-format',
+    });
+    expect(note.defectClass).toBe('defect');
+    // Verify read-back via listFriction
+    const listed = listFriction(project);
+    expect(listed.length).toBe(1);
+    expect(listed[0].defectClass).toBe('defect');
+  });
+
+  it('backfills defectClass on a pre-migration row without throwing', async () => {
+    // Build a pre-migration database with a friction_notes table without defectClass
+    const dbPath = join(project, '.collab', 'friction.db');
+    mkdirSync(join(project, '.collab'), { recursive: true });
+
+    // Create the old schema (without defectClass)
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE IF NOT EXISTS friction_notes (
+        id TEXT PRIMARY KEY,
+        todoId TEXT,
+        session TEXT,
+        attempt INTEGER NOT NULL DEFAULT 1,
+        layer TEXT NOT NULL,
+        retryReason TEXT NOT NULL,
+        detail TEXT,
+        signature TEXT,
+        createdAt TEXT NOT NULL,
+        retractedAt TEXT,
+        retractedReason TEXT,
+        supersededBy TEXT
+      )
+    `);
+    legacyDb.exec(`
+      CREATE TABLE IF NOT EXISTS friction_watch_state (
+        signalKey TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+
+    // Insert a row with a success-signal reason
+    const id = crypto.randomUUID();
+    legacyDb.prepare(
+      `INSERT INTO friction_notes (id, layer, retryReason, createdAt)
+       VALUES (?, ?, ?, ?)`
+    ).run(id, 'orchestration', 'quarantine-deflaked', new Date().toISOString());
+    legacyDb.close();
+
+    // Close the cached project handle so we get a fresh open
+    _closeProject(project);
+
+    // Call listFriction, which opens the DB (triggering migration and backfill)
+    const notes = listFriction(project);
+
+    // Expect the backfill to have filled in defectClass
+    expect(notes.length).toBe(1);
+    expect(notes[0].defectClass).toBe('success-signal');
   });
 
   it('records with no todoId (operational note) — stores null and round-trips', async () => {

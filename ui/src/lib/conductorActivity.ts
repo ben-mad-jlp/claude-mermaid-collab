@@ -27,7 +27,108 @@ export interface ConductorPassRow {
   declined: Array<{ what: string; why: string; entityType?: 'epic' | 'leaf' | 'card'; entityId?: string }>;
   outcome: string | null;
   ran: boolean | null;
+  /** Node-authored "what I concluded and why" for this pass (<=600 chars). Optional so rows
+   *  written before the column existed read back as absent rather than empty. */
+  summary?: string | null;
+  /** True when an OPERATOR kick forced this pass past the fingerprint debounce. Optional so
+   *  rows written before the column existed read back as absent rather than false. */
+  forced?: boolean | null;
 }
+
+/** POST the one-shot conductor kick. Resolves to the server's verdict; a non-2xx or a network
+ *  fault RESOLVES (never throws) so the caller can render a failure line instead of exploding. */
+export async function kickConductor(
+  project: string,
+  missionId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await fetch('/api/conductor/kick', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, missionId }),
+    });
+    if (!response.ok) {
+      let message = `kick failed (${response.status})`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data?.error) message = data.error;
+      } catch {
+        /* keep the status-code message */
+      }
+      return { ok: false, error: message };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'kick failed' };
+  }
+}
+
+/** Both operator levers that hang off orchestrator_config are simple off/on switches with
+ *  the same GET/POST contract, so one pair of clients serves both. */
+export type LeverLevel = 'off' | 'on';
+export type AutoFixLevel = LeverLevel;
+export type ExplorerLevel = LeverLevel;
+
+/** Read an off/on lever. DEFAULT 'on' — a failed/absent read resolves to 'on' so the UI
+ *  never claims something is held when the backend said nothing. Never throws. */
+async function fetchLeverLevel(
+  path: string,
+  label: string,
+  project: string,
+): Promise<{ ok: boolean; level: LeverLevel; error?: string }> {
+  try {
+    const response = await fetch(`${path}?project=${encodeURIComponent(project)}`);
+    if (!response.ok) return { ok: false, level: 'on', error: `${label} read failed (${response.status})` };
+    const data = (await response.json()) as { level?: string };
+    return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
+  } catch {
+    return { ok: false, level: 'on', error: `${label} read failed` };
+  }
+}
+
+/** POST a new off/on lever level. Resolves (never throws) so the caller can render the
+ *  failure inline; the resolved `level` is the server's stored value, not the request's. */
+async function postLeverLevel(
+  path: string,
+  label: string,
+  project: string,
+  level: LeverLevel,
+): Promise<{ ok: boolean; level?: LeverLevel; error?: string }> {
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, level }),
+    });
+    if (!response.ok) {
+      let message = `${label} failed (${response.status})`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data?.error) message = data.error;
+      } catch {
+        /* keep the status-code message */
+      }
+      return { ok: false, error: message };
+    }
+    const data = (await response.json()) as { level?: string };
+    return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
+  } catch {
+    return { ok: false, error: `${label} failed` };
+  }
+}
+
+/** AUTOFIX (third lever): gates the daemon's repair-forge pass. */
+export const fetchAutoFixLevel = (project: string) =>
+  fetchLeverLevel('/api/autofix/level', 'autofix', project);
+export const setAutoFixLevel = (project: string, level: AutoFixLevel) =>
+  postLeverLevel('/api/autofix/level', 'autofix', project, level);
+
+/** EXPLORER (fourth lever): gates explore-leaf DISPATCH + the verify-explore filer.
+ *  Explores are still filed and still promoted while it is off — only claiming is held. */
+export const fetchExplorerLevel = (project: string) =>
+  fetchLeverLevel('/api/explorer/level', 'explorer', project);
+export const setExplorerLevel = (project: string, level: ExplorerLevel) =>
+  postLeverLevel('/api/explorer/level', 'explorer', project, level);
 
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }
@@ -183,7 +284,11 @@ export function groupConductorPasses(
     // One clock for the whole grouping pass: sampling Date.now() per row would let two
     // in-flight rows straddle a minute boundary and stop collapsing into one group.
     const formatted = formatConductorPass(row, now);
-    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
+    // `summary` participates: two passes whose one-line sentence is identical (the common case
+    // for declined / filed-nothing passes) can still have DIFFERENT node reasoning, and only the
+    // representative's summary is rendered. Without this, collapsing would hide reasoning.
+    // `?? ''` normalizes null and undefined so this stays byte-identical to the backend mirror.
+    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}::${row.summary ?? ''}`;
 
     if (current && fp === prevFp) {
       current.rows.push(row);
@@ -210,18 +315,26 @@ export function groupConductorPasses(
   return groups;
 }
 
+export interface ConductorJournalQuery {
+  missionId?: string;
+  limit?: number;
+  /** Rows to skip, newest-first. Omitted => page 1 (server default, no OFFSET clause). */
+  offset?: number;
+}
+
+function journalUrl(project: string, opts?: ConductorJournalQuery): string {
+  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
+  if (opts?.missionId != null) url += `&missionId=${encodeURIComponent(opts.missionId)}`;
+  if (opts?.limit != null) url += `&limit=${encodeURIComponent(String(opts.limit))}`;
+  if (opts?.offset != null) url += `&offset=${encodeURIComponent(String(opts.offset))}`;
+  return url;
+}
+
 export async function fetchConductorJournal(
   project: string,
-  opts?: { missionId?: string; limit?: number },
+  opts?: ConductorJournalQuery,
 ): Promise<ConductorPassRow[]> {
-  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
-  if (opts?.missionId != null) {
-    url += `&missionId=${encodeURIComponent(opts.missionId)}`;
-  }
-  if (opts?.limit != null) {
-    url += `&limit=${encodeURIComponent(String(opts.limit))}`;
-  }
-  const response = await fetch(url);
+  const response = await fetch(journalUrl(project, opts));
   if (!response.ok) {
     return [];
   }
@@ -231,13 +344,17 @@ export async function fetchConductorJournal(
 
 export async function fetchConductorJournalWithNicknames(
   project: string,
-  opts?: { missionId?: string; limit?: number },
-): Promise<{ rows: ConductorPassRow[]; nicknames: Record<string, string> }> {
-  let url = `/api/conductor/journal?project=${encodeURIComponent(project)}`;
-  if (opts?.missionId != null) url += `&missionId=${encodeURIComponent(opts.missionId)}`;
-  if (opts?.limit != null) url += `&limit=${encodeURIComponent(String(opts.limit))}`;
-  const response = await fetch(url);
-  if (!response.ok) return { rows: [], nicknames: {} };
-  const data = (await response.json()) as { rows?: ConductorPassRow[]; nicknames?: Record<string, string> };
-  return { rows: data.rows ?? [], nicknames: data.nicknames ?? {} };
+  opts?: ConductorJournalQuery,
+): Promise<{ rows: ConductorPassRow[]; nicknames: Record<string, string>; total: number }> {
+  const response = await fetch(journalUrl(project, opts));
+  if (!response.ok) return { rows: [], nicknames: {}, total: 0 };
+  const data = (await response.json()) as {
+    rows?: ConductorPassRow[];
+    nicknames?: Record<string, string>;
+    total?: number;
+  };
+  const rows = data.rows ?? [];
+  // A server that predates `total` (or a fixture that omits it) must not read as "0 rows" —
+  // fall back to what we actually received so the pager stays consistent with the page.
+  return { rows, nicknames: data.nicknames ?? {}, total: data.total ?? rows.length };
 }

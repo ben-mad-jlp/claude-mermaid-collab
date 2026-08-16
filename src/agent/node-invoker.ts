@@ -821,6 +821,12 @@ export async function invokeNode(spec: NodeSpec): Promise<NodeResult> {
       // detectable by something other than a human noticing the cost column.
       exitCode: result.exitCode,
       timedOut: result.timedOut,
+      // Forward the node's FINAL MESSAGE so its reasoning survives the call. Every leaf node kind
+      // already persists this (the leaf-executor's own recordNode calls); every kind written
+      // through THIS boundary — conductor, node, planner, forge, summary — stored NULL, which is
+      // why ~13.7M output tokens of conductor/node reasoning were generated and discarded, and why
+      // an expensive pass that filed nothing left no record of what it concluded.
+      outputText: result.text ?? null,
     });
   }
   return result;
@@ -1487,6 +1493,9 @@ export async function invokeGrokNode(spec: NodeSpec): Promise<NodeResult> {
       // ceiling must not look like a node that did no work either.
       exitCode: result.exitCode,
       timedOut: result.timedOut,
+      // Same final-message capture as the claude boundary above — a grok node's reasoning must
+      // not be discarded either.
+      outputText: result.text ?? null,
     });
   }
   return result;

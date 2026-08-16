@@ -150,7 +150,11 @@ export function groupConductorPasses(
     // One clock for the whole grouping pass: sampling Date.now() per row would let two
     // in-flight rows straddle a minute boundary and stop collapsing into one group.
     const formatted = formatConductorPass(row, now);
-    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}`;
+    // `summary` participates: two passes whose one-line sentence is identical (the common case
+    // for declined / filed-nothing passes) can still have DIFFERENT node reasoning, and only the
+    // representative's summary is rendered. Without this, collapsing would hide reasoning.
+    // `?? ''` normalizes null and undefined so this stays byte-identical to the UI mirror.
+    const fp = `${row.missionId}::${row.arm}::${row.outcome}::${formatted.sentence}::${row.summary ?? ''}`;
 
     if (current && fp === prevFp) {
       current.rows.push(row);

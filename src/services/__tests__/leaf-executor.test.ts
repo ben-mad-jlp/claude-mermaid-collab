@@ -1697,7 +1697,7 @@ describe('runLeaf G2 mechanical gate', () => {
           epicBaseSha: baseSha,
           gateCfg,
           ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
-          runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+          runGate: async () => { gateCalls++; return { status: 'fail', output: 'FAIL src/boom.test.ts', reasons: [], declared: true }; },
           now: () => t0,
         });
       }
@@ -1709,7 +1709,7 @@ describe('runLeaf G2 mechanical gate', () => {
         epicBaseSha: baseSha,
         gateCfg,
         ensureEpicWorktree: async () => { gateCalls++; throw new Error('must not be called'); },
-        runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+        runGate: async () => { gateCalls++; return { status: 'fail', output: 'FAIL src/boom.test.ts', reasons: [], declared: true }; },
         now: () => t0 + BASE_GATE_FAIL_TTL_MS - 1,
       });
       expect(gateCalls).toBe(2);
@@ -1730,7 +1730,7 @@ describe('runLeaf G2 mechanical gate', () => {
           epicBaseSha: baseSha,
           gateCfg,
           ensureEpicWorktree: async () => ({ path: '/tmp/does-not-matter' }),
-          runGate: async () => { gateCalls++; return { status: 'fail', output: 'boom', reasons: [], declared: true }; },
+          runGate: async () => { gateCalls++; return { status: 'fail', output: 'FAIL src/boom.test.ts', reasons: [], declared: true }; },
           now: () => t0,
         });
       }

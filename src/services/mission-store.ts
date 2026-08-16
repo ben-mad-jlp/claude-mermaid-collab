@@ -31,6 +31,7 @@ import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone, landedVia, type LandedVia } from './epic-landedness.ts';
 
+import { classifyCriterion, compliantShapeFor } from './criteria-citability.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname.ts';
 import { getEpicLandRecord, getEpicLandRecords } from './epic-land-record-store.ts';
@@ -51,6 +52,7 @@ export type MissionStatus =
   | 'building'        // leaves in flight AND nothing left to discover/verify (quietest non-terminal state)
   | 'needs-verify'    // some criterion's serving epic landed, verdict not yet recorded
   | 'needs-discovery' // some criterion has no LIVE serving epic (per-criterion — others may be building)
+  | 'awaiting-observation' // an open measurement window; no work owed (NON-TERMINAL)
   | 'converged'       // every criterion met
   | 'waiting'         // enqueued behind the session's active mission — active=false && queuePos != null; not yet the session's turn to run
   | 'closed';         // closedAt set — frozen converged history
@@ -61,6 +63,27 @@ export function isMissionTerminal(
   m: Pick<MissionRow, 'status' | 'abandonedAt'> & { closedAt?: number | null },
 ): boolean {
   return m.closedAt != null || m.abandonedAt != null || m.status === 'converged' || m.status === 'closed' || m.status === 'forge-failed';
+}
+
+/** WHY a terminal mission stopped, or null while it is still live. Pure + exported so the
+ *  rollup, the UI, and tests all read the same derivation.
+ *
+ *  ANTI-WEDGE: this is a LABEL on an already-terminal mission, never a terminality test. A
+ *  mission carrying dropped criteria still satisfies isMissionTerminal (its derived status is
+ *  'converged'/'closed'), so the loop still stops — it just stops under an honest name. Flipping
+ *  terminality itself would leave such a mission perpetually live and the daemon spinning on it
+ *  forever, which is strictly worse than the dishonest badge it would fix. */
+export function missionTerminalReason(
+  m: Pick<MissionRow, 'status' | 'abandonedAt'> & { closedAt?: number | null },
+  droppedCount: number,
+): 'converged' | 'converged-with-drops' | 'abandoned' | 'closed' | 'forge-failed' | null {
+  if (!isMissionTerminal(m)) return null;
+  if (m.abandonedAt != null) return 'abandoned';
+  if (m.status === 'forge-failed') return 'forge-failed';
+  if (m.status === 'converged' || m.status === 'closed' || m.closedAt != null) {
+    return droppedCount > 0 ? 'converged-with-drops' : 'converged';
+  }
+  return 'closed';
 }
 
 export interface MissionRow {
@@ -106,6 +129,13 @@ export interface MissionRow {
    *  which skips closed missions entirely so this can't happen going forward). Never set for
    *  abandonment (setMissionAbandoned does not touch this column). */
   closedAt: number | null;
+  /** Who closed the mission (when closedAt is set). Used for attribution when closure
+   *  leaves unmet criteria, and to identify the decision maker. */
+  closedBy: string | null;
+  /** JSON-stringified evidence of the closure: the unmet criterion ids and the judge.
+   *  Contains details like { unmetCriterionIds: [...], closedAt: ..., judge: ... }.
+   *  Set when a mission closes with >=1 unmet active criterion. */
+  closureEvidence: string | null;
   /** Set (ms epoch) when a mission was FORGED but not yet human-approved (e.g. by the doc→node
    *  forge). Null = approved / not applicable (all hand-created + legacy missions). While set the
    *  derived status is 'unapproved' and the mission-loop never drives it. approve_mission clears it. */
@@ -206,10 +236,23 @@ export interface MissionRollup {
   /** Acceptance criteria: met vs total over the ACTIVE (non-dropped) criteria — the true
    *  convergence gauge — plus how many were dropped (inert, still visible in the rollup). */
   capability: { met: number; total: number; dropped: number };
-  /** True iff there is ≥1 criterion and every criterion is met. */
+  /** CLEAN convergence: true iff there is ≥1 criterion, every ACTIVE criterion is met, AND
+   *  nothing was dropped. Dropping is otherwise arithmetically indistinguishable from
+   *  satisfying — `total` counts only active criteria, so cutting the goals you cannot meet
+   *  used to make a mission read exactly like one that met them all. */
   converged: boolean;
-  /** True when the mission is terminal (converged or abandoned). */
+  /** DIRTY convergence: every ACTIVE criterion is met but ≥1 criterion was DROPPED. The
+   *  mission is still terminal/stopped (see `stopped` / terminalReason) — the daemon must
+   *  never spin on it — but `converged` is reserved for a mission that actually met the goals
+   *  it set. Exactly one of `converged` / `convergedWithDrops` can be true. */
+  convergedWithDrops: boolean;
+  /** True when the mission is terminal (converged — clean or with drops — abandoned, closed,
+   *  or forge-failed). Deliberately independent of `converged`: a with-drops convergence is
+   *  still a STOP, so honesty about drops never turns into a wedge. */
   stopped: boolean;
+  /** Why the mission stopped, or null while live. 'converged-with-drops' is the honest
+   *  terminal state a drop produces; 'converged' is reserved for zero drops. */
+  terminalReason: 'converged' | 'converged-with-drops' | 'abandoned' | 'closed' | 'forge-failed' | null;
   /** Derived capability status, first-match-wins precedence. */
   status: MissionStatus;
   /** Criteria whose derived action is 'discover' — open gaps with no live serving epic.
@@ -241,6 +284,8 @@ CREATE TABLE IF NOT EXISTS mission (
   active INTEGER NOT NULL DEFAULT 1,
   abandonedAt INTEGER,
   closedAt INTEGER,
+  closedBy TEXT,
+  closureEvidence TEXT,
   budgetUsd REAL,
   handoffDocId TEXT,
   queuePos INTEGER
@@ -389,6 +434,8 @@ function openDb(project: string): Database {
   // the NEXT openDb() call, since this addColumnIfMissing runs before migrateDropPhaseMachine
   // every time and no-ops once the column already exists.
   addColumnIfMissing(db, 'mission', 'closedAt', 'closedAt INTEGER');
+  addColumnIfMissing(db, 'mission', 'closedBy', 'closedBy TEXT');
+  addColumnIfMissing(db, 'mission', 'closureEvidence', 'closureEvidence TEXT');
   addColumnIfMissing(db, 'mission', 'awaitingApprovalSince', 'awaitingApprovalSince INTEGER');
   addColumnIfMissing(db, 'mission', 'forgeState', 'forgeState TEXT');
   addColumnIfMissing(db, 'mission', 'budgetUsd', 'budgetUsd REAL');
@@ -449,6 +496,8 @@ function rowToMission(row: Record<string, unknown>): MissionRow {
     queuePos: (row.queuePos as number | null) ?? null,
     abandonedAt: (row.abandonedAt as number | null) ?? null,
     closedAt: (row.closedAt as number | null) ?? null,
+    closedBy: (row.closedBy as string | null) ?? null,
+    closureEvidence: (row.closureEvidence as string | null) ?? null,
     awaitingApprovalSince: (row.awaitingApprovalSince as number | null) ?? null,
     forgeState: (row.forgeState as 'forging' | 'forge-failed' | null) ?? null,
     budgetUsd: (row.budgetUsd as number | null) ?? null,
@@ -652,14 +701,78 @@ export async function setMissionAbandoned(project: string, todoId: string, aband
  *  mission's derived status reads 'converged' — makes terminality durable so a later land that
  *  happens to reopen one of the mission's criteria (unverifyCriteriaForLandedPaths) cannot
  *  un-converge stopped history. NOT called for abandonment — setMissionAbandoned keeps its own
- *  status and never touches this column. */
-export function setMissionClosed(project: string, todoId: string, at: number | null): void {
+ *  status and never touches this column.
+ *
+ *  When a mission closes with unmet criteria, records WHO closed it (attribution) and evidence
+ *  of what was left unmet, and raises one deduped human card for operator awareness. */
+export function setMissionClosed(
+  project: string,
+  todoId: string,
+  at: number | null,
+  attribution?: { judge: string; evidence?: string | null }
+): void {
   const id = resolveMissionTodoId(project, todoId);
   if (!id) throw new Error(`mission not found: ${todoId}`);
-  const res = openDb(project)
-    .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
-    .run(at, nowMs(), id);
-  if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+
+  const db = openDb(project);
+
+  // Reopen path: clear all closure-related fields
+  if (at == null) {
+    const res = db
+      .prepare('UPDATE mission SET closedAt = NULL, closedBy = NULL, closureEvidence = NULL, updatedAt = ? WHERE todoId = ?')
+      .run(nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+    return;
+  }
+
+  // Closure path: compute unmet criteria and decide whether to record attribution + raise card
+  const criteria = listCriteria(project, id);
+  const unmet = criteria
+    .filter(c => c.status !== 'dropped' && !c.met)
+    .map(c => c.id)
+    .sort();
+
+  const judge = attribution?.judge ?? 'unknown';
+
+  if (unmet.length === 0) {
+    // Clean convergence: no unmet criteria, update as before
+    const res = db
+      .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
+      .run(at, nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+  } else {
+    // Dirty closure: record attribution and raise a card
+    const closureEvidenceObj = {
+      unmetCriterionIds: unmet,
+      closedAt: at,
+      judge,
+    };
+    const closureEvidenceStr = JSON.stringify(closureEvidenceObj);
+
+    const res = db
+      .prepare('UPDATE mission SET closedAt = ?, closedBy = ?, closureEvidence = ?, updatedAt = ? WHERE todoId = ?')
+      .run(at, judge, closureEvidenceStr, nowMs(), id);
+    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+
+    // Raise one deduped human card — wrapped in try/catch so a supervisor-store failure never breaks closure
+    try {
+      const missionNode = getTodo(project, id);
+      const session = missionNode?.ownerSession ?? 'conductor';
+      createEscalation({
+        project,
+        session,
+        kind: 'mission-closed-unmet',
+        audience: 'human',
+        operatorGated: false,
+        todoId: id,
+        conditionKey: `mission-closed-unmet:${id}`,
+        conditionTuple: unmet,
+        questionText: `Mission ${id} was closed by ${judge} with ${unmet.length} unmet criterion/criteria: ${unmet.join(', ')}.`,
+      });
+    } catch {
+      // The card is advisory. A supervisor-db hiccup must NEVER break the closure.
+    }
+  }
 }
 
 export function setMissionForgeState(project: string, todoId: string, state: 'forging' | 'forge-failed' | null): void {
@@ -845,8 +958,12 @@ export function setMissionActive(project: string, todoId: string, active: boolea
 export function deactivateIfTerminal(project: string, todoId: string): void {
   const m = getMission(project, todoId);
   if (!m) return;
+  // An awaiting-observation mission is non-terminal: the measurement window is open and it must
+  // stay active so the loop re-reads it when the window elapses. Guard this explicitly rather
+  // than relying on isMissionTerminal happening to return false.
+  if (m.status === 'awaiting-observation') return;
   if (isMissionTerminal(m) && m.status === 'converged' && m.closedAt == null) {
-    setMissionClosed(project, m.todoId, Date.now());
+    setMissionClosed(project, m.todoId, Date.now(), { judge: 'self-heal' });
   }
   if (m.active && isMissionTerminal(m)) {
     setMissionActive(project, m.todoId, false);
@@ -1025,6 +1142,105 @@ function assertAcyclicDependsOn(
   }
 }
 
+/** Thrown by the mission-criterion citability gate (see assertMissionCriterionCitable).
+ *  A MISSION criterion that asserts a command's RESULT ("the suite passes") or a bare
+ *  ABSENCE ("no new files") can never be cited to anything, so it holds the mission open
+ *  forever — unmet and unmeetable. Leaf blueprints have been gated on exactly this
+ *  predicate (criteria-citability.ts) since L4; missions had NO validation at all, where
+ *  the blast radius is days rather than one node. Same validator, missing call site.
+ *
+ *  The message is PRESCRIPTIVE: it names the shape that WOULD pass (compliantShapeFor),
+ *  because a gate that only says no becomes the next wall. */
+export class UncitableMissionCriterionError extends Error {
+  readonly code = 'uncitable-mission-criterion';
+  constructor(
+    public readonly criterion: string,
+    public readonly kind: string,
+    reason: string,
+  ) {
+    super(`uncitable-mission-criterion: ${reason} (criterion: "${criterion}")`);
+    this.name = 'UncitableMissionCriterionError';
+  }
+}
+
+/** Thrown by assertAllMissionCriteriaCitable when one or more criteria fail the
+ *  citability gate. Aggregates all offenders before throwing, so callers see the
+ *  full list in one round trip. The message lists EVERY offender with its index
+ *  and prescriptive reason. */
+export class UncitableMissionCriteriaError extends Error {
+  readonly code = 'uncitable-mission-criteria';
+  readonly offenders: Array<{ index: number; text: string; reason: string }>;
+
+  constructor(offenders: Array<{ index: number; text: string; reason: string }>) {
+    const offenderLines = offenders
+      .map((o) => `  [${o.index}] ${o.reason} (criterion: "${o.text}")`)
+      .join('\n');
+    super(`uncitable-mission-criteria: ${offenders.length} criterion(criteria) failed validation:\n${offenderLines}`);
+    this.name = 'UncitableMissionCriteriaError';
+    this.offenders = offenders;
+  }
+}
+
+/** Aggregate validator: checks all criteria for citability BEFORE throwing.
+ *  If any criteria are uncitable, throws UncitableMissionCriteriaError once with
+ *  every offender listed. Returns void if all criteria are citable. Does NOT
+ *  short-circuit at the first failure. */
+export function assertAllMissionCriteriaCitable(texts: string[]): void {
+  const offenders: Array<{ index: number; text: string; reason: string }> = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const text = texts[i]!;
+    const verdict = classifyCriterion(text, []);
+    if (!verdict.citable) {
+      const kind = verdict.kind ?? 'command-result';
+      const reason = verdict.reason ?? `${verdict.text} ${compliantShapeFor(kind as never, text)}`;
+      offenders.push({ index: i, text, reason });
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new UncitableMissionCriteriaError(offenders);
+  }
+}
+
+/** Thrown when a criterion drop carries no recorded reason. The audit columns
+ *  (droppedReason/droppedBy/droppedAt) exist precisely so a drop is accountable; an
+ *  unreasoned drop is indistinguishable from quietly deleting an inconvenient goal. */
+export class UnreasonedCriterionDropError extends Error {
+  readonly code = 'unreasoned-criterion-drop';
+  constructor(criterionId: string) {
+    super(
+      `unreasoned-criterion-drop: refusing to drop criterion ${criterionId} with no recorded reason. ` +
+      `Pass a non-empty reason naming WHY this goal is being abandoned (it is stamped into ` +
+      `droppedReason and stays visible in the mission rollup).`,
+    );
+    this.name = 'UnreasonedCriterionDropError';
+  }
+}
+
+/** WRITE-TIME citability gate for MISSION criteria. Fails CLOSED on a command-result or
+ *  bare-absence assertion, with the compliant rewrite shape in the message.
+ *
+ *  Mission criteria have no declared change-set, so `declaredFiles` is `[]`: with an empty
+ *  manifest classifyCriterion ABSTAINS from the out-of-diff-location rule (it never convicts
+ *  on ignorance), leaving exactly the two rules that apply to a goal statement.
+ *
+ *  NO FIXTURE HATCH. The parentless-leaf guard needed MERMAID_ENFORCE_PARENTLESS_LEAF because
+ *  ~250 existing fixtures minted bare leaves; this gate refuses only THREE existing fixture
+ *  criteria across the whole suite, so it is enforced everywhere — a prohibition that a test
+ *  env var can switch off is not a constraint.
+ *
+ *  Write-time only — called from addCriterion / updateCriterionText. Rows already in the
+ *  store are grandfathered and still read/update fine (an update that does not change the
+ *  text never reaches here). */
+export function assertMissionCriterionCitable(text: string): void {
+  const verdict = classifyCriterion(text, []);
+  if (verdict.citable) return;
+  const kind = verdict.kind ?? 'command-result';
+  const reason = verdict.reason ?? `${verdict.text} ${compliantShapeFor(kind as never, text)}`;
+  throw new UncitableMissionCriterionError(text, kind, reason);
+}
+
 /** Add an acceptance criterion (a capability assertion the mission converges to).
  *  Resolves a short todoId to the canonical id first — inserting against the raw short id
  *  would create a mission_criterion row that listCriteria(fullId) can never see. */
@@ -1037,6 +1253,7 @@ export function addCriterion(
 ): MissionCriterion {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('criterion text is empty');
+  assertMissionCriterionCitable(trimmed);
   if (!CRITERION_TYPES.includes(type)) throw new Error(`invalid criterion type: ${type}`);
   const resolved = resolveMissionTodoId(project, todoId);
   if (!resolved) throw new Error(`mission not found: ${todoId}`);
@@ -1138,6 +1355,7 @@ export function setCriterionVerdict(
 export function updateCriterionText(project: string, criterionId: string, text: string): void {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('criterion text is empty');
+  assertMissionCriterionCitable(trimmed);
   const res = openDb(project)
     .prepare('UPDATE mission_criterion SET text = ?, updatedAt = ? WHERE id = ?')
     .run(trimmed, nowMs(), criterionId);
@@ -1173,6 +1391,9 @@ export async function dropCriterion(
   criterionId: string,
   opts: { reason: string; by: string },
 ): Promise<void> {
+  // A drop must be accountable: the audit columns exist for exactly this, and an unreasoned
+  // drop is how an unsatisfiable goal quietly disappears from a mission's ledger.
+  if (!opts.reason || !opts.reason.trim()) throw new UnreasonedCriterionDropError(criterionId);
   const now = nowMs();
   const res = openDb(project)
     .prepare('UPDATE mission_criterion SET status = ?, droppedReason = ?, droppedAt = ?, droppedBy = ?, updatedAt = ? WHERE id = ?')
@@ -1591,6 +1812,11 @@ export function deriveMissionStatus(f: MissionStatusFacts): MissionStatus {
   // Serve-inert criteria (dropped and awaiting-observation) derive no mission-scalar action at all.
   // Reading activeActions at EVERY arm below makes that invariant explicit per call site.
   const activeActions = actions.filter((a) => a !== 'dropped' && a !== 'awaiting-observation');
+  // AWAITING-OBSERVATION: one or more criteria are waiting for a measurement window to elapse;
+  // all non-dropped criteria are met. The mission stays live so the loop re-reads it when the
+  // window closes. Note activeActions.every on an empty array is vacuously true — that is
+  // intended: all remaining criteria are dropped or window-pending ⇒ still awaiting observation.
+  if (actions.some((a) => a === 'awaiting-observation') && activeActions.every((a) => a === 'met')) return 'awaiting-observation';
   // CONVERGED WINS OVER OVER-BUDGET (missions f6b447fa / 0a497c22): a mission that met every
   // acceptance criterion SUCCEEDED — that is the strongest terminal state, and it must drop out
   // of the open-missions list rather than linger labelled 'over-budget'. A mission that crossed
@@ -1922,7 +2148,7 @@ export function listCriteriaWithActions(
   project: string,
   todoId: string,
   opts?: { landTruth?: Map<string, boolean> },
-): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpicLive: boolean; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
+): (MissionCriterion & { action: CriterionAction; servingEpicState: 'landed' | 'open' | 'none'; servedEpicCount: number; rejectedParkedCount: number; servingEpicLive: boolean; servingEpicLandedAt: number | null; servingWorkCompletedAt: number | null; servingEpics: { id: string; title: string; landed: boolean; landedVia: LandedVia }[] })[] {
   const m = getMission(project, todoId);
   if (!m) throw new Error(`mission not found: ${todoId}`);
   const facts = collectMissionStatusFacts(project, m, undefined, opts);
@@ -1938,6 +2164,8 @@ export function listCriteriaWithActions(
       servedEpicCount: f?.servedEpicCount ?? 0,
       rejectedParkedCount: f?.rejectedParkedCount ?? 0,
       servingEpicLive: f?.servingEpicLive ?? false,
+      servingEpicLandedAt: f?.servingEpicLandedAt ?? null,
+      servingWorkCompletedAt: f?.servingWorkCompletedAt ?? null,
       servingEpics: f?.servingEpics ?? [],
     };
   });
@@ -2054,8 +2282,10 @@ export function listMissions(
           todoId: node.id,
           mechanical: { done: mechDone, total: epics.length },
           capability: { met: capMet, total: activeCriteria.length, dropped: criteria.length - activeCriteria.length },
-          converged: activeCriteria.length > 0 && capMet === activeCriteria.length,
+          converged: activeCriteria.length > 0 && capMet === activeCriteria.length && criteria.length === activeCriteria.length,
+          convergedWithDrops: activeCriteria.length > 0 && capMet === activeCriteria.length && criteria.length > activeCriteria.length,
           stopped: isMissionTerminal(mission),
+          terminalReason: missionTerminalReason(mission, criteria.length - activeCriteria.length),
           status: mission.status ?? deriveCheapMissionStatus(mission, epics, criteria, isMissionStalled(project, node.id)),
           gaps: 0,
           awaitingVerify: 0,
@@ -2159,8 +2389,13 @@ export function getMissionRollup(project: string, todoId: string, opts?: { allTo
     todoId: id,
     mechanical: { done: mechDone, total: epics.length },
     capability: { met: capMet, total: active.length, dropped: criteria.length - active.length },
-    converged: active.length > 0 && capMet === active.length,
+    // A drop must not manufacture convergence: `converged` requires zero drops, and a
+    // met-but-with-drops mission reports convergedWithDrops instead. `stopped` is unchanged,
+    // so the loop still terminates — see missionTerminalReason's anti-wedge note.
+    converged: active.length > 0 && capMet === active.length && criteria.length === active.length,
+    convergedWithDrops: active.length > 0 && capMet === active.length && criteria.length > active.length,
     stopped: isMissionTerminal(m),
+    terminalReason: missionTerminalReason(m, criteria.length - active.length),
     status: deriveMissionStatus(facts),
     gaps: actions.filter((a) => a === 'discover').length,
     awaitingVerify: actions.filter((a) => a === 'verify').length,

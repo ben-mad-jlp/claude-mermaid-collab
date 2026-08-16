@@ -12,7 +12,7 @@
 import type { Todo } from './todo-store';
 import { listTodos, readClaim } from './todo-store';
 import type { LandReadinessReport } from './epic-land-readiness';
-import { getEpicLandReadiness } from './epic-land-readiness';
+import { getEpicLandReadiness, isAbsenceFinding } from './epic-land-readiness';
 import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from './epic-land-gate';
 import { isEpicTodo, isLandTodo } from './invariant-check';
@@ -43,7 +43,8 @@ export type LandBlockCode =
   | 'gate-failed'
   | 'tsc-failed'
   | 'merge-conflict'
-  | 'open-children';
+  | 'open-children'
+  | 'trunk-red';
 
 /** A single blocker with code, message, and optional detail */
 export interface LandBlocker {
@@ -486,16 +487,19 @@ export async function landReadiness(
     presence = await presenceProbe(project, epicId);
   }
 
-  if (presence.blocking) {
-    const orphaned = presence.findings.filter((f) => f.kind === 'orphaned-proof').length;
-    const absent = presence.findings.length - orphaned;
+  // Filter to absence findings only (exclude unlanded, which is normal pre-land state)
+  const absentFindings = presence.findings.filter(isAbsenceFinding);
+
+  if (absentFindings.length > 0) {
+    const orphaned = absentFindings.filter((f) => f.kind === 'orphaned-proof').length;
+    const absent = absentFindings.length - orphaned;
     const messageParts: string[] = [];
     if (absent > 0) messageParts.push(`Accepted CODE leaves have no commits reachable from epic branch`);
     if (orphaned > 0) messageParts.push(`${orphaned} proof leaf/leaves for served criteria are not accepted/done`);
     blockers.push({
       code: 'presence-findings',
       message: messageParts.join('; '),
-      detail: presence.findings.map((f) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
+      detail: absentFindings.map((f) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
     });
   }
 
@@ -514,32 +518,42 @@ export async function landReadiness(
 
   gate = await gateProbe(gateOpts);
 
-  // Gate produces regressions (branch-red, master-green) — blocking
-  if (gate.regressions.length > 0) {
+  // Check for trunk-red attribution first
+  if (gate.floorAttribution?.verdict === 'trunk-red') {
     blockers.push({
-      code: 'gate-regression',
-      message: `Land gate found ${gate.regressions.length} regressions (branch fails, master passes)`,
+      code: 'trunk-red',
+      message: `Regression floor failed due to trunk-red: ${gate.floorAttribution.files.length} file(s) failing at base`,
+      detail: gate.floorAttribution.files.join(', '),
     });
-  }
+  } else {
+    // Gate produces regressions (branch-red, master-green) — blocking
+    if (gate.regressions.length > 0) {
+      blockers.push({
+        code: 'gate-regression',
+        message: `Land gate found ${gate.regressions.length} regressions (branch fails, master passes)`,
+        detail: gate.floorAttribution?.files.join(', '),
+      });
+    }
 
-  // Gate errors or incidents — blocking
-  if (gate.status === 'error' || gate.incidents.length > 0) {
-    blockers.push({
-      code: 'gate-error',
-      message: `Land gate encountered errors: ${gate.reasons[0] ?? 'unknown'}`,
-    });
-  }
+    // Gate errors or incidents — blocking
+    if (gate.status === 'error' || gate.incidents.length > 0) {
+      blockers.push({
+        code: 'gate-error',
+        message: `Land gate encountered errors: ${gate.reasons[0] ?? 'unknown'}`,
+      });
+    }
 
-  // Gate FAILED without regressions/incidents recorded (e.g. a gate-internal typecheck
-  // failure short-circuits with status:'fail' and empty regressions/incidents arrays) —
-  // blocking. The regression/incident checks above do not cover this case on their own,
-  // so it needs its own explicit check to keep landReadiness at least as strict as the
-  // pre-consolidation per-actor proof it replaces.
-  if (gate.status === 'fail' && gate.regressions.length === 0 && gate.incidents.length === 0) {
-    blockers.push({
-      code: 'gate-failed',
-      message: `Land gate failed: ${gate.reasons[0] ?? 'unknown'}`,
-    });
+    // Gate FAILED without regressions/incidents recorded (e.g. a gate-internal typecheck
+    // failure short-circuits with status:'fail' and empty regressions/incidents arrays) —
+    // blocking. The regression/incident checks above do not cover this case on their own,
+    // so it needs its own explicit check to keep landReadiness at least as strict as the
+    // pre-consolidation per-actor proof it replaces.
+    if (gate.status === 'fail' && gate.regressions.length === 0 && gate.incidents.length === 0) {
+      blockers.push({
+        code: 'gate-failed',
+        message: `Land gate failed: ${gate.reasons[0] ?? 'unknown'}`,
+      });
+    }
   }
 
   // Inherited red (branch-red and master-red) — reported, not blocking

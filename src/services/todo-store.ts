@@ -18,6 +18,7 @@ import { hasLandStamp } from './epic-landedness';
 import { nicknameFromTitle, uniqueNickname } from './entity-nickname';
 import { storePath, canonicalProjectRoot, canonicalProjectRootLoose, hasProjectWorkGraph } from './store-paths';
 import { openCollabDb, closeCollabDb } from './collab-db';
+import type { BugfixSpec } from './bugfix-spec.js';
 
 /**
  * Per-PROJECT todo store (Phase 0 of the todos upgrade — see design-todos-upgrade).
@@ -206,6 +207,9 @@ export interface Todo {
   /** Friction-signature opaque key for deduplicating recurring friction filings. OPTIONAL for
    *  backward compat; pre-migration rows read null. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL for backward compat; pre-migration rows read null. */
+  filingProvenance?: string | null;
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
@@ -237,6 +241,9 @@ export interface Todo {
   /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach).
    *  OPTIONAL — pre-migration rows / non-explore leaves read null. */
   exploreSpec?: ExploreSpec | null;
+  /** Typed spec for a `bugfix` bucket leaf (observedFailure/evidence/fixedMeans).
+   *  OPTIONAL — pre-migration rows / non-bugfix leaves read null. */
+  bugfixSpec?: BugfixSpec | null;
 }
 
 export interface TodoFilter {
@@ -287,8 +294,15 @@ export interface CreateTodoInput {
    *  only bucket epics (Inbox/Bugfix inbox), root epics, and missions stay roots.
    *  Check `kind`, not nullness of `parentId`. */
   inbox?: boolean;
-  /** Internal escape hatch for the few legit top-level non-epic creates (data
-   *  migration, the readiness-gate dependency primitive). Skips the orphan guard. */
+  /** Auto-home a parentless LEAF create under the named bucket (find-or-create via
+   *  bucket-registry.ensureBucket). The sanctioned alternative to ParentlessLeafError:
+   *  a caller with no epic in hand names a bucket instead of filing an unclaimable
+   *  orphan. Ignored when parentId is supplied and for epic/mission creates. */
+  bucket?: BucketType;
+  /** Internal escape hatch for the few legit top-level non-epic creates (the
+   *  readiness-gate dependency primitive; leaf FIXTURES under bun test). Skips the
+   *  orphan guard for non-leaf kinds; for kind:'leaf' it is REFUSED outside the test
+   *  runner (see ParentlessLeafError) — pass `bucket` to auto-home instead. */
   allowOrphan?: boolean;
   /** Mission homing for a `kind:'epic'` create (§4d). Omitted → the epic is parented
    *  to the caller's ACTIVE mission BY DEFAULT. `null` → force a root epic (opt-out).
@@ -313,6 +327,9 @@ export interface CreateTodoInput {
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
   /** Friction-signature opaque key for deduplicating recurring friction filings. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL. */
+  filingProvenance?: string | null;
   tier?: LeafTier;
   /** EPIC-only base-repair exemption: when 1, skips the epic-base-red hold (G2) for this
    *  epic's leaves, allowing each leaf's gate to judge net-new-vs-base (crit-8 lazy baseline).
@@ -322,12 +339,14 @@ export interface CreateTodoInput {
   approvedBy?: string | null;
   /** Typed spec for an `explore` bucket leaf (scope/target/oracle + optional not/reach). */
   exploreSpec?: ExploreSpec | null;
+  /** Typed spec for a `bugfix` bucket leaf (observedFailure/evidence/fixedMeans). */
+  bugfixSpec?: BugfixSpec | null;
 }
 
 /** Thrown by createTodo when a non-epic todo is filed with no epic and no explicit
  *  inbox/allowOrphan. Carries a `code` so HTTP/MCP callers can map it to a 4xx. */
 export class OrphanTodoError extends Error {
-  readonly code = 'orphan-todo';
+  readonly code: string = 'orphan-todo';
   constructor(title: string) {
     super(
       `Every work todo must belong to an epic — refusing to create "${title}" with no epic. ` +
@@ -337,6 +356,38 @@ export class OrphanTodoError extends Error {
     );
     this.name = 'OrphanTodoError';
   }
+}
+
+/** PARENTLESS-LEAF GUARD (incident b053b529, 2026-08-14): a `kind:'leaf'` row with no
+ *  parent is permanently UNCLAIMABLE — the daemon's claim set only reaches leaves homed
+ *  under an epic/bucket, so a parentless leaf sits invisible forever. Creating one is
+ *  therefore refused at the store choke point, `allowOrphan` included. Auto-homing is the
+ *  sanctioned alternative: pass `bucket:'inbox'|'bugfix'|...` (or `inbox:true`) and the
+ *  leaf is homed under that bucket instead of throwing.
+ *
+ *  Grandfathered READS/UPDATES are unaffected: the guard fires only on CREATE writes.
+ *  Test fixtures: under `bun test` (NODE_ENV=test) `allowOrphan:true` still mints a bare
+ *  leaf so the ~250 existing store-machinery fixtures keep working; tests that exercise
+ *  the guard itself set MERMAID_ENFORCE_PARENTLESS_LEAF=1 to get production behaviour.
+ *  Subclasses OrphanTodoError so existing instanceof/`code` consumers keep matching
+ *  (`code` stays 'orphan-todo'; the guard's identity is the name + message prefix). */
+export class ParentlessLeafError extends OrphanTodoError {
+  constructor(title: string) {
+    super(title);
+    this.name = 'ParentlessLeafError';
+    this.message =
+      `parentless-leaf-refused: a leaf must be homed under an epic or bucket — refusing to ` +
+      `create "${title}" with no parentId. Pass parentId=<epic id>, or bucket:'inbox'|'bugfix'|` +
+      `'feature'|'explore' (auto-homes under that bucket), or inbox:true.`;
+  }
+}
+
+/** Production enforcement switch for {@link ParentlessLeafError}. Enforced everywhere
+ *  except under the test runner's fixture hatch (NODE_ENV=test), which
+ *  MERMAID_ENFORCE_PARENTLESS_LEAF=1 overrides back to enforced. */
+function parentlessLeafFixtureAllowed(): boolean {
+  if (process.env.MERMAID_ENFORCE_PARENTLESS_LEAF === '1') return false;
+  return process.env.NODE_ENV === 'test';
 }
 
 /** Thrown by resolveTodoParent when a bucket epic create attempts to mint a second bucket
@@ -599,6 +650,7 @@ interface TodoRow {
   bucketType: string | null;
   triageTag: string | null;
   frictionSignature: string | null;
+  filingProvenance: string | null;
   promotedTo: string | null;
   consumedAt: string | null;
   tier: string | null;
@@ -609,6 +661,7 @@ interface TodoRow {
   archivedAt: number | null;
   nickname: string | null;
   exploreSpec: string | null;
+  bugfixSpec: string | null;
 }
 
 const DDL = `
@@ -754,6 +807,8 @@ export function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
   addColumnIfMissing(db, 'todos', 'frictionSignature', 'frictionSignature TEXT');
+  // Auto-filing provenance: indicates this todo was auto-filed by a named system (e.g. 'auto:df3-gap-filer').
+  addColumnIfMissing(db, 'todos', 'filingProvenance', 'filingProvenance TEXT');
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
@@ -791,6 +846,9 @@ export function openDb(project: string): Database {
   // Explore bucket typed spec (additive, nullable): raw JSON text, same shape as `link`.
   // Pre-migration rows read NULL — no backfill needed.
   addColumnIfMissing(db, 'todos', 'exploreSpec', 'exploreSpec TEXT');
+  // Bugfix bucket typed spec (additive, nullable): raw JSON text, same shape as exploreSpec.
+  // Pre-migration rows read NULL — no backfill needed.
+  addColumnIfMissing(db, 'todos', 'bugfixSpec', 'bugfixSpec TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_hot ON todos(status) WHERE archivedAt IS NULL');
   db.exec('CREATE INDEX IF NOT EXISTS idx_todos_friction_signature ON todos(frictionSignature)');
   // De-conflate S1 one-shot backfill, guarded by user_version so it runs exactly
@@ -868,6 +926,9 @@ export function openDb(project: string): Database {
   if (ver < TODO_EXPLORE_SPEC_V11) {
     db.exec(`PRAGMA user_version = ${TODO_EXPLORE_SPEC_V11}`);
   }
+  if (ver < TODO_BUGFIX_SPEC_V12) {
+    db.exec(`PRAGMA user_version = ${TODO_BUGFIX_SPEC_V12}`);
+  }
   prepared.add(project);
   return db;
 }
@@ -937,6 +998,9 @@ export const TODO_NICKNAME_V10 = 10;
 
 /** user_version marker for the exploreSpec column add (nullable, no backfill). */
 export const TODO_EXPLORE_SPEC_V11 = 11;
+
+/** user_version marker for the bugfixSpec column add (nullable, no backfill). */
+export const TODO_BUGFIX_SPEC_V12 = 12;
 
 /**
  * R1 one-shot, idempotent bucketType backfill. Runs ONCE (gated by user_version).
@@ -1333,7 +1397,7 @@ const nowIso = () => new Date().toISOString();
  *     "leave caller/existing value unchanged"; null = "clear")
  *
  * Mapping (MANUAL STATUS WRITES table):
- *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; keep status as-is/'planned'
+ *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; move terminal/in-flight to 'planned', else keep status as-is
  *   blocked            → hold:    heldAt=now, heldReason='manual';            keep status as-is/'planned'
  *   in_progress        → REJECT (throw) — a human inventing a claim is nonsensical
  *   planned|backlog|todo→ un-approve/park: approvedAt=null;                   status='planned'
@@ -1371,11 +1435,12 @@ function translateStatusWrite(
   switch (requested) {
     case 'ready':
       // "approve to run" — identical to the Planner's approve verb. Never store the
-      // derived 'ready'; never leave it on a TERMINAL status (an un-complete routes
+      // derived 'ready'; never leave it on a TERMINAL or IN-FLIGHT status (an un-complete routes
       // through 'ready' and must move the row off 'done'/'dropped' back to 'planned'
-      // so it re-derives claimable). Otherwise keep the existing pre-terminal status.
+      // so it re-derives claimable; a claimed row being approved must also clear its
+      // in-flight status). Otherwise keep the existing pre-terminal status.
       return {
-        storedStatus: (currentStatus === 'ready' || currentStatus === 'done' || currentStatus === 'dropped')
+        storedStatus: (currentStatus === 'ready' || currentStatus === 'in_progress' || currentStatus === 'done' || currentStatus === 'dropped')
           ? 'planned' : currentStatus,
         approvedAt: ts,
         ...(approvedBy != null ? { approvedBy } : {}),
@@ -1668,6 +1733,8 @@ function rowToTodo(row: TodoRow): Todo {
   if (row.link) { try { link = JSON.parse(row.link); } catch { /* null */ } }
   let exploreSpec: ExploreSpec | null = null;
   if (row.exploreSpec) { try { exploreSpec = JSON.parse(row.exploreSpec); } catch { /* null */ } }
+  let bugfixSpec: BugfixSpec | null = null;
+  if (row.bugfixSpec) { try { bugfixSpec = JSON.parse(row.bugfixSpec); } catch { /* null */ } }
   return {
     id: row.id,
     ownerSession: row.ownerSession,
@@ -1720,6 +1787,7 @@ function rowToTodo(row: TodoRow): Todo {
     bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     frictionSignature: row.frictionSignature ?? null,
+    filingProvenance: row.filingProvenance ?? null,
     promotedTo: row.promotedTo ?? null,
     consumedAt: row.consumedAt ?? null,
     landedAt: row.landedAt ?? null,
@@ -1731,6 +1799,7 @@ function rowToTodo(row: TodoRow): Todo {
     archivedAt: row.archivedAt ?? null,
     nickname: row.nickname ?? '',
     exploreSpec,
+    bugfixSpec,
   };
 }
 
@@ -1899,6 +1968,10 @@ export function todoNotFoundMessage(project: string, id: string): string {
     }
   }
   return base;
+}
+
+export function zeroRowWriteMessage(verb: string, id: string, precondition: string, remedy: string): string {
+  return `${verb} wrote no row for ${id}: precondition failed — ${precondition}; ${remedy}`;
 }
 
 function resolveFullId(project: string, id: string): string {
@@ -2092,7 +2165,18 @@ async function resolveTodoParent(project: string, input: CreateTodoInput): Promi
     return await resolveActiveMissionId(project);
   }
   if (isMissionInput(input)) return null;                 // a mission is a durable root (Phase 2a)
-  if (input.allowOrphan) return null;                // internal escape hatch (migration / gate primitive)
+  // PARENTLESS-LEAF GUARD (b053b529): a leaf with no parent is unclaimable forever.
+  // A named bucket auto-homes; `allowOrphan` no longer exempts leaves in production.
+  if (kindOfInput(input) === 'leaf') {
+    if (input.bucket) return await ensureBucket(project, input.bucket);
+    if (input.allowOrphan) {
+      if (!parentlessLeafFixtureAllowed()) throw new ParentlessLeafError(input.title);
+      return null; // bun-test fixture hatch only
+    }
+    if (!input.inbox) throw new ParentlessLeafError(input.title);
+    return await ensureBucket(project, 'inbox');
+  }
+  if (input.allowOrphan) return null;                // internal escape hatch (gate primitive)
   if (!input.inbox) throw new OrphanTodoError(input.title); // LOUD: no epic, no explicit inbox
   // inbox:true → home under the Inbox epic (find-or-create). The ONLY auto-home, and explicit.
   // Compare via stripLabel so this matches both the pre-strip row (`[EPIC] Inbox`)
@@ -2167,8 +2251,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, tier, baseRepair, nickname, exploreSpec)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, filingProvenance, tier, baseRepair, nickname, exploreSpec, bugfixSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2180,7 +2264,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.filingProvenance ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null, input.bugfixSpec ? JSON.stringify(input.bugfixSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -2390,7 +2474,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), JSON.stringify(next.declaredFiles), patch.retryCount ?? existing.retryCount, fullId
       );
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('update_todo', id, 'the row vanished between the getTodo read and the UPDATE (concurrent removeTodo/archive)', 're-read with get_todo(<id>); if gone, recreate it'));
 
       // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
       // drop every non-terminal transitive descendant so the lane goes fully terminal instead
@@ -2516,6 +2600,15 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
  *  The coordinator passes its own COORDINATOR_EPOCH at the caller layer; this is the
  *  fallback for any store path that claims without an explicit epoch argument. */
 export const PROCESS_CLAIM_EPOCH = crypto.randomUUID();
+
+/** Mutating exports whose zero-row result is legitimate contention/idempotency, not a lie. */
+export const ZERO_ROW_CONTENTION_VERBS = [
+  'claimTodo',        // res.changes === 1 ? … : null; another worker won the claim race.
+  'reclaimNow',       // the three CAS-lost return null arms.
+  'stampMissionNodeApprovedIfNull', // approvedAt IS NULL guard; already-approved ⇒ false.
+  'clearEpicLandedAt', // landedAt IS NOT NULL guard; already-cleared ⇒ false.
+  'releaseClaim',     // returns false when the row wasn't a live in_progress claim (lost race).
+] as const;
 
 /** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
  *  Override with MERMAID_MAX_CLAIM_RETRIES. */
@@ -3043,6 +3136,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // re-open/split/drop. It is NOT auto-promoted back to 'ready' (the unblock
     // pass below skips rejected todos), so it never silently re-claims and
     // re-fails. Only accepted/pending/null completions move to 'done'.
+    const claimScoped = opts?.claimToken != null && !opts.requireInProgress;
+    const claimToken = claimScoped ? (opts!.claimToken as string) : undefined;
     if (accept === 'rejected') {
       // Not done → completedBy cleared (mirrors completedAt). cleanup-605d6fc0:
       // store the non-derived 'planned' (not the derived 'blocked' enum) + the
@@ -3051,20 +3146,24 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // claimReason checks DEP rejection but not a row's OWN acceptanceStatus, and
       // the old unblock-pass skip was deleted in S4. Tracked separately as a
       // claimability-predicate gap (rejected ⇒ not-claimable).
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
-      ).run(accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(accept, ts, fullId, claimToken!) : stmt.run(accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     } else {
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
         // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
         // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, actor, accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(ts, actor, accept, ts, fullId, claimToken!) : stmt.run(ts, actor, accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
     // materialized — it is derived by claimability.isClaimable every tick, so there is nothing
@@ -3759,7 +3858,7 @@ export function resetTodo(
       let res;
       if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
       else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('reset_todo', id, 'the row disappeared under the reset UPDATE', 're-read with get_todo(<id>)'));
       if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
         cascadeDropDescendants(db, fullId, nowIso());
         assertNoLiveDescendants(db, id, fullId);

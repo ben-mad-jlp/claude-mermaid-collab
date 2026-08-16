@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { ConductorActivityPanel, CONDUCTOR_RAW_MODE_KEY } from './ConductorActivityPanel';
+import { ConductorActivityPanel, CONDUCTOR_RAW_MODE_KEY, CONDUCTOR_PAGE_SIZE } from './ConductorActivityPanel';
 
 let capturedHandler: ((msg: any) => void) | null = null;
 
@@ -246,6 +246,228 @@ describe('ConductorActivityPanel', () => {
     });
   });
 
+  describe('conductor reasoning (summary)', () => {
+    function mockRows(rows: any[], extra: Record<string, unknown> = {}) {
+      global.fetch = vi.fn().mockImplementation(() =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ rows, ...extra }) }),
+      ) as any;
+    }
+
+    it('leads with the summary and demotes the mechanical sentence beneath it', async () => {
+      mockRows([{ ...ROW_A, summary: 'Served crit-1 because the epic was the only unblocked path.' }]);
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      const summary = await screen.findByTestId('conductor-pass-summary');
+      expect(summary.textContent).toContain('the only unblocked path');
+      // The node's reasoning is the HERO: it precedes the mechanical sentence in the DOM,
+      // and the sentence is still present as supporting detail.
+      const sentence = screen.getByTestId('conductor-pass-sentence');
+      expect(sentence.textContent).toContain('Mission mission-aaa');
+      expect(summary.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('falls back to the sentence as the lead when a pass has no summary', async () => {
+      mockRows([ROW_A]);
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId('conductor-pass-entry');
+      expect(screen.queryByTestId('conductor-pass-summary')).toBeNull();
+      // A row is never headed by nothing: the sentence takes the lead slot.
+      expect(screen.getByTestId('conductor-pass-sentence').textContent).toContain('Mission mission-aaa');
+    });
+
+    it('renders no summary element for an explicitly null or whitespace-only summary', async () => {
+      mockRows([
+        { ...ROW_A, id: 'null-summary', summary: null },
+        { ...ROW_B, id: 'blank-summary', summary: '   ' },
+      ]);
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(2);
+      });
+      expect(screen.queryAllByTestId('conductor-pass-summary')).toHaveLength(0);
+    });
+
+    it('renders the summary on a DECLINED pass — the row that looks inert without it', async () => {
+      mockRows([
+        {
+          ...ROW_A,
+          id: 'pass-declined',
+          criteriaActed: [],
+          filed: [],
+          declined: [{ what: 'redecompose', why: 'epic is built but unlanded' }],
+          outcome: 'declined',
+          summary: 'Declined the redecompose: the epic is built and only needs landing.',
+        },
+      ]);
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      const summary = await screen.findByTestId('conductor-pass-summary');
+      expect(summary.textContent).toContain('only needs landing');
+    });
+
+    it('renders the summary on a pass that ran and filed nothing', async () => {
+      mockRows([
+        {
+          ...ROW_A,
+          id: 'pass-nofile',
+          criteriaActed: [],
+          filed: [],
+          declined: [],
+          outcome: 'conducted',
+          ran: true,
+          summary: 'Ran a full sweep and filed nothing: every criterion already has live work.',
+        },
+      ]);
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      const summary = await screen.findByTestId('conductor-pass-summary');
+      expect(summary.textContent).toContain('filed nothing');
+    });
+
+    it('respects rawMode: the summary humanizes ids by default and shows them raw when toggled', async () => {
+      const FULL = '12345678-90ab-cdef-1234-567890abcdef';
+      mockRows(
+        [{ ...ROW_A, id: 'pass-raw', summary: `Served via epic ${FULL}.` }],
+        { nicknames: { [FULL]: 'happy-otter' } },
+      );
+
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      const summary = await screen.findByTestId('conductor-pass-summary');
+      expect(summary.textContent).toContain('happy-otter');
+      expect(summary.textContent).not.toContain(FULL);
+
+      fireEvent.click(screen.getByTestId('conductor-raw-toggle'));
+      await waitFor(() => {
+        expect(screen.getByTestId('conductor-pass-summary').textContent).toContain(FULL);
+      });
+    });
+  });
+
+  describe('pagination', () => {
+    /** Serves distinct rows per offset so the test can tell page 1 from page 2. */
+    function mockPagedFetch(total: number) {
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        const offset = Number(new URLSearchParams(String(url).split('?')[1]).get('offset') ?? 0);
+        const rows = Array.from({ length: Math.min(CONDUCTOR_PAGE_SIZE, Math.max(0, total - offset)) }, (_, i) => ({
+          ...ROW_A,
+          id: `row-${offset + i}`,
+          missionId: 'mission-aaa',
+          startedAt: 100000 - (offset + i),
+          criteriaActed: [],
+          outcome: `outcome-${offset + i}`,
+        }));
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ rows, total }) });
+      });
+      global.fetch = fetchMock as any;
+      return fetchMock;
+    }
+
+    function lastUrl(fetchMock: any): string {
+      return String(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0]);
+    }
+
+    it('requests the first page with limit and offset=0 on mount', async () => {
+      const fetchMock = mockPagedFetch(60);
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(CONDUCTOR_PAGE_SIZE);
+      });
+      expect(lastUrl(fetchMock)).toContain(`limit=${CONDUCTOR_PAGE_SIZE}`);
+      expect(lastUrl(fetchMock)).toContain('offset=0');
+      expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 1 of 3');
+    });
+
+    it('page 2 requests offset = one page and renders the second page of rows', async () => {
+      const fetchMock = mockPagedFetch(60);
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId('conductor-page-next');
+      fireEvent.click(screen.getByTestId('conductor-page-next'));
+
+      await waitFor(() => {
+        expect(lastUrl(fetchMock)).toContain(`offset=${CONDUCTOR_PAGE_SIZE}`);
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 2 of 3');
+        expect(screen.getAllByTestId('conductor-pass-entry')[0].getAttribute('data-pass-id')).toBe(
+          `row-${CONDUCTOR_PAGE_SIZE}`,
+        );
+      });
+    });
+
+    it('changing the mission filter resets to page 1', async () => {
+      const fetchMock = mockPagedFetch(60);
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId('conductor-page-next');
+      fireEvent.click(screen.getByTestId('conductor-page-next'));
+      await waitFor(() => {
+        expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 2 of 3');
+      });
+
+      fireEvent.change(screen.getByTestId('conductor-mission-filter'), {
+        target: { value: 'mission-aaa' },
+      });
+
+      await waitFor(() => {
+        expect(lastUrl(fetchMock)).toContain('offset=0');
+        expect(lastUrl(fetchMock)).toContain('missionId=mission-aaa');
+      });
+      expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 1 of 3');
+    });
+
+    it('live-prepends a WS row while on page 1', async () => {
+      mockPagedFetch(60);
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(CONDUCTOR_PAGE_SIZE);
+      });
+
+      capturedHandler!({ type: 'conductor_pass', project: 'proj1', row: ROW_WS });
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('conductor-pass-entry')[0].getAttribute('data-pass-id')).toBe('pass-ws1');
+      });
+      expect(screen.queryByTestId('conductor-pending-passes')).toBeNull();
+    });
+
+    it('does NOT prepend on page 2 — it holds the row behind an "N new passes" affordance', async () => {
+      mockPagedFetch(60);
+      render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+      await screen.findByTestId('conductor-page-next');
+      fireEvent.click(screen.getByTestId('conductor-page-next'));
+      await waitFor(() => {
+        expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 2 of 3');
+      });
+
+      const firstIdBefore = screen.getAllByTestId('conductor-pass-entry')[0].getAttribute('data-pass-id');
+      capturedHandler!({ type: 'conductor_pass', project: 'proj1', row: ROW_WS });
+
+      const pending = await screen.findByTestId('conductor-pending-passes');
+      expect(pending.textContent).toContain('1 new pass');
+      // The row the user was reading has NOT moved and the new row is not spliced in.
+      expect(screen.getAllByTestId('conductor-pass-entry')[0].getAttribute('data-pass-id')).toBe(firstIdBefore);
+      expect(screen.queryByText((_, el) => el?.getAttribute('data-pass-id') === 'pass-ws1')).toBeNull();
+
+      fireEvent.click(pending);
+      await waitFor(() => {
+        expect(screen.getByTestId('conductor-page-label').textContent).toBe('page 1 of 3');
+        expect(screen.queryByTestId('conductor-pending-passes')).toBeNull();
+      });
+    });
+  });
+
   describe('with nicknames', () => {
     const FULL_UUID = '12345678-90ab-cdef-1234-567890abcdef';
     const ROW_UUID = {
@@ -322,5 +544,24 @@ describe('ConductorActivityPanel', () => {
         expect(screen.getByTestId(`entity-chip-epic-${FULL_UUID}`).textContent).toBe(FULL_UUID);
       });
     });
+  });
+});
+
+describe('ConductorActivityPanel — operator-forced passes', () => {
+  it('marks an operator-forced pass in the journal list, and leaves ordinary passes unmarked', async () => {
+    global.fetch = vi.fn().mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ rows: [{ ...ROW_B, forced: true }, ROW_A] }),
+      }),
+    ) as any;
+
+    render(<ConductorActivityPanel project="proj1" onOpenEntity={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('conductor-pass-entry')).toHaveLength(2);
+    });
+    expect(screen.getAllByTestId('conductor-pass-forced')).toHaveLength(1);
+    expect(screen.getByTestId('conductor-pass-forced').textContent).toBe('kicked');
   });
 });

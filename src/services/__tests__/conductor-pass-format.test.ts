@@ -19,6 +19,7 @@ function mkGroupRow(overrides: Partial<ConductorPassJournalRow> & { id: string; 
     ran: true,
     failCounted: null,
     carried: null,
+    summary: null,
     ...overrides,
   };
 }
@@ -42,6 +43,7 @@ describe('formatConductorPass', () => {
       ran: null,
       failCounted: null,
       carried: null,
+      summary: null,
     };
 
     const result = formatConductorPass(row);
@@ -73,6 +75,7 @@ describe('formatConductorPass', () => {
     ran: null,
     failCounted: null,
     carried: null,
+    summary: null,
   };
 
   test('renders a legacy filed count object as plain non-clickable text', () => {
@@ -103,6 +106,7 @@ describe('formatConductorPass', () => {
       ran: null,
       failCounted: null,
       carried: null,
+      summary: null,
     };
 
     // An unfinished row is only a corpse once it is PAST the node budget. Under it, the
@@ -144,6 +148,7 @@ describe('formatConductorPass', () => {
       ran: null,
       failCounted: null,
       carried: null,
+      summary: null,
     };
 
     const result = formatConductorPass(row);
@@ -170,6 +175,7 @@ describe('formatConductorPass', () => {
       ran: null,
       failCounted: null,
       carried: null,
+      summary: null,
     };
 
     const result = formatConductorPass(row);
@@ -194,6 +200,7 @@ describe('formatConductorPass', () => {
       ran: null,
       failCounted: null,
       carried: null,
+      summary: null,
     };
 
     const result = formatConductorPass(row);

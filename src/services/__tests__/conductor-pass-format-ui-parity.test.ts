@@ -22,6 +22,7 @@ function mkRow(overrides: Partial<ConductorPassJournalRow>): ConductorPassJourna
     ran: true,
     failCounted: null,
     carried: null,
+    summary: null,
     ...overrides,
   };
 }

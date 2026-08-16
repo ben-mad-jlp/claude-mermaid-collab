@@ -100,11 +100,20 @@ describe('one todos snapshot per tick (audit 7a)', () => {
     };
 
     const spy = spyOn(todoStore, 'listTodos');
+    // The snapshot carries a stamped bugfix bucket — the steady state — so the
+    // repair-forge pass resolves it from the snapshot and never reaches ensureBucket's
+    // legacy full-table scan (a bucketless project pays that scan once, at creation,
+    // where fresh reads are the point).
+    spy.mockImplementation(() => ([{
+      id: 'bucket-bugfix-seed', title: '[BUCKET] bugfix', kind: 'epic', status: 'planned',
+      isBucket: true, bucketType: 'bugfix', parentId: null, dependsOn: [],
+      targetProject: '/tmp/does-not-matter',
+    } as never]));
     try {
       await runOrchestratorTick(deps);
-      // ONE full-table read — the tick's shared snapshot — feeds notify AND
-      // mission-loop; friction-triage/mission-intake perform no scan of their own
-      // here (triage reads the friction store; intake is default-disabled).
+      // ONE full-table read — the tick's shared snapshot — feeds notify, mission-loop,
+      // AND the repair-forge pass (missions via allTodos + bucket resolved from the
+      // snapshot); friction-triage/mission-intake perform no scan of their own here.
       expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       spy.mockRestore();
@@ -177,7 +186,7 @@ describe('parity — each threaded pass without a snapshot behaves identically (
   it('runMissionIntakePass: the snapshot feeds the dedup surface identically to a self-read', async () => {
     const trends = {
       total: 9, considered: 9,
-      byLayer: [{ layer: 'domain' as FrictionLayer, count: 9, reasons: [{ retryReason: 'flaky-gate', count: 9, sessions: ['a', 'b', 'c'], lastAt: new Date().toISOString() }] }],
+      byLayer: [{ layer: 'domain' as FrictionLayer, count: 9, reasons: [{ retryReason: 'flaky-gate', count: 9, sessions: ['a', 'b', 'c'], lastAt: new Date().toISOString(), defectClass: 'defect' as const }] }],
       recurring: [],
     };
     const results: unknown[] = [];

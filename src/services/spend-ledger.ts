@@ -60,6 +60,16 @@ export interface SpendEvent {
    *  killed (ledger-stats.ts makes the same point), and a kill is the signal that separates
    *  "the pass failed" from "the pass never got to run". */
   timedOut?: boolean;
+  /** The node's FINAL MESSAGE — its reasoning, persisted to `worker_ledger.outputText` (capped
+   *  there by MAX_OUTPUT_CHARS, same policy as every leaf node kind).
+   *
+   *  Before this field existed, the leaf kinds (implement/blueprint/review/research) all recorded
+   *  their final message through the leaf-executor's own recordNode calls, while EVERY row written
+   *  through this boundary — conductor, node, planner, forge, summary — stored NULL. Measured on
+   *  the live ledger: conductor 1521 rows / 0 with outputText / 11.0M output tokens; node 835 / 0 /
+   *  2.7M. ~13.7M tokens of reasoning generated and thrown away. That is why a conductor pass that
+   *  ran 253s and filed nothing could only ever be diagnosed structurally. */
+  outputText?: string | null;
 }
 
 /** Model-alias → published id so alias-named rows ('opus'/'sonnet'/…) still price. Full ids pass
@@ -116,6 +126,9 @@ export function recordSpend(e: SpendEvent, now: number = Date.now()): void {
         rateLimited: e.rateLimited ?? null,
         exitCode: e.exitCode ?? null,
         timedOut: e.timedOut ?? null,
+        // recordNode/recordPhase applies the SAME cap the leaf path uses (MAX_OUTPUT_CHARS) —
+        // matched deliberately rather than re-truncated here.
+        outputText: e.outputText ?? null,
       },
       now,
     );

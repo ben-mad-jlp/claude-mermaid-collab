@@ -12,6 +12,7 @@ import { DIAGRAM_TOOL_DEFS } from '../diagram-tools.js';
 import { DESIGN_TOOL_DEFS } from '../design-tools.js';
 import { SUPERVISOR_TOOL_DEFS } from '../supervisor-tools.js';
 import { EPIC_TOOL_DEFS } from '../epic-tools.js';
+import { CAMPAIGN_TOOL_DEFS } from '../campaign-tools.js';
 import { DECISION_TOOL_DEFS } from '../decision-tools.js';
 import { SYSTEM_TOOL_DEFS } from '../system-tools.js';
 import { SESSION_TOOL_DEFS } from '../session-tools.js';
@@ -36,6 +37,7 @@ const GROUPS: Array<{ label: string; defs: Array<{ name: string }> }> = [
   { label: 'DESIGN_TOOL_DEFS', defs: DESIGN_TOOL_DEFS },
   { label: 'SUPERVISOR_TOOL_DEFS', defs: SUPERVISOR_TOOL_DEFS },
   { label: 'EPIC_TOOL_DEFS', defs: EPIC_TOOL_DEFS },
+  { label: 'CAMPAIGN_TOOL_DEFS', defs: CAMPAIGN_TOOL_DEFS },
   { label: 'DECISION_TOOL_DEFS', defs: DECISION_TOOL_DEFS },
   { label: 'SYSTEM_TOOL_DEFS', defs: SYSTEM_TOOL_DEFS },
   { label: 'SESSION_TOOL_DEFS', defs: SESSION_TOOL_DEFS },

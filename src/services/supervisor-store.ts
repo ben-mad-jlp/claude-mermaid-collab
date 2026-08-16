@@ -176,8 +176,10 @@ export interface Escalation {
   resolutionNote: string | null;
   /** The deadline this card PROMISED on its face (createdAt + the caller's timeoutMs).
    *  The reconcile stale sweep MUST NOT touch a card whose expiresAt is in the future —
-   *  a card that prints "Timeout: 10 minutes" lives at least 10 minutes. Null for cards
-   *  that promise no timeout (they keep the legacy stale-window heuristic). */
+   *  a card that prints "Timeout: 10 minutes" lives at least 10 minutes. Operator-gated or
+   *  human-audience cards with no explicit timeout are stamped with OPERATOR_CARD_MIN_TTL_MS
+   *  (6 hours) to ensure visibility. Null for non-operator, non-human-audience cards that
+   *  promise no timeout (they keep the legacy stale-window heuristic). */
   expiresAt: number | null;
 }
 
@@ -591,6 +593,11 @@ export type ConductorPassReason =
   // consecutive timeouts on this MISSION's unchanged serve-state (not a criterion) — a card
   // was raised naming the serve-state; the conductor will not re-invoke until it changes.
   | 'conductor-timeouts-capped'
+  // The pass STOPPED short-circuit before invoking the node: CONDUCTOR_EMPTY_CONDUCT_CAP
+  // consecutive EMPTY CONDUCTS on this mission's unchanged serve-state (a real node ran, exited
+  // ok, and filed/carried NOTHING each time — mission 949dda42). A card was raised naming the
+  // mission and what its criteria looked like; the conductor will not re-invoke on this state.
+  | 'conductor-empty-conducts-capped'
   // The mission's only actionable criteria are shipped but awaiting live observation — the pass
   // returns without spending a node (nothing to serve until the observation window closes).
   | 'awaiting-observation-wait';
@@ -944,7 +951,10 @@ export function createEscalation(input: {
   audience: 'human' | 'internal';
   /** The timeout this card PRINTS on its face. Stamps expiresAt = createdAt + timeoutMs;
    *  the reconcile stale sweep will not reap the card before that deadline. Callers that
-   *  print a timeout MUST pass the SAME value here — one field, printed and enforced. */
+   *  print a timeout MUST pass the SAME value here — one field, printed and enforced.
+   *  Omitting timeoutMs on an operator-gated or human-audience card yields the
+   *  OPERATOR_CARD_MIN_TTL_MS floor (6 hours); supplying an explicit timeoutMs is honoured
+   *  exactly (never raised to the floor). */
   timeoutMs?: number | null;
 }): { escalation: Escalation; isNew: boolean } {
   const d = openDb();
@@ -1016,7 +1026,14 @@ export function createEscalation(input: {
   }
   const audience = operatorGated === 1 ? 'human' : input.audience;
   // Timeout honesty: the deadline the card prints is the deadline the store enforces.
-  const expiresAt = input.timeoutMs != null && input.timeoutMs > 0 ? createdAt + input.timeoutMs : null;
+  // Explicit timeoutMs is honoured verbatim (no Math.max). Operator-gated or human-audience
+  // cards with no explicit timeout floor to OPERATOR_CARD_MIN_TTL_MS to ensure visibility.
+  // Non-operator, non-human cards with no timeout remain null (legacy heuristic-sweep behaviour).
+  const expiresAt = input.timeoutMs != null && input.timeoutMs > 0
+    ? createdAt + input.timeoutMs
+    : operatorGated === 1 || audience === 'human'
+    ? createdAt + OPERATOR_CARD_MIN_TTL_MS
+    : null;
   d.prepare(
     'INSERT INTO escalation (id, project, session, kind, questionText, status, createdAt, resolvedAt, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, proof, stewardAttempts, suggestedActionJson, conditionKey, conditionHash, lastSeenAt, recurrenceCount, resolutionNote, audience, expiresAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(id, project, input.session, input.kind, input.questionText, 'open', createdAt, null, serverId, todoId, optionsJson, recommended, uiJson, operatorGated, null, 0, null, conditionKey, conditionHash, createdAt, 0, null, audience, expiresAt);
@@ -1541,6 +1558,11 @@ export function touchSupervisorIdentity(epoch?: number, role = 'supervisor'): bo
 export const SUPERVISOR_HEARTBEAT_INTERVAL_MS = 30_000;
 /** A supervisor is considered stale once updatedAt is older than this (2x heartbeat). */
 export const SUPERVISOR_STALE_AFTER_MS = SUPERVISOR_HEARTBEAT_INTERVAL_MS * 2;
+/** Minimum TTL for operator-gated cards. Incident ef5a06b8: an over-budget re-bet card
+ *  was raised and reaped `stale` within the ~60s reconcile window (159s/129s/129s lifetimes),
+ *  so the operator tie-breaker never existed. Operator-gated cards that supply no explicit
+ *  timeout are stamped with this 6-hour floor to ensure the human sees them. */
+export const OPERATOR_CARD_MIN_TTL_MS = 6 * 60 * 60_000;
 
 /**
  * Stop-and-forget a role: delete its supervisor_identity row so liveness reports
