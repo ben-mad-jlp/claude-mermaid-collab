@@ -141,12 +141,13 @@ export async function judgeCampaignCompletion(
     rationale = `judge-inconclusive: ${reason}`;
   }
 
-  // Persist exactly once and return the stored record.
+  // Persist exactly once and return the stored record, naming the examined evidence.
   return recordCampaignCompletion(project, {
     campaignId,
     judge: opts.judge,
     verdict,
     ruledAtSha: opts.ruledAtSha,
     rationale,
+    artifactsRead: ['campaign:' + campaignId, ...probes.map((p) => 'probe:' + p.id)],
   });
 }
