@@ -10,6 +10,7 @@ export const GROK_NODE_KINDS = [
   'blueprint', 'implement', 'review',
   'research', 'wimplement', 'verify', 'fix',
   'driveplan', 'driveexec', 'report',
+  'lens', 'commander',
   'summary',
 ] as const;
 

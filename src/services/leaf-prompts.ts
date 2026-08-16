@@ -25,6 +25,7 @@ export type LeafNodeKind =
   | 'research' | 'wimplement' | 'verify' | 'fix' // waves (P5)
   | 'driveplan' | 'driveexec' | 'report' // verify pipeline (epic f5c7fc46)
   | 'explore' // explore shape: read-only investigation, emits a findings report
+  | 'lens' | 'commander' // judgment roles: campaign completion ruling
   | 'summary'; // zen mode (design-zen-mode Phase 4): session-summary model knob
 
 /** Re-exported for the existing import sites (leaf-executor imports it from here). The
@@ -45,6 +46,8 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
   driveexec: 'Verify pipeline: constrained to the single deterministic gate verb; authors nothing.',
   report: 'Verify pipeline: files one todo per finding and emits the report markdown.',
   explore: 'Explore: read-only investigation of an open question; emits a findings report.',
+  lens: 'Judgment: read-only ruling over evidence — one lens in a panel investigating campaign completion.',
+  commander: 'Judgment: convenes a panel of lenses and renders a final ruling on campaign completion.',
   summary: 'Zen mode: summarizes a watched interactive session into a short progress summary.',
 };
 
@@ -54,7 +57,7 @@ export const NODE_KIND_DESCRIPTIONS: Record<LeafNodeKind, string> = {
  *  the matrix's initial expand/collapse. Kinds must partition LEAF_NODE_KINDS ∪
  *  ORCHESTRATION_NODE_KINDS. */
 export interface LeafNodeGroup {
-  key: 'floor' | 'verify-cad' | 'orchestration' | 'explore';
+  key: 'floor' | 'verify-cad' | 'orchestration' | 'explore' | 'judgment';
   label: string;
   firesWhen: string;
   kinds: (LeafNodeKind | OrchestrationNodeKind)[];
@@ -94,6 +97,11 @@ export const LEAF_NODE_GROUPS: LeafNodeGroup[] = [
     key: 'explore', label: 'Explore', defaultCollapsed: true,
     firesWhen: 'Only when leaf.type === explore — a read-only investigation whose deliverable is a committed report.',
     kinds: ['explore'],
+  },
+  {
+    key: 'judgment', label: 'Judgment', defaultCollapsed: true,
+    firesWhen: 'Campaign completion ruling: a panel of lenses reads evidence and a commander convenes the ruling.',
+    kinds: ['lens', 'commander'],
   },
 ];
 
