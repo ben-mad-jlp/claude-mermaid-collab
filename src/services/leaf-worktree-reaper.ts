@@ -13,6 +13,7 @@ import { isEpicLandedInGit } from './epic-landedness.js';
 import { getStatuses } from './session-status-store.js';
 import { CRASH_MS } from './session-runtime.js';
 import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.js';
+import { MUTATION_PROBE_TEMP_PREFIX, probeSweepScanRoots } from './mutation-probe-temp.js';
 
 const LEAF_EXEC_PREFIX = 'leaf-exec-';
 const REAP_THROTTLE_MS = 5 * 60_000;
@@ -24,7 +25,6 @@ const REAP_THROTTLE_MS = 5 * 60_000;
  *  (see `tickGcLeafWorktrees(opts.now)`) so the throttle is deterministically testable. */
 export const WORKTREE_GC_INTERVAL_MS = 30 * 60_000;
 export const MUTATION_PROBE_TEMP_MAX_AGE_MS = 60 * 60_000;
-const MUTATION_PROBE_TEMP_PREFIX = 'collab-mutation-probe-';
 /** Grace window: a leaf BETWEEN nodes or in its MERGE/FINALIZE phase can have NO live claim
  *  (a claim is released the moment the run stops executing) yet is still live — and the
  *  leaf-executor's own self-merge runs in THIS window. Reaping then yanks the worktree out
@@ -1048,56 +1048,69 @@ export async function gcLeafWorktrees(
 /** Throttled entry point (WORKTREE_GC_INTERVAL_MS/project) for the coordinator tick.
  *  Fire-and-forget — mirrors `reapOrphanedLeafWorktrees`'s own throttle-and-call shape.
  *  `opts.now` injects the clock and `opts.gc` the underlying work so the throttle is
- *  unit-testable without real time or a real fs+git scan. */
+ *  unit-testable without real time or a real fs+git scan.
+ *
+ *  Default scan includes the dedicated container directory under os.tmpdir() only.
+ *  Pre-existing top-level `collab-mutation-probe-*` residue under the system tmpdir
+ *  is out of the default scan and is reachable by passing `tmpRoot` explicitly. */
 export async function sweepStrayMutationProbeTemps(
   project: string,
   opts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean;
            remove?: (p: string) => Promise<void>; report?: GcReport; atIso?: string },
 ): Promise<string[]> {
-  const root = opts?.tmpRoot ?? tmpdir();
   const now = opts?.now ?? Date.now();
   const maxAgeMs = opts?.maxAgeMs ?? MUTATION_PROBE_TEMP_MAX_AGE_MS;
   const atIso = opts?.atIso ?? new Date().toISOString();
   const removed: string[] = [];
+  const seenAbsPaths = new Set<string>(); // dedupe by absolute path
 
-  let entries;
-  try {
-    entries = await readdir(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const scanRoots = probeSweepScanRoots({ tmpRoot: opts?.tmpRoot });
 
-  for (const e of entries) {
-    if (!e.isDirectory() || !e.name.startsWith(MUTATION_PROBE_TEMP_PREFIX)) continue;
-
-    const p = path.join(root, e.name);
-    let s;
+  for (const root of scanRoots) {
+    let entries;
     try {
-      s = await stat(p);
+      entries = await readdir(root, { withFileTypes: true });
     } catch {
-      continue;
+      continue; // a missing/unreadable root is skipped
     }
 
-    if (now - s.mtimeMs < maxAgeMs) continue;
+    for (const e of entries) {
+      if (!e.isDirectory() || !e.name.startsWith(MUTATION_PROBE_TEMP_PREFIX)) continue;
 
-    if (!opts?.dryRun) {
+      const p = path.join(root, e.name);
+
+      // Dedupe removals by absolute path in case both roots surface the same dir
+      if (seenAbsPaths.has(p)) continue;
+      seenAbsPaths.add(p);
+
+      let s;
       try {
-        await (opts?.remove ?? ((dir) => getWorktreeManager(project).removePathHoldingLock(dir)))(p);
+        s = await stat(p);
       } catch {
         continue;
       }
-    }
 
-    removed.push(p);
-    if (opts?.report && !opts?.dryRun) {
-      emitGcRemoval(opts.report, {
-        path: p,
-        reasonClass: 'probe-stale',
-        epicId8: null,
-        leafTodoId: null,
-        trashDir: null,
-        atIso,
-      });
+      if (now - s.mtimeMs < maxAgeMs) continue;
+
+      if (!opts?.dryRun) {
+        try {
+          await (opts?.remove ?? ((dir) => getWorktreeManager(project).removePathHoldingLock(dir)))(p);
+        } catch {
+          continue;
+        }
+      }
+
+      removed.push(p);
+      if (opts?.report && !opts?.dryRun) {
+        emitGcRemoval(opts.report, {
+          path: p,
+          reasonClass: 'probe-stale',
+          epicId8: null,
+          leafTodoId: null,
+          trashDir: null,
+          atIso,
+        });
+      }
     }
   }
 

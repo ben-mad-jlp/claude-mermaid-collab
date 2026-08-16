@@ -22,6 +22,7 @@ import { loadProjectManifest } from '../config/project-manifest.js';
 import { resolveSuiteCommands } from './verify-epic.js';
 import { neuterSymbol, throwProbeSymbol } from './mutation-probe-rewrite.js';
 import { listUntrackedPaths } from './stage-untracked.js';
+import { mutationProbeTempRoot, MUTATION_PROBE_TEMP_PREFIX } from './mutation-probe-temp.js';
 
 /** Result of running ONE arm (control, neutered, or throw).
  *  `ran:false` is an INCIDENT — the arm could not be executed at all
@@ -218,7 +219,8 @@ export async function runMutationProbe(
   }
 
   // Set up trial worktree
-  const trial = join(tmpdir(), `collab-mutation-probe-${process.pid}-${process.hrtime.bigint()}`);
+  mkdirSync(mutationProbeTempRoot(), { recursive: true });
+  const trial = join(mutationProbeTempRoot(), `${MUTATION_PROBE_TEMP_PREFIX}${process.pid}-${process.hrtime.bigint()}`);
   const teardown = () => {
     try { execFileSync('git', ['-C', repo, 'worktree', 'remove', '--force', trial], { stdio: 'ignore' }); } catch { /* ignore */ }
     try { execFileSync('git', ['-C', repo, 'worktree', 'prune'], { stdio: 'ignore' }); } catch { /* ignore */ }
