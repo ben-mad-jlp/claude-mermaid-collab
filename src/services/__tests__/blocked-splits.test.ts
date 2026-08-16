@@ -242,3 +242,36 @@ describe('diagnoseClaimSuppression — SR-3 pending split proposals', () => {
     expect(report.pendingSplitProposals[0].todoId).toBe(leaf.id);
   });
 });
+
+describe('findBlockedSplits — a fixture parent must never gate a real project', () => {
+  test('a split parent whose targetProject is not an absolute path is never reported', async () => {
+    const parent = await createTodo(project, {
+      allowOrphan: true, ownerSession: 'coordinator', title: 'leaf-complex-dag', status: 'ready',
+      targetProject: 'proj-test',
+    });
+    await createTodo(project, {
+      allowOrphan: true, ownerSession: 'coordinator', title: 'store.ts — part 1/2', status: 'planned',
+      parentId: parent.id, targetProject: 'proj-test',
+    });
+
+    const blocked = findBlockedSplits(listTodos(project, { includeCompleted: true }));
+
+    expect(blocked.map((b) => b.parentId)).not.toContain(parent.id);
+    expect(blocked).toEqual([]);
+  });
+
+  test('an absolute targetProject is still reported, so the guard cannot hide a real wedge', async () => {
+    const parent = await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: 'real split parent', status: 'ready',
+      targetProject: '/Users/someone/Code/real-project',
+    });
+    await createTodo(project, {
+      allowOrphan: true, ownerSession: 's1', title: 'a.ts — part 1/1', status: 'planned',
+      parentId: parent.id, targetProject: '/Users/someone/Code/real-project',
+    });
+
+    const blocked = findBlockedSplits(listTodos(project, { includeCompleted: true }));
+
+    expect(blocked.map((b) => b.parentId)).toContain(parent.id);
+  });
+});
