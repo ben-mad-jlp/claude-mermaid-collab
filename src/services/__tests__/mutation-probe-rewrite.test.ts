@@ -57,6 +57,9 @@ describe("mutation-probe-rewrite", () => {
     expect(result.source).toBe(observedSubjectSource);
   });
 
+  // 60s, not the 5s default: this is the only test here that does two dynamic
+  // import()s of freshly-written TypeScript, so it pays for two transpiles and
+  // blows the default whenever the box is under land-gate fan-out load.
   it("both rewritten variants of a real fixture subject still import successfully", async () => {
     // Test neuterSymbol parse check
     const neutered = neuterSymbol(neverCalledSubjectSource, "neverCalledSubject");
@@ -95,5 +98,5 @@ describe("mutation-probe-rewrite", () => {
     } finally {
       rmSync(tmpDir2, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 });
