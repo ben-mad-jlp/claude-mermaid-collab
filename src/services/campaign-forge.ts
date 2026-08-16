@@ -46,7 +46,7 @@ export class InvalidCampaignError extends Error {
  */
 export function forgeCampaign(
   project: string,
-  input: { title: string; probes: ProbeForgeInput[] },
+  input: { title: string; goal?: string; probes: ProbeForgeInput[] },
 ): CampaignRow {
   // Step 1: Validate the entire campaign. If verdict fails, throw immediately
   // before any row is written.
@@ -73,5 +73,5 @@ export function forgeCampaign(
     declaredPaths: p.declaredPaths ?? [],
   }));
 
-  return createCampaign(project, { title: input.title, probes: storeProbes });
+  return createCampaign(project, { title: input.title, goal: input.goal, probes: storeProbes });
 }

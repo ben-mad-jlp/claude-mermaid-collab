@@ -4,13 +4,14 @@
 // listing campaigns with probe counts, and reading campaign state with probe verdicts
 // and front derivation. Extracted as a pure adapter over campaign-forge/store/front.
 import { forgeCampaign, InvalidCampaignError } from '../services/campaign-forge.js';
-import { listCampaigns, listProbes, listProbeVerdicts } from '../services/campaign-store.js';
+import { listCampaigns, listProbes, listProbeVerdicts, getCampaign, latestCampaignCompletion } from '../services/campaign-store.js';
 import { campaignFront } from '../services/campaign-front.js';
+import { deriveCampaignCompletion } from '../services/campaign-completion.js';
 
 export const CAMPAIGN_TOOL_DEFS = [
   {
     name: 'forge_campaign',
-    description: 'Forge a new campaign with validated probes. Each probe is a deterministic check (kind="command") that can depend on other probes. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.',
+    description: 'Forge a new campaign with validated probes and an optional goal. Each probe is a deterministic check (kind="command") that can depend on other probes. The goal is free-text and describes what the campaign is judged against. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -21,6 +22,10 @@ export const CAMPAIGN_TOOL_DEFS = [
         title: {
           type: 'string',
           description: 'Campaign title.',
+        },
+        goal: {
+          type: 'string',
+          description: 'Free-text campaign goal (what the campaign is judged against). No shape requirement.',
         },
         probes: {
           type: 'array',
@@ -84,7 +89,7 @@ export const CAMPAIGN_TOOL_DEFS = [
   },
   {
     name: 'get_campaign',
-    description: 'Read a single campaign with all its probes, probe verdicts, and the front (probes ready to run).',
+    description: 'Read a single campaign with all its probes, probe verdicts, the front (probes ready to run), the goal, and the completion ruling. A campaign is open until a judge rules it done.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -105,13 +110,13 @@ export const CAMPAIGN_TOOL_DEFS = [
 export async function handleCampaignTool(name: string, args: any): Promise<string | null> {
   switch (name) {
     case 'forge_campaign': {
-      const { project, title, probes } = args as { project?: string; title?: string; probes?: any[] };
+      const { project, title, goal, probes } = args as { project?: string; title?: string; goal?: string; probes?: any[] };
       if (!project) throw new Error('Missing required: project');
       if (!title) throw new Error('Missing required: title');
       if (!probes) throw new Error('Missing required: probes');
       // forgeCampaign throws InvalidCampaignError if validation fails; let it propagate.
       // The setup.ts try/catch turns it into the tool error response.
-      const result = forgeCampaign(project, { title, probes });
+      const result = forgeCampaign(project, { title, goal, probes });
       return JSON.stringify(result, null, 2);
     }
     case 'list_campaigns': {
@@ -129,13 +134,16 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const { project, campaignId } = args as { project?: string; campaignId?: string };
       if (!project) throw new Error('Missing required: project');
       if (!campaignId) throw new Error('Missing required: campaignId');
+      const campaign = getCampaign(project, campaignId);
       const probes = listProbes(project, campaignId);
       const enriched = probes.map((p) => ({
         ...p,
         verdicts: listProbeVerdicts(project, p.id),
       }));
       const front = campaignFront(project, campaignId);
-      return JSON.stringify({ campaignId, probes: enriched, front }, null, 2);
+      const latest = latestCampaignCompletion(project, campaignId);
+      const completion = deriveCampaignCompletion({ probes, verdict: latest });
+      return JSON.stringify({ campaignId, goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
     }
     default:
       return null;
