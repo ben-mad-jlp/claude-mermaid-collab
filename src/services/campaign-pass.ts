@@ -116,6 +116,12 @@ export function _resetCampaignPassDbCache(project?: string): void {
 /** Timeout in milliseconds for probe command execution. */
 export const PROBE_EXEC_TIMEOUT_MS = 30000;
 
+/** Prefix for pending probe claim mission IDs. */
+export const PENDING_MISSION_PREFIX = 'pending:';
+
+/** Stale claim timeout in milliseconds (10 minutes). */
+export const PROBE_CLAIM_STALE_MS = 10 * 60 * 1000;
+
 /**
  * Pure: select the failure signature for a probe from its recorded verdicts.
  *
@@ -252,6 +258,64 @@ export function getProbeMissionLink(project: string, probeId: string): ProbeMiss
 }
 
 /**
+ * Claim a probe for forging with a transactional plain INSERT.
+ * Deletes stale pending claims older than PROBE_CLAIM_STALE_MS, then attempts to insert a pending claim.
+ * Returns true if the claim was successfully inserted (this process won the race).
+ * Returns false if the claim row already exists (constraint violation — this process lost the race).
+ * Never throws; a losing claim is a normal outcome.
+ */
+export function claimProbeForForge(
+  project: string,
+  probeId: string,
+  campaignId: string,
+  at?: number,
+): boolean {
+  const db = openCampaignPassDb(project);
+  const now = at ?? Date.now();
+  const staleThreshold = now - PROBE_CLAIM_STALE_MS;
+
+  try {
+    db.exec('BEGIN');
+
+    // Delete stale pending claims so orphaned claims become retryable.
+    db.prepare(
+      `DELETE FROM campaign_probe_mission
+       WHERE probeId = ? AND missionId LIKE 'pending:%' AND createdAt < ?`,
+    ).run(probeId, staleThreshold);
+
+    // Attempt to insert a fresh pending claim. Fail on constraint violation (PRIMARY KEY on probeId).
+    const pendingMissionId = `${PENDING_MISSION_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    db.prepare(
+      `INSERT INTO campaign_probe_mission (probeId, missionId, campaignId, createdAt)
+       VALUES (?, ?, ?, ?)`,
+    ).run(probeId, pendingMissionId, campaignId, now);
+
+    db.exec('COMMIT');
+    return true;
+  } catch (err) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Ignore rollback errors.
+    }
+    // Catch any error (including UNIQUE constraint violation) and return false.
+    return false;
+  }
+}
+
+/**
+ * Release a pending probe claim by deleting only the pending-prefixed claim row.
+ * Scoped to the prefix so it can never delete a real mission link.
+ */
+export function releaseProbeClaim(project: string, probeId: string): void {
+  const db = openCampaignPassDb(project);
+  db.prepare(
+    `DELETE FROM campaign_probe_mission
+     WHERE probeId = ? AND missionId LIKE 'pending:%'`,
+  ).run(probeId);
+}
+
+/**
  * List all open linked missions for a campaign.
  * Filters links to those whose mission is still open (not terminal).
  */
@@ -381,11 +445,22 @@ export async function runCampaignPass(
       }
     }
 
+    // 2b. Claim each probe for forging. A lost claim (claim returns false) means another pass
+    //     won the race — drop it from toGroup and add to skipped.
+    const claimed: CampaignProbe[] = [];
+    for (const probe of toGroup) {
+      if (claimProbeForForge(project, probe.id, campaignId)) {
+        claimed.push(probe);
+      } else {
+        skipped.push(probe.id);
+      }
+    }
+
     // 3. Group by failure signature.
     type SignatureGroup = { signature: string; probes: CampaignProbe[] };
     const groupMap = new Map<string, CampaignProbe[]>();
 
-    for (const probe of toGroup) {
+    for (const probe of claimed) {
       try {
         const verdicts = verdictsFn(project, probe.id);
         const sig = failureSignature(probe, verdicts);
@@ -445,6 +520,14 @@ export async function runCampaignPass(
       } catch (err) {
         // Fail-open per-group: one throwing forge leaves the other groups forged.
         // The group remains in the groups array but not in forged.
+        // Release the claims for this group's probes so they can be retried.
+        for (const probe of group.probes) {
+          try {
+            releaseProbeClaim(project, probe.id);
+          } catch {
+            // Fail-open per-probe: one release failure doesn't prevent others.
+          }
+        }
       }
     }
 
