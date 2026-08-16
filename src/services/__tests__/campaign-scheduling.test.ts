@@ -69,8 +69,8 @@ describe('campaign-scheduling', () => {
   describe('runCampaignPassForProject', () => {
     it('runCampaignPassForProject invokes the pass once per campaign', async () => {
       const project = '/test/project';
-      const campaign1 = { id: 'campaign-1', project, title: 'Campaign 1', createdAt: 1000 };
-      const campaign2 = { id: 'campaign-2', project, title: 'Campaign 2', createdAt: 1001 };
+      const campaign1 = { id: 'campaign-1', project, title: 'Campaign 1', goal: null, createdAt: 1000 };
+      const campaign2 = { id: 'campaign-2', project, title: 'Campaign 2', goal: null, createdAt: 1001 };
 
       let passCallCount = 0;
       const passCallLog: Array<{ project: string; campaignId: string; session: string }> = [];
@@ -110,8 +110,8 @@ describe('campaign-scheduling', () => {
 
     it('runCampaignPassForProject keeps going when one campaign throws', async () => {
       const project = '/test/project';
-      const campaign1 = { id: 'campaign-1', project, title: 'Campaign 1', createdAt: 1000 };
-      const campaign2 = { id: 'campaign-2', project, title: 'Campaign 2', createdAt: 1001 };
+      const campaign1 = { id: 'campaign-1', project, title: 'Campaign 1', goal: null, createdAt: 1000 };
+      const campaign2 = { id: 'campaign-2', project, title: 'Campaign 2', goal: null, createdAt: 1001 };
 
       let passCallCount = 0;
       const passCallLog: string[] = [];
