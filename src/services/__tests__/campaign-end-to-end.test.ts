@@ -135,6 +135,7 @@ describe('campaign-end-to-end', () => {
 
     const deps: CampaignPassDeps = {
       forgeMission: forgeMissionStub,
+      execProbe: async () => ({ verdict: 'fail' as const, evidence: identicalEvidence }),
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
