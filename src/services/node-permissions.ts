@@ -188,6 +188,22 @@ export const NODE_PERMISSION_SPEC: Record<LeafNodeKind, NodePermissionEntry> = {
       'explorations to state you are willing to lose. Still no Write/Edit: explore produces a ' +
       'Finding, never a diff, and the gate does not run on the explore path.',
   },
+  lens: {
+    intent: 'read-only',
+    current: [READ, GREP, GLOB, BASH],
+    target: [READ, GREP, GLOB, BASH],
+    writeConfinedToWorktree: true,
+    execConfinedToWorktree: true,
+    notes: 'Campaign judgment role: reads evidence and renders a ruling. Must not write. Bash retained for the investigation channel the judge requires.',
+  },
+  commander: {
+    intent: 'read-only',
+    current: [READ, GREP, GLOB, BASH],
+    target: [READ, GREP, GLOB, BASH],
+    writeConfinedToWorktree: true,
+    execConfinedToWorktree: true,
+    notes: 'Campaign judgment role: convenes a panel of lenses and renders a final ruling. Must not write. Bash retained for investigation.',
+  },
   summary: {
     intent: 'read-only',
     current: [READ, GREP, GLOB],
