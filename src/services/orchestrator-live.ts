@@ -17,15 +17,20 @@
  */
 
 import { existsSync } from 'node:fs';
-import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig } from './orchestrator-config.js';
+import { getOrchestratorLevel, listOrchestratorProjects, setOrchestratorLevel, emitAutoCollapseNotices, sweepTransientProjectConfig, isAutoFixEnabled, isExplorerEnabled, isCampaignEnabled } from './orchestrator-config.js';
 import { listWatchedProjects } from './supervisor-store.js';
+import { recordAutoAction } from './auto-action-audit.js';
 import { runBuildPass, shouldRunBuildPass, todoIsMissionScoped } from './coordinator-live.js';
 import { runConductorPass } from './conductor-pass.js';
 import { runReconcilePass, shouldRunReconcilePass } from './reconcile-pass.js';
 import { runNotificationTick, shouldRunNotificationTick } from './session-notification-tick.js';
 import { runFrictionWatchPass, shouldRunFrictionWatchPass } from './friction-watch.js';
-import { runFrictionTriagePass } from './friction-triage.js';
-import { runMissionIntakePass } from './mission-intake.js';
+import { runFrictionTriagePass, shouldRunFrictionTriagePass, sweepStaleAutoFiledGaps } from './friction-triage.js';
+import { runMissionIntakePass, shouldRunMissionIntakePass } from './mission-intake.js';
+import { runRepairForgePass, shouldRunRepairForgePass } from './repair-mission-pass.js';
+import { runRepairVerifyFilerPass, shouldRunRepairVerifyFilerPass } from './repair-verify-filer.js';
+import { runCampaignPassForProject, shouldRunCampaignPass } from './campaign-scheduling.js';
+import { listTodos, type Todo } from './todo-store.js';
 import { runContextRecyclePass } from './context-recycle.js';
 import { runMissionLoopPass, shouldRunMissionLoopPass } from './mission-loop.js';
 import { projectRegistry } from './project-registry.js';
@@ -290,6 +295,14 @@ export interface TickDeps {
    *  so BYPASS the periodic build throttle and claim immediately. The interval-driven tick
    *  leaves this false (throttled safety-net cadence). Threaded from runTickGuarded. */
   force?: boolean;
+  /** Audit item 7a — THE ONE TODOS SNAPSHOT PER TICK: reads
+   *  `listTodos(project, { includeCompleted: true })` for a project, memoized lazily by
+   *  the tick and handed to every snapshot-consuming pass below (notify, mission-intake,
+   *  mission-loop, archival, landed-epic sweep) so one tick pays ONE full-table scan for
+   *  them, not one each. Invalidated after any pass that mutates todos (friction-triage,
+   *  mission-intake, build, reconcile) so later consumers re-read at most once.
+   *  Injectable so tests can count/stub the store boundary. Default: listTodos. */
+  loadTodos?: (project: string) => Todo[];
   reconcile?: (project: string) => Promise<void>;
   /** Phase 3 throttle gate: returns true (and records the run) when the reconcile
    *  hygiene pass is due for a project, false while within RECONCILE_INTERVAL_MS.
@@ -299,7 +312,7 @@ export interface TickDeps {
   /** Throttled archival sweep: stamp archivedAt on terminal (done/dropped todos,
    *  converged/abandoned missions) rows past retention. Hygiene, not claim/build-latency-
    *  sensitive — same throttle shape as reconcile. Default: p => runArchivalSweep(p, { force: true }). */
-  archival?: (project: string) => Promise<void>;
+  archival?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
   /** Throttle gate for the archival sweep: returns true (and records the run) when the
    *  pass is due for a project, false while within ARCHIVAL_SWEEP_INTERVAL_MS.
    *  Default: shouldRunArchivalSweep. */
@@ -308,7 +321,7 @@ export interface TickDeps {
    *  (reconcileLandedEpics + gcEpicBranches, landed-epic-sweep.ts). Hygiene, not claim/
    *  build-latency-sensitive — same throttle shape as archival. Default:
    *  p => runLandedEpicSweep(p, { force: true }). */
-  landedEpicSweep?: (project: string) => Promise<void>;
+  landedEpicSweep?: (project: string, todosSnapshot?: Todo[]) => Promise<void>;
   /** Throttle gate for the landed-epic sweep: returns true (and records the run) when the
    *  pass is due for a project, false while within LANDED_EPIC_SWEEP_INTERVAL_MS.
    *  Default: shouldRunLandedEpicSweep. */
@@ -316,7 +329,7 @@ export interface TickDeps {
   /** Diff todos → enqueue subscription notifications → nudge idle subscribers.
    *  Runs for every WATCHED project regardless of level (decoupled from build).
    *  Default: runNotificationTick. */
-  notify?: (project: string) => Promise<unknown>;
+  notify?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
   /** Phase 4 throttle gate: returns true (and records the run) when the notification tick
    *  is due for a project, false while within NOTIFY_INTERVAL_MS. Keeps the every-tick loop
    *  free of the pass's full-table todos scan. Default: shouldRunNotificationTick. */
@@ -334,6 +347,14 @@ export interface TickDeps {
    *  WATCHED project regardless of level (planned filing is non-claimable — the
    *  "suggest"; a human promotes to ready). Default: runFrictionTriagePass. */
   frictionTriage?: (project: string) => Promise<unknown>;
+  /** Audit item 7b throttle gate for friction-triage: at most once per
+   *  FRICTION_TRIAGE_INTERVAL_MS per project (it used to run on EVERY tick and every
+   *  250ms-debounced kick with no gate). Default: shouldRunFrictionTriagePass. */
+  shouldRunFrictionTriage?: (project: string) => boolean;
+  /** Stale gap-todo sweep: close auto-filed friction todos whose reason recorded no note
+   *  after the stored newestNoteAt timestamp. Runs after friction-triage under the same
+   *  throttle gate. Default: sweepStaleAutoFiledGaps. */
+  sweepStaleGaps?: (project: string) => Promise<unknown>;
   /** Token-leak alarm: read the burn gauge and raise a deduped escalation when a non-build LLM
    *  source exceeds its call ceiling with no accepted work. Runs for every WATCHED project regardless
    *  of level (observability isn't gated on building). Default: runBurnWatchPass. */
@@ -344,7 +365,49 @@ export interface TickDeps {
   /** Mission A: DETERMINISTIC friction→forge intake. Escalates an over-threshold domain/orchestration
    *  friction cluster into an UNAPPROVED forged mission (one/tick). Self-gates on the per-project
    *  intake toggle (default OFF); runs for WATCHED projects. Default: runMissionIntakePass. */
-  missionIntake?: (project: string) => Promise<unknown>;
+  missionIntake?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
+  /** Audit item 7b throttle gate for mission-intake: at most once per
+   *  MISSION_INTAKE_INTERVAL_MS per project (it used to run on EVERY tick and every
+   *  250ms-debounced kick with no gate). Default: shouldRunMissionIntakePass. */
+  shouldRunMissionIntake?: (project: string) => boolean;
+  /** Deterministic repair-mission forge pass: selects a batch of open bugfix requests and
+   *  forges an UNAPPROVED repair mission when the bar is met (size/age). Cap: at most one
+   *  open repair mission per project. Self-gates on the per-project toggle (if any); runs
+   *  for WATCHED projects. Default: runRepairForgePass. */
+  repairForge?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
+  /** Throttle gate for repair-forge: at most once per REPAIR_FORGE_INTERVAL_MS per project.
+   *  Default: shouldRunRepairForgePass. */
+  shouldRunRepairForge?: (project: string) => boolean;
+  /** Per-project AUTOFIX switch (the third operator lever). False ⇒ the repair-forge pass
+   *  is skipped entirely for this project. Evaluated BEFORE shouldRunRepairForge — that
+   *  gate stamps the throttle clock as a side effect, so an off switch must never reach
+   *  it. Default: isAutoFixEnabled. */
+  isAutoFixEnabled?: (project: string) => boolean;
+  /** Per-project EXPLORER switch. False ⇒ the repair-verify-filer pass is skipped (with
+   *  explore dispatch held, filing more explores only grows an unrunnable queue). Evaluated
+   *  BEFORE shouldRunRepairVerifyFiler, which stamps its own throttle clock. Default:
+   *  isExplorerEnabled. */
+  isExplorerEnabled?: (project: string) => boolean;
+  /** Campaign pass dispatcher: runs every campaign of the project through the landed pass.
+   *  Existence-gated (a project with no campaign row costs nothing). Default:
+   *  runCampaignPassForProject. */
+  campaignPass?: (project: string) => Promise<unknown>;
+  /** Throttle gate for the campaign pass: at most once per CAMPAIGN_PASS_INTERVAL_MS
+   *  per project. Note: this is NOT pure — a `true` return stamps the per-project clock
+   *  (campaign-scheduling.ts:31-35). Default: shouldRunCampaignPass. */
+  shouldRunCampaignPass?: (project: string) => boolean;
+  /** Per-project CAMPAIGN switch. False ⇒ the campaign pass is skipped entirely for this
+   *  project. Evaluated BEFORE shouldRunCampaignPass — that gate stamps the throttle clock as
+   *  a side effect, so an off switch must never reach it. Default: isCampaignEnabled. */
+  isCampaignEnabled?: (project: string) => boolean;
+  /** Auto-file verify explores for converged repair missions: scans repair missions for
+   *  MET criteria with named anchors and files one explore leaf per criterion (deduped).
+   *  No LLM; deterministic filing only. Runs for WATCHED projects. Default:
+   *  runRepairVerifyFilerPass. */
+  repairVerifyFiler?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
+  /** Throttle gate for repair-verify-filer: at most once per REPAIR_VERIFY_FILER_INTERVAL_MS
+   *  per project. Default: shouldRunRepairVerifyFilerPass. */
+  shouldRunRepairVerifyFiler?: (project: string) => boolean;
   /** Context-auto-recycle driver: checkpoint→clear→collab a low-context watched
    *  session (gated by per-project contextRecycleMode). Runs for every WATCHED
    *  project regardless of level, like notify. Default: runContextRecyclePass. */
@@ -353,7 +416,7 @@ export interface TickDeps {
    *  judgment phases, auto-advance the mechanical EXECUTE→VERIFY step). Drives each
    *  project's ACTIVE missions; runs for WATCHED projects only (the safety boundary —
    *  no per-project mode). Default: runMissionLoopPass. */
-  missionLoop?: (project: string) => Promise<unknown>;
+  missionLoop?: (project: string, todosSnapshot?: Todo[]) => Promise<unknown>;
   /** Phase 4 throttle gate: returns true (and records the run) when the mission-loop pass is
    *  due for a project, false while within MISSION_LOOP_INTERVAL_MS. Keeps the every-tick loop
    *  free of listMissions' ~1+3N full-table todos scans (the single heaviest per-tick scanner).
@@ -386,21 +449,34 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
   const force = deps.force ?? false;
   const reconcile = deps.reconcile ?? runReconcilePass;
   const shouldRunReconcile = deps.shouldRunReconcile ?? shouldRunReconcilePass;
-  const archival = deps.archival ?? ((p: string) => runArchivalSweep(p, { force: true }).then(() => {}));
+  const archival = deps.archival ?? ((p: string, snap?: Todo[]) => runArchivalSweep(p, { force: true, todosSnapshot: snap }));
   const shouldRunArchival = deps.shouldRunArchival ?? shouldRunArchivalSweep;
-  const landedEpicSweep = deps.landedEpicSweep ?? ((p: string) => runLandedEpicSweep(p, { force: true }).then(() => {}));
+  const landedEpicSweep = deps.landedEpicSweep ?? ((p: string, snap?: Todo[]) => runLandedEpicSweep(p, { force: true, todosSnapshot: snap }).then(() => {}));
   const shouldRunLandedEpicSweepDep = deps.shouldRunLandedEpicSweep ?? shouldRunLandedEpicSweep;
-  const notify = deps.notify ?? runNotificationTick;
+  const notify = deps.notify ?? ((p: string, snap?: Todo[]) => runNotificationTick(p, { todosSnapshot: snap }));
   const shouldRunNotify = deps.shouldRunNotify ?? shouldRunNotificationTick;
   const frictionWatch = deps.frictionWatch ?? runFrictionWatchPass;
   const shouldRunFrictionWatch = deps.shouldRunFrictionWatch ?? shouldRunFrictionWatchPass;
   const frictionTriage = deps.frictionTriage ?? runFrictionTriagePass;
+  const shouldRunFrictionTriage = deps.shouldRunFrictionTriage ?? shouldRunFrictionTriagePass;
+  const sweepStaleGaps = deps.sweepStaleGaps ?? sweepStaleAutoFiledGaps;
   const burnWatch = deps.burnWatch ?? runBurnWatchPass;
   const shouldRunBurnWatch = deps.shouldRunBurnWatch ?? shouldRunBurnWatchPass;
-  const missionIntake = deps.missionIntake ?? runMissionIntakePass;
+  const missionIntake = deps.missionIntake ?? ((p: string, snap?: Todo[]) => runMissionIntakePass(p, { todosSnapshot: snap }));
+  const shouldRunMissionIntake = deps.shouldRunMissionIntake ?? shouldRunMissionIntakePass;
+  const repairForge = deps.repairForge ?? ((p: string, snap?: Todo[]) => runRepairForgePass(p, { todosSnapshot: snap }));
+  const shouldRunRepairForge = deps.shouldRunRepairForge ?? shouldRunRepairForgePass;
+  const autoFixEnabled = deps.isAutoFixEnabled ?? isAutoFixEnabled;
+  const explorerEnabled = deps.isExplorerEnabled ?? isExplorerEnabled;
+  const campaignPass = deps.campaignPass ?? ((p: string) => runCampaignPassForProject(p));
+  const shouldRunCampaign = deps.shouldRunCampaignPass ?? shouldRunCampaignPass;
+  const campaignEnabled = deps.isCampaignEnabled ?? isCampaignEnabled;
+  const repairVerifyFiler = deps.repairVerifyFiler ?? ((p: string, snap?: Todo[]) => runRepairVerifyFilerPass(p, { todosSnapshot: snap }));
+  const shouldRunRepairVerifyFiler = deps.shouldRunRepairVerifyFiler ?? shouldRunRepairVerifyFilerPass;
   const recycle = deps.recycle ?? runContextRecyclePass;
-  const missionLoop = deps.missionLoop ?? runMissionLoopPass;
+  const missionLoop = deps.missionLoop ?? ((p: string, snap?: Todo[]) => runMissionLoopPass(p, { todosSnapshot: snap }));
   const shouldRunMissionLoop = deps.shouldRunMissionLoop ?? shouldRunMissionLoopPass;
+  const loadTodos = deps.loadTodos ?? ((p: string) => listTodos(p, { includeCompleted: true }));
   // NB: the conductor pass no longer runs in this serial tick — it moved to its own decoupled loop
   // (runConductorGuarded / conductorTimer, B0). deps.conductor is consumed there.
   const watchedProjects = deps.watchedProjects ?? (() => new Set(listWatchedProjects().map((w) => w.project)));
@@ -443,6 +519,27 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // Skip a project whose directory is GONE — a synchronous SQLite hang on a dead worktree/temp DB
     // stalls the event loop for every pass below (see runConductorGuarded for the full incident note).
     if (!dirExists(project)) continue;
+
+    // Audit item 7a — ONE todos snapshot per project per tick. Lazily memoized: the
+    // first snapshot-consuming pass that actually runs pays the single full-table
+    // read; passes that are throttled off this tick cost nothing. Invalidated after
+    // any pass that MUTATES todos (friction-triage files, mission-intake forges,
+    // build claims/settles, reconcile sweeps), so a later consumer re-reads at most
+    // once instead of operating on a mid-tick-stale view. A failed read degrades to
+    // undefined — every consumer then self-reads exactly as before (fail-open).
+    let todosSnapshot: Todo[] | undefined;
+    const snapshot = (): Todo[] | undefined => {
+      if (todosSnapshot === undefined) {
+        try {
+          todosSnapshot = loadTodos(project);
+        } catch (err) {
+          console.warn(`[orchestrator] todos snapshot read failed for ${project}:`, err);
+          return undefined;
+        }
+      }
+      return todosSnapshot;
+    };
+    const invalidateSnapshot = (): void => { todosSnapshot = undefined; };
     let lvl: ReturnType<typeof getOrchestratorLevel>;
     try {
       lvl = getLevel(project);
@@ -462,7 +559,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (watched.has(project) && shouldRunNotify(project)) {
       try {
         currentPhase = `${project}:notify`;
-        await withPassTimeout(notify(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
+        await withPassTimeout(notify(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:notify`);
       } catch (err) {
         console.warn(`[orchestrator] notify failed for ${project}:`, err);
       }
@@ -487,12 +584,31 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // (Bugfix inbox / Collab gaps). Runs for every WATCHED project regardless of
     // level — filing 'planned' is the "suggest"; a human promotes to ready
     // (planner-promotes-ready). No LLM; best-effort.
-    if (watched.has(project)) {
+    // Audit item 7b: throttled off the every-tick + every-kick cadence (at most once
+    // per FRICTION_TRIAGE_INTERVAL_MS/project) — planner-paced filing needs no
+    // sub-minute freshness.
+    if (watched.has(project) && shouldRunFrictionTriage(project)) {
       try {
         currentPhase = `${project}:friction-triage`;
-        await withPassTimeout(frictionTriage(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-triage`);
+        const res = await withPassTimeout(frictionTriage(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-triage`);
+        // 7a: invalidate the shared snapshot ONLY when triage actually filed rows —
+        // the common no-op pass must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && ((res as { filed?: number }).filed ?? 0) > 0) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] friction-triage failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+
+      // Stale gap-todo sweep: close auto-filed friction todos whose reason recorded
+      // no note after the stored newestNoteAt. Runs under the same friction-triage
+      // throttle gate (no second throttle). Fail-open.
+      try {
+        currentPhase = `${project}:friction-sweep`;
+        const res = await withPassTimeout(sweepStaleGaps(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:friction-sweep`);
+        if (res && typeof res === 'object' && ((res as { swept?: number }).swept ?? 0) > 0) invalidateSnapshot();
+      } catch (err) {
+        console.warn(`[orchestrator] friction-sweep failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
 
@@ -514,12 +630,93 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     // LLM spend). Self-gates on the per-project intake toggle (default OFF) so it is inert until a
     // human opts in; runs for every WATCHED project. Best-effort; bounded. A drafted mission never
     // self-drives (unapproved → approve_mission is the human gate).
-    if (watched.has(project)) {
+    // Audit item 7b: throttled off the every-tick + every-kick cadence (at most once
+    // per MISSION_INTAKE_INTERVAL_MS/project) — a human-gated draft detector needs no
+    // sub-minute freshness. 7a: consumes the shared snapshot for its dedup surfaces.
+    if (watched.has(project) && shouldRunMissionIntake(project)) {
       try {
         currentPhase = `${project}:mission-intake`;
-        await withPassTimeout(missionIntake(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-intake`);
+        const res = await withPassTimeout(missionIntake(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-intake`);
+        // 7a: invalidate ONLY when a mission was actually forged (a new node exists) —
+        // the disabled/no-cluster no-op must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && (res as { drafted?: unknown }).drafted != null) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] mission-intake failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Repair-mission forge pass: deterministic batch selection over open bugfix-bucket leaves,
+    // forges an UNAPPROVED repair mission when the bar is met. Cap: one open repair mission per
+    // project. No LLM; bounded. Auto-forged missions are inactive + unapproved until a human
+    // approves them. Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per REPAIR_FORGE_INTERVAL_MS/project).
+    // ORDERING IS LOAD-BEARING: autoFixEnabled(project) MUST come before
+    // shouldRunRepairForge(project). The latter is NOT pure — it stamps the per-project
+    // throttle clock as a side effect — so evaluating it first would burn the forge's
+    // 5-minute clock on every tick even with AutoFix off, silently rate-limiting the
+    // forge for 5 minutes after the operator flips the switch back on.
+    if (watched.has(project) && autoFixEnabled(project) && shouldRunRepairForge(project)) {
+      try {
+        currentPhase = `${project}:repair-forge`;
+        const res = await withPassTimeout(repairForge(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:repair-forge`);
+        // Invalidate only when a mission was actually forged (a new node exists) —
+        // the cap/no-batch no-op must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && (res as { forged?: unknown }).forged != null) invalidateSnapshot();
+      } catch (err) {
+        console.warn(`[orchestrator] repair-forge failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Repair-verify-filer pass: auto-file one explore per MET criterion of a converged repair
+    // mission. Scans criteria for named anchors and dedupes by criterion tag. No LLM; deterministic
+    // filing only. Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per REPAIR_VERIFY_FILER_INTERVAL_MS/project).
+    // Held by the EXPLORER switch: with explore DISPATCH off, auto-filing more explores
+    // only piles up a queue that cannot run. SAME left-of-side-effect ordering discipline
+    // as the AutoFix gate above — shouldRunRepairVerifyFilerPass stamps its own throttle
+    // clock, so the enabled check MUST be evaluated before it.
+    if (watched.has(project) && explorerEnabled(project) && shouldRunRepairVerifyFiler(project)) {
+      try {
+        currentPhase = `${project}:repair-verify-filer`;
+        const res = await withPassTimeout(repairVerifyFiler(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:repair-verify-filer`);
+        // Invalidate only when explores were actually filed (new leaf nodes exist) —
+        // the no-op pass must not force later consumers into a re-read.
+        if (res && typeof res === 'object' && ((res as { filed?: string[] }).filed ?? []).length > 0) invalidateSnapshot();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        try {
+          recordAutoAction({
+            project,
+            action: 'verify-explore',
+            outcome: 'refused',
+            reason: `repair-verify-filer-pass-failed for ${project}: ${message}`,
+          });
+        } catch {
+          // Audit is fail-open; ignore any error.
+        }
+        console.warn(`[orchestrator] repair-verify-filer failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
+      }
+    }
+
+    // Campaign pass: run every campaign of the project through the landed pass (probe
+    // execution and issue filing). Existence-gated (a project with no campaign row costs
+    // nothing). Runs for every WATCHED project. Throttled off the every-tick cadence
+    // (at most once per CAMPAIGN_PASS_INTERVAL_MS/project).
+    // ORDERING IS LOAD-BEARING: campaignEnabled(project) MUST come before
+    // shouldRunCampaign(project). The latter is NOT pure — it stamps the per-project
+    // throttle clock as a side effect — so evaluating it first would burn the campaign's
+    // 5-minute clock on every tick even with campaigns off, silently rate-limiting for
+    // 5 minutes after the operator flips the switch back on.
+    if (watched.has(project) && campaignEnabled(project) && shouldRunCampaign(project)) {
+      try {
+        currentPhase = `${project}:campaign-pass`;
+        await withPassTimeout(campaignPass(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:campaign-pass`);
+      } catch (err) {
+        console.warn(`[orchestrator] campaign-pass failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
 
@@ -549,7 +746,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (watched.has(project) && shouldRunMissionLoop(project)) {
       try {
         currentPhase = `${project}:mission-loop`;
-        await withPassTimeout(missionLoop(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-loop`);
+        await withPassTimeout(missionLoop(project, snapshot()), NOTIFY_PASS_TIMEOUT_MS, `${project}:mission-loop`);
       } catch (err) {
         console.warn(`[orchestrator] mission-loop failed for ${project}:`, err);
       }
@@ -577,6 +774,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       } catch (err) {
         console.warn(`[orchestrator] runBuildPass failed for ${project}:`, err);
       }
+      invalidateSnapshot(); // build claims/settles todos — later consumers re-read
     }
 
     // Phase 3 (mission c4eb4fcc): the reconcile pass is a hygiene catch-up that drives
@@ -592,6 +790,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
       } catch (err) {
         console.warn(`[orchestrator] runReconcilePass failed for ${project}:`, err);
       }
+      invalidateSnapshot(); // reconcile's sweeps mutate todos — later consumers re-read
     }
 
     // Throttled archival sweep: stamp archivedAt on terminal rows past retention (mission
@@ -599,9 +798,14 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.archival && shouldRunArchival(project)) {
       try {
         currentPhase = `${project}:archival`;
-        await withPassTimeout(archival(project), ARCHIVAL_PASS_TIMEOUT_MS, `${project}:archival`);
+        const res = await withPassTimeout(archival(project, snapshot()), ARCHIVAL_PASS_TIMEOUT_MS, `${project}:archival`);
+        // 7a: invalidate ONLY when rows were actually archived — the common
+        // nothing-past-retention pass must not force the landed-epic sweep to re-read.
+        const r = res as { todosArchived?: number; missionsArchived?: number } | undefined;
+        if (r && typeof r === 'object' && ((r.todosArchived ?? 0) > 0 || (r.missionsArchived ?? 0) > 0)) invalidateSnapshot();
       } catch (err) {
         console.warn(`[orchestrator] runArchivalSweep failed for ${project}:`, err);
+        invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
       }
     }
 
@@ -610,7 +814,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (passes.landedEpicSweep && shouldRunLandedEpicSweepDep(project)) {
       try {
         currentPhase = `${project}:landed-epic-sweep`;
-        await withPassTimeout(landedEpicSweep(project), LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS, `${project}:landed-epic-sweep`);
+        await withPassTimeout(landedEpicSweep(project, snapshot()), LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS, `${project}:landed-epic-sweep`);
       } catch (err) {
         console.warn(`[orchestrator] runLandedEpicSweep failed for ${project}:`, err);
       }

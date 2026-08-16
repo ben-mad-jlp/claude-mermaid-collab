@@ -14,6 +14,7 @@ import {
   listTestQuarantine,
   writeTestQuarantine,
   removeTestQuarantine as removeTestQuarantineDefault,
+  pruneBaseGateTestRuns as pruneBaseGateTestRunsDefault,
 } from './worker-ledger';
 import { listTodos, updateTodo as updateTodoDefault } from './todo-store';
 import { quarantineDedupKey } from './quarantine-dedup';
@@ -197,6 +198,8 @@ export const QUARANTINE_RENEWAL_WINDOW_MS = 60 * 60_000;
  * @param now Current timestamp (injectable for testing)
  * @param deps Overrideable dependencies for testing
  */
+export const MIN_GREEN_OBSERVATIONS_TO_CLOSE = 3;
+
 export async function closeQuarantineOnGreen(
   project: string,
   now: number = Date.now(),
@@ -230,7 +233,12 @@ export async function closeQuarantineOnGreen(
         ? listObservationsFn(project, r.createdAt).filter((o) => o.test === r.test)
         : listTestObservationsFn(project, r.test, r.createdAt);
 
-      if (testObs.length > 0 && !testObs.some((o) => o.failed)) {
+      // MIN_GREEN_OBSERVATIONS_TO_CLOSE: one lucky green must never un-quarantine an
+      // INTERMITTENT flake — that is the only kind of test quarantine exists for.
+      // MEASURED 2026-08-13: file-path rows seeded at 12:11 were closed by the first
+      // green gate and the same files redded the next gate at 12:41, so quarantine
+      // provided zero protection. Closing now requires a consistent green streak.
+      if (testObs.length >= MIN_GREEN_OBSERVATIONS_TO_CLOSE && !testObs.some((o) => o.failed)) {
         removeTestQuarantineFn(project, r.test);
 
         const resolvedTestFile = resolveTestFileFn(project, r.test);
@@ -438,4 +446,69 @@ export async function sweepExpiringQuarantine(
       );
     }
   }
+}
+
+/** Minimum spacing between full ceremony runs for ONE project. Every base-gate resolution
+ *  used to fire all four ceremonies inline and unthrottled; five minutes keeps the
+ *  bookkeeping fresh (TTLs and observation windows are measured in hours/days) while taking
+ *  the sweeps off the per-gate hot path. */
+export const CEREMONY_INTERVAL_MS = 5 * 60_000;
+
+/** Per-project ceremony clock. Process-local by design: each sidecar process advances its
+ *  own projects' bookkeeping; the ceremonies themselves are idempotent, so two processes
+ *  overlapping is waste, never corruption. */
+const lastCeremonyRunAt = new Map<string, number>();
+
+/** Test hook: forget every project's ceremony clock. */
+export function _resetCeremonyThrottle(): void {
+  lastCeremonyRunAt.clear();
+}
+
+export interface QuarantineCeremonyDeps {
+  sweepExpiringQuarantine?: typeof sweepExpiringQuarantine;
+  promoteQuarantineCandidates?: typeof promoteQuarantineCandidates;
+  closeQuarantineOnGreen?: typeof closeQuarantineOnGreen;
+  pruneBaseGateTestRuns?: typeof pruneBaseGateTestRunsDefault;
+}
+
+/**
+ * The ONE entry point for quarantine bookkeeping, fired after a base-gate result settles
+ * (both the executor path — leaf-gate.ts resolveBaseGreen — and the conductor probe path —
+ * conductor-infra-arm.ts makeEpicBaseProbe). Runs expiry-sweep → promote → close-on-green →
+ * prune, in that order, each step best-effort (a throwing step never blocks the later ones),
+ * behind ONE per-project throttle so at most one full run per CEREMONY_INTERVAL_MS per
+ * project happens regardless of gate traffic. Each ceremony's own semantics (close
+ * thresholds, promotion caps, retention windows) are untouched — this only decides WHEN the
+ * set runs.
+ *
+ * @returns true iff the ceremonies actually ran (false = throttled).
+ */
+export async function runQuarantineCeremonies(
+  project: string,
+  now: number = Date.now(),
+  deps?: QuarantineCeremonyDeps,
+): Promise<boolean> {
+  const last = lastCeremonyRunAt.get(project);
+  if (last !== undefined && now - last < CEREMONY_INTERVAL_MS) return false;
+  lastCeremonyRunAt.set(project, now);
+
+  const steps: Array<[string, () => unknown | Promise<unknown>]> = [
+    ['sweepExpiringQuarantine', () => (deps?.sweepExpiringQuarantine ?? sweepExpiringQuarantine)(project, now)],
+    ['promoteQuarantineCandidates', () => (deps?.promoteQuarantineCandidates ?? promoteQuarantineCandidates)(project, now)],
+    ['closeQuarantineOnGreen', () => (deps?.closeQuarantineOnGreen ?? closeQuarantineOnGreen)(project, now)],
+    // pruneBaseGateTestRuns keeps its own internal hourly throttle (process-global); this
+    // outer clock only bounds how often we even ask.
+    ['pruneBaseGateTestRuns', () => (deps?.pruneBaseGateTestRuns ?? pruneBaseGateTestRunsDefault)(now)],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (err) {
+      console.warn(
+        `[flaky-quarantine] runQuarantineCeremonies: ${project}: ${name} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return true;
 }

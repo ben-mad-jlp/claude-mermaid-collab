@@ -3671,10 +3671,46 @@
     },
     {
       "name": "desktop_snapshot",
-      "description": "Capture an accessibility/text snapshot of the current page.",
+      "description": "Text/structure snapshot of the visible page: one line per interactive or labelled element, as `tag @testid #id role= aria= \"text\"`. Styling classes are OMITTED by default — they were 90% of the output and nothing can act on them. Pass verbose:true to include them, selector to narrow the scan, limit to cap the line count (default 500). For ONE element prefer desktop_query.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "CSS selector to scan (default: interactive + labelled elements)."
+          },
+          "verbose": {
+            "type": "boolean",
+            "description": "Include class lists. Default false."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max lines returned. Default 500."
+          }
+        }
+      }
+    },
+    {
+      "name": "desktop_query",
+      "description": "Read ONLY the elements matching a CSS selector, in the same line format as desktop_snapshot. Use to check a specific claim (\"what does the status banner say\") without paying for a whole-page read. Returns an empty string when nothing matches — an absent element and an empty one are different findings, so check the match count.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string"
+          },
+          "verbose": {
+            "type": "boolean",
+            "description": "Include class lists. Default false."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max lines returned. Default 100."
+          }
+        },
+        "required": [
+          "selector"
+        ]
       }
     },
     {
@@ -3949,7 +3985,7 @@
     },
     {
       "name": "list_friction",
-      "description": "Query persisted friction notes (newest first). Filter by todoId / session / layer — e.g. layer=\"domain\" answers \"which todos hit domain-layer friction and why\" without opening each worker's private transcript.",
+      "description": "Query persisted friction notes (newest first, paged with default limit 100 / max 500). Filter by todoId / session / layer / retryReason / since — e.g. layer=\"domain\" answers \"which todos hit domain-layer friction and why\" without opening each worker's private transcript.",
       "inputSchema": {
         "properties": {
           "layer": {
@@ -3961,12 +3997,28 @@
             ],
             "type": "string"
           },
+          "limit": {
+            "description": "Maximum number of notes to return (default 100, max 500)",
+            "type": "number"
+          },
+          "offset": {
+            "description": "Offset into result set (default 0)",
+            "type": "number"
+          },
           "project": {
             "description": "Absolute path to project root",
             "type": "string"
           },
+          "retryReason": {
+            "description": "Filter by retry reason (exact match, optional)",
+            "type": "string"
+          },
           "session": {
             "description": "Filter to one session (optional)",
+            "type": "string"
+          },
+          "since": {
+            "description": "ISO-8601 timestamp: include notes created at or after this time (optional)",
             "type": "string"
           },
           "todoId": {
@@ -5016,7 +5068,7 @@
     },
     {
       "name": "epic_land_readiness",
-      "description": "Read-only land-presence check for one epic (kind='epic'). For the epic's FULL descendant set, every descendant that is accepted/done and is a CODE leaf must have a commit whose `Collab-Todo: <id>` trailer is reachable from collab/epic/<id8>. Containers (>=1 non-dropped child), [GATE] decision nodes, the land leaf (kind='land') and nested epics are exempt and reported as exemptions. A code leaf with a commit on a stray ref is 'stranded'; one with no commit anywhere is 'missing' (accepted nothing) — both BLOCK the land. Also counts DUPLICATE trailer commits per leaf (informational only; duplicate dispatch is safe recovery, never auto-fixed). Proves work LANDED, says nothing about whether it is CORRECT. Pure git reads; reports, never fixes. Returns { epicId, epicBranch, checked, findings[], exemptions[], duplicateCommits[], blocking }.",
+      "description": "Read-only land-presence check for one epic (kind='epic'). For the epic's FULL descendant set, every descendant that is accepted/done and is a CODE leaf must have a commit whose `Collab-Todo: <id>` trailer is reachable from collab/epic/<id8>. Containers (>=1 non-dropped child), [GATE] decision nodes, the land leaf (kind='land') and nested epics are exempt and reported as exemptions. A code leaf with a commit on a stray ref is 'stranded'; one with no commit anywhere is 'missing' (accepted nothing); a leaf whose trailer commit sits on the epic branch but absent from trunk is 'unlanded' — all three BLOCK the land. Also counts DUPLICATE trailer commits per leaf (informational only; duplicate dispatch is safe recovery, never auto-fixed). Proves work LANDED, says nothing about whether it is CORRECT. Pure git reads; reports, never fixes. Returns { epicId, epicBranch, checked, findings[], exemptions[], duplicateCommits[], blocking }.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6074,7 +6126,7 @@
     },
     {
       "name": "mutation_probe",
-      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result.",
+      "description": "Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result. Verdict may be graded, vacuous, incident, or unknown when the arm results conflict.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -6157,6 +6209,121 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "forge_campaign",
+      "description": "Forge a new campaign with validated probes. Each probe is a deterministic check (kind=\"command\") that can depend on other probes. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project (where the campaign is created)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Campaign title."
+          },
+          "probes": {
+            "type": "array",
+            "description": "Array of probes to validate and create. Each probe is an object with: ref (string), kind (\"command\"), environment (\"worktree\"|\"rig\"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints).",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string",
+                  "description": "Reference identifier for this probe (used in dependsOn; resolved to a uuid on creation)."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "command"
+                  ],
+                  "description": "Probe kind (only \"command\" in v1)."
+                },
+                "environment": {
+                  "type": "string",
+                  "enum": [
+                    "worktree",
+                    "rig"
+                  ],
+                  "description": "Probe environment (\"worktree\" for normal execution, \"rig\" for rig-managed environments)."
+                },
+                "command": {
+                  "type": "string",
+                  "description": "Shell command to execute."
+                },
+                "dependsOn": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Optional list of probe refs this probe depends on (must pass before this runs)."
+                },
+                "declaredPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Files this probe operates on (for scoping and tracking)."
+                },
+                "asserts": {
+                  "type": "object",
+                  "description": "Optional validation hints (e.g., { exitCode: 0 }) — used during forge validation but not stored."
+                }
+              },
+              "required": [
+                "ref",
+                "kind",
+                "environment",
+                "command"
+              ]
+            }
+          }
+        },
+        "required": [
+          "project",
+          "title",
+          "probes"
+        ]
+      }
+    },
+    {
+      "name": "list_campaigns",
+      "description": "List all campaigns in a project with their probe counts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          }
+        },
+        "required": [
+          "project"
+        ]
+      }
+    },
+    {
+      "name": "get_campaign",
+      "description": "Read a single campaign with all its probes, probe verdicts, and the front (probes ready to run).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "description": "Tracking project."
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "Campaign id."
+          }
+        },
+        "required": [
+          "project",
+          "campaignId"
         ]
       }
     },
@@ -6950,7 +7117,7 @@
     },
     {
       "name": "create_epic",
-      "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
+      "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox/Feature requests — those are quick-capture only, created via file_bugfix/file_feature). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7097,64 +7264,6 @@
       }
     },
     {
-      "name": "file_to_bucket",
-      "description": "Quick-capture: file a leaf under the Inbox or Bugfix inbox bucket epic (auto-created if missing). For unplanned thoughts/bugs that don't yet warrant a full epic — re-home later via promote_to_epic.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "project": {
-            "type": "string"
-          },
-          "session": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          },
-          "bucket": {
-            "type": "string",
-            "enum": [
-              "inbox",
-              "bugfix"
-            ]
-          },
-          "description": {
-            "type": "string"
-          },
-          "priority": {
-            "type": "number",
-            "enum": [
-              0,
-              1,
-              2,
-              3,
-              4
-            ]
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "backlog",
-              "planned"
-            ]
-          },
-          "link": {
-            "type": "object",
-            "properties": {
-              "blueprintId": {
-                "type": "string"
-              }
-            }
-          }
-        },
-        "required": [
-          "project",
-          "session",
-          "title"
-        ]
-      }
-    },
-    {
       "name": "file_finding",
       "description": "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
       "inputSchema": {
@@ -7214,7 +7323,7 @@
     },
     {
       "name": "file_explore",
-      "description": "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+      "description": "File an explore-node investigation request as a leaf under the rolling 'Explore runs' epic. The leaf is dispatchable immediately (no re-homing required). `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7249,8 +7358,10 @@
             "type": "string",
             "enum": [
               "backlog",
-              "planned"
-            ]
+              "planned",
+              "ready"
+            ],
+            "description": "Leaf status: 'backlog' (unplanned), 'planned' (planned but unapproved), or 'ready' (approved, dispatchable — default)."
           }
         },
         "required": [
@@ -7278,6 +7389,78 @@
         },
         "required": [
           "project"
+        ]
+      }
+    },
+    {
+      "name": "file_bugfix",
+      "description": "File a typed bugfix report. Creates a leaf under the Bugfix bucket epic (auto-created if missing) with structured metadata (observed failure, evidence anchor, fixed means). Required fields: project, session, observedFailure, evidence, fixedMeans. The validator refuses filings with codes no-failure-shape (observedFailure lacks failure keywords), no-named-anchor (evidence has no path:line or identifier), or no-falsifiable-predicate (fixedMeans lacks measurable assertion). A refusal writes ZERO rows and returns error code bugfix-filing-refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "observedFailure": {
+            "type": "string",
+            "description": "Description of the concrete symptom or error observed."
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Grounding anchor: a file path:line, identifier, or hash reference."
+          },
+          "fixedMeans": {
+            "type": "string",
+            "description": "Measurable assertion of what was fixed."
+          },
+          "title": {
+            "type": "string",
+            "description": "Leaf title (defaults to observedFailure)."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "observedFailure",
+          "evidence",
+          "fixedMeans"
+        ]
+      }
+    },
+    {
+      "name": "file_feature",
+      "description": "File a typed feature request. Creates a leaf under the Feature requests bucket epic (auto-created if missing) with a user-visible outcome statement. Required fields: project, session, outcome. The validator refuses filings with code no-user-visible-outcome (outcome lacks both a surface term and an action verb). A refusal writes ZERO rows and returns error code feature-filing-refused.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What the user can now see or do (must name a surface like \"operator\", \"card\", \"panel\" and an action like \"sees\", \"shows\", \"displays\")."
+          },
+          "title": {
+            "type": "string",
+            "description": "Leaf title (defaults to outcome)."
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "session",
+          "outcome"
         ]
       }
     },

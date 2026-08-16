@@ -32,7 +32,7 @@ import {
   recordSupervisorAudit,
   SUPERVISOR_STALE_AFTER_MS,
 } from './supervisor-store.ts';
-import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren, reviveTerminalBuckets } from './todo-store.ts';
+import { getTodo, listTodos, sweepEpicRollups, sweepTerminalBucketChildren, reviveTerminalBuckets, type Todo } from './todo-store.ts';
 import { surfaceEpicLand, sweepStrandedAccepted, sweepStrandedEpics, sweepCorruptEpics, releaseDroppedEpicWorktrees, BP0_STRANDED_SUMMARY_KIND, autoLandArmedMissionEpics, surfaceBuildGreenNonMissionEpics } from './coordinator-live.ts';
 import { assertClaimInvariantsAsync } from './invariant-check.ts';
 import { claimReason, danglingDeps, resolveDepId, hasTerminalEpicAncestor } from './claimability.ts';
@@ -60,6 +60,80 @@ export const EPIC_SWEEP_TRIAGE_KIND = 'epic-sweep-triage';
  *  DROPPED leaf whose dependents read 'dep-dropped', and a HELD leaf whose dependents
  *  read 'deps-pending' with no landed sha to settle against. */
 export const DEP_STRAND_DECISION_KIND = 'dep-strand-decision';
+
+/** Escalation `kind` reserved for the parentless-leaf sweep: a GRANDFATHERED
+ *  `kind:'leaf'` row with no parentId (created before the store's
+ *  parentless-leaf-refused guard) is permanently unclaimable and invisible to every
+ *  epic-scoped surface (incident b053b529 sat 5+ hours). The sweep raises exactly ONE
+ *  deduped human card per orphan — never auto-drops (the row may carry real work a
+ *  human should re-home or consciously drop). Exempt from the stale-close sweep like
+ *  the other durable kinds. */
+export const PARENTLESS_LEAF_KIND = 'parentless-leaf';
+
+/** Grace period before a parentless leaf is carded — a freshly written row mid-repair
+ *  (e.g. a re-homing edit in flight) must not flap a card. */
+export const PARENTLESS_LEAF_GRACE_MS = 3_600_000; // 1h
+
+/** Deterministic identity for a parentless-leaf card: one card per orphan row —
+ *  createEscalation's conditionKey path reuses the open card and honours a resolved
+ *  row's suppression, so a second sweep never mints a rival. */
+export function parentlessLeafConditionKey(leafId: string): string {
+  return `parentless-leaf:${leafId.slice(0, 8)}`;
+}
+
+/**
+ * Raise one deduped human card per grandfathered parentless leaf older than the grace
+ * period. Injectable now/todos/createEscalation for hermetic tests; returns the ids of
+ * the leaves for which a NEW card was raised this sweep. Fail-open per row — one bad
+ * card write never aborts the sweep.
+ */
+export function sweepParentlessLeaves(
+  project: string,
+  opts?: {
+    now?: number;
+    todos?: Todo[];
+    createEscalation?: typeof createEscalation;
+    graceMs?: number;
+  },
+): string[] {
+  const now = opts?.now ?? Date.now();
+  const graceMs = opts?.graceMs ?? PARENTLESS_LEAF_GRACE_MS;
+  const createEsc = opts?.createEscalation ?? createEscalation;
+  const todos = opts?.todos ?? listTodos(project, { includeCompleted: true });
+  const carded: string[] = [];
+  for (const t of todos) {
+    try {
+      if (t.kind !== 'leaf' || t.parentId != null) continue;
+      if (t.status === 'done' || t.status === 'dropped') continue;
+      const createdMs = typeof t.createdAt === 'number' ? t.createdAt : new Date(t.createdAt as unknown as string).getTime();
+      if (!Number.isFinite(createdMs) || now - createdMs < graceMs) continue;
+      const shortId = t.id.slice(0, 8);
+      const res = createEsc({
+        project,
+        session: 'coordinator',
+        kind: PARENTLESS_LEAF_KIND,
+        todoId: t.id,
+        audience: 'human',
+        operatorGated: true,
+        conditionKey: parentlessLeafConditionKey(t.id),
+        conditionTuple: [PARENTLESS_LEAF_KIND, shortId],
+        questionText:
+          `Leaf "${t.title ?? shortId}" (${shortId}) has NO parent epic or bucket — it is ` +
+          `permanently unclaimable and invisible to every epic-scoped surface. It predates the ` +
+          `store's parentless-leaf-refused guard (grandfathered). Fix: re-home it under a real ` +
+          `epic or bucket (set parentId), or drop it if the work is no longer needed. It will ` +
+          `NOT be auto-dropped.`,
+      });
+      if (res && res.isNew) carded.push(t.id);
+    } catch (err) {
+      console.warn(
+        `[reconcile-pass] parentless-leaf card failed for ${t.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return carded;
+}
 
 /** Deterministic identity for a dep-strand escalation: same strander + same dependent
  *  set → same key, so `createEscalation`'s keyed dedup bumps the existing open row
@@ -139,12 +213,28 @@ export async function runReconcilePass(project: string): Promise<void> {
   const now = Date.now();
 
   // -------------------------------------------------------------------------
+  // THE ONE ESCALATION-TABLE READ (audit item 8): this snapshot is the single
+  // `listOpenEscalations()` sweep for the whole pass. Steps 1 (stale-reaper),
+  // 3i (dangling-deps auto-close), 3j (dep-strand auto-close) and 4
+  // (verified-done) are PHASES over it — each re-reads a row's CURRENT status
+  // via the cheap keyed `getEscalation(id)` check exactly once before writing,
+  // so a row an earlier phase (or a concurrent actor) already resolved is never
+  // double-written, while the three duplicate full-table reads are gone.
+  // Escalations CREATED mid-pass (3, 3i, 3j card phases) are deliberately not
+  // re-enumerated: a just-created card cannot be stale/moot in the same pass,
+  // and createEscalation's keyed dedup owns its identity.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
   // 1. STALE ESCALATIONS: auto-close open escalations older than the stale window
   // -------------------------------------------------------------------------
   const openEscalations = listOpenEscalations().filter((e) => e.project === project);
 
   for (const esc of openEscalations) {
     try {
+      // Phase discipline (item 8): skip a row that is no longer open (defensive —
+      // step 1 is the first phase, but the snapshot-then-recheck shape is uniform).
+      if (getEscalation(esc.id)?.status !== 'open') continue;
       // BP0 stranded-accept SUMMARY cards are durable + throttled (re-created at
       // most once/hour). Aging one out after the ~60s stale window would close it
       // seconds after creation and the throttle would block re-creation for an
@@ -156,8 +246,44 @@ export async function runReconcilePass(project: string): Promise<void> {
       // Dep-strand decision cards (3j) are durable for the same reason: they dedup on a
       // stable questionText and describe a strand that only a human edge-fix (or the 3j
       // auto-close) clears, so aging one out just re-raises it on the next tick.
-      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND) continue;
+      // Parentless-leaf cards (3k) are durable too: they dedup on a per-orphan conditionKey
+      // and describe a row only a human re-home/drop clears, so aging one out just
+      // re-raises it on the next sweep.
+      if (esc.kind === BP0_STRANDED_SUMMARY_KIND || esc.kind === EPIC_SWEEP_TRIAGE_KIND || esc.kind === DEP_STRAND_DECISION_KIND || esc.kind === PARENTLESS_LEAF_KIND) continue;
       const age = now - esc.createdAt;
+
+      // TIMEOUT HONESTY: a card that PRINTS a timeout (expiresAt stamped at create)
+      // lives at least until that deadline — the ~60s stale window NEVER applies to it.
+      // (The incident: contested-review cards promising "Timeout: 10 minutes" were
+      // reaped in 60-180s, so the human tie-breaker effectively did not exist.) Once
+      // the promised deadline passes, the card is reaped as a labeled TIMEOUT DEFAULT,
+      // not as an anonymous 'ai' close: resolvedBy='timeout-default' + a durable
+      // resolutionNote so audits can find every human call overridden by silence.
+      if (esc.expiresAt != null) {
+        if (now < esc.expiresAt) continue; // promise not yet expired — hands off
+        const promisedMs = esc.expiresAt - esc.createdAt;
+        resolveEscalation(
+          esc.id,
+          'stale',
+          'timeout-default',
+          `timeout-default: human never answered within ${formatIdleMs(promisedMs)}; outcome defaulted to ${esc.recommended ?? 'none (card expired unactioned)'}`,
+        );
+        recordSupervisorAudit({
+          kind: 'reconcile',
+          project,
+          session: esc.session,
+          detail: JSON.stringify({
+            source: 'reconcile-pass',
+            escalationId: esc.id,
+            ageMs: age,
+            reason: 'expired',
+            expiresAt: esc.expiresAt,
+          }),
+        });
+        continue;
+      }
+
+      // Legacy path (expiresAt NULL): today's stale-window sweep, byte-identical.
       if (age < SUPERVISOR_STALE_AFTER_MS) continue;
 
       resolveEscalation(esc.id, 'stale', 'ai');
@@ -442,9 +568,28 @@ export async function runReconcilePass(project: string): Promise<void> {
   // resolves (edge fixed) OR the todo itself goes terminal, the card is moot.
   // -------------------------------------------------------------------------
   await yieldToLoop();
+  // Audit item 7: ONE full-table todos read shared by the dangling-dep sweep (3i,
+  // read-only) and the dep-strand sweep's phase 1 (3j, mutating but idempotent —
+  // settleDupOfLanded's own completedBy guard makes iterating a point-in-time list
+  // safe). 3j re-reads fresh ONLY after phase 1 actually found settle candidates,
+  // preserving its "card phase never sees stale held state" freshness contract.
+  let strandTodos: Todo[] = [];
+  let strandById = new Map<string, Todo>();
+  let strandReadOk = false;
   try {
-    const allTodos = listTodos(project, { includeCompleted: true });
-    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    strandTodos = listTodos(project, { includeCompleted: true });
+    strandById = new Map(strandTodos.map((t) => [t.id, t]));
+    strandReadOk = true;
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] shared todos read failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  try {
+    if (!strandReadOk) throw new Error('shared todos read failed — skipping dangling-dep sweep');
+    const allTodos = strandTodos;
+    const byId = strandById;
 
     for (const t of allTodos) {
       if (t.status === 'done' || t.status === 'dropped') continue;
@@ -471,8 +616,9 @@ export async function runReconcilePass(project: string): Promise<void> {
 
     // Auto-close: a 'dangling-deps' card whose todo has since gone terminal, or whose
     // dependsOn no longer has ANY dangling id (the edge was fixed / the ambiguity
-    // resolved), is moot.
-    const openDangling = listOpenEscalations().filter((e) => e.project === project && e.kind === DANGLING_DEPS_KIND);
+    // resolved), is moot. PHASE over the pass-top escalation snapshot (item 8) — the
+    // per-row getEscalation status re-check below preserves freshness before writing.
+    const openDangling = openEscalations.filter((e) => e.kind === DANGLING_DEPS_KIND);
     for (const esc of openDangling) {
       try {
         if (!esc.todoId) continue;
@@ -510,6 +656,25 @@ export async function runReconcilePass(project: string): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
+  // 3k. PARENTLESS-LEAF SWEEP: a grandfathered kind:'leaf' row with no parentId is
+  // permanently unclaimable (incident b053b529 — invisible 5+ hours while every epic
+  // starved). The store now refuses to CREATE one (parentless-leaf-refused), so this
+  // sweep only ever sees pre-guard rows: raise exactly one deduped human card per
+  // orphan past the 1h grace window; never auto-drop. Reuses the shared todos read.
+  // -------------------------------------------------------------------------
+  await yieldToLoop();
+  try {
+    if (strandReadOk) {
+      sweepParentlessLeaves(project, { now, todos: strandTodos });
+    }
+  } catch (err) {
+    console.warn(
+      `[reconcile-pass] parentless-leaf sweep failed for ${project}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // 3j. DEP-STRAND SETTLE + DECISION SWEEP (the surfacing/wiring half of
   // dep-settlement.ts): a leaf held `dup-of-landed:<sha8>` (or plain `manual`) is
   // neither `done` nor `dropped`, so `depSatisfied` never satisfies it and every
@@ -537,11 +702,18 @@ export async function runReconcilePass(project: string): Promise<void> {
   await yieldToLoop();
   try {
     // Phase 1 — HELD-DUP SELF-SETTLE (mutating; must run BEFORE the card phases).
-    for (const t of listTodos(project, { includeCompleted: true })) {
+    // Iterates the SHARED read from 3i (item 7): the candidate filter (held
+    // `dup-of-landed:<sha8>`, non-terminal) is stable within the pass, and
+    // settleDupOfLanded is idempotent via its own completedBy guard, so a
+    // point-in-time list is safe to walk.
+    let settleCandidates = 0;
+    const phase1Todos = strandReadOk ? strandTodos : listTodos(project, { includeCompleted: true });
+    for (const t of phase1Todos) {
       if (t.status === 'done' || t.status === 'dropped') continue;
       if (typeof t.heldReason !== 'string' || !t.heldReason.startsWith(`${DUP_OF_LANDED}:`)) continue;
       const sha8 = t.heldReason.split(':')[1];
       if (!sha8) continue; // tokenless hold — no landed proof to settle against; phase 3 cards it
+      settleCandidates++;
       try {
         await settleDupOfLanded(project, t.id, {
           landedCommit: sha8,
@@ -556,9 +728,16 @@ export async function runReconcilePass(project: string): Promise<void> {
       }
     }
 
-    // Phase 2 — re-read AFTER settling so the card phase never sees stale held state.
-    const allTodos = listTodos(project, { includeCompleted: true });
-    const byId = new Map(allTodos.map((t) => [t.id, t]));
+    // Phase 2 — the card phase must never see stale held state, so re-read AFTER
+    // settling — but ONLY when phase 1 actually had candidates to settle (item 7:
+    // with zero candidates nothing was mutated and the shared read is still exact,
+    // so the second full-table scan is skipped).
+    const allTodos = settleCandidates > 0 || !strandReadOk
+      ? listTodos(project, { includeCompleted: true })
+      : strandTodos;
+    const byId = settleCandidates > 0 || !strandReadOk
+      ? new Map(allTodos.map((t) => [t.id, t]))
+      : strandById;
 
     // Cheap pre-filter: the exact set of todo ids that some non-terminal todo's
     // `dependsOn` resolves to (same resolveDepId logic dependentsOf/claimability use).
@@ -620,8 +799,10 @@ export async function runReconcilePass(project: string): Promise<void> {
       }
     }
 
-    // Phase 4 — AUTO-CLOSE (mirrors 3i's dangling-deps auto-close).
-    const openStrand = listOpenEscalations().filter((e) => e.project === project && e.kind === DEP_STRAND_DECISION_KIND);
+    // Phase 4 — AUTO-CLOSE (mirrors 3i's dangling-deps auto-close). PHASE over the
+    // pass-top escalation snapshot (item 8) — the per-row getEscalation status
+    // re-check below preserves freshness before writing.
+    const openStrand = openEscalations.filter((e) => e.kind === DEP_STRAND_DECISION_KIND);
     for (const esc of openStrand) {
       try {
         if (!esc.todoId) continue;

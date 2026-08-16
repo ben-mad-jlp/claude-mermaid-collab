@@ -1,6 +1,6 @@
 import { GONE_MS } from '@/stores/subscriptionStore';
 import type { Escalation } from '@/stores/supervisorStore';
-import { selectTriageStack, type SessionSummary, type TriageStackOpts } from '@/lib/triageSelectors';
+import { selectAttentionStack, type SessionSummary, type AttentionStackOpts } from '@/lib/attentionSelectors';
 
 export interface Freshness {
   /** We've heard from the read-model pipe within GONE_MS. A connected-but-silent
@@ -40,7 +40,7 @@ export function fmtHHMM(ts: number): string {
  *  feed overrides everything — a calm "All clear" (or even "N decisions waiting")
  *  painted on frozen data is the exact lie this guards against.
  *
- *  Zone-0 folds the SAME triage truth Zone-1 promotes from (selectTriageStack) —
+ *  Zone-0 folds the SAME attention truth Zone-1 promotes from (selectAttentionStack) —
  *  needs-you decisions AND wedged/unknown sessions — so the across-the-room verdict
  *  can never read "All clear" green over a session the FocusCard simultaneously
  *  flags as stuck (review finding 899f33a7). Tone is graded: URGENT (red) when
@@ -54,7 +54,7 @@ export function selectVerdict(
   sessionSummaries: Record<string, SessionSummary>,
   freshness: Freshness,
   now: number,
-  opts: TriageStackOpts = {},
+  opts: AttentionStackOpts = {},
 ): Verdict {
   if (!freshness.live) {
     const line =
@@ -63,7 +63,7 @@ export function selectVerdict(
         : 'NOT UPDATING — reconnecting…';
     return { tone: 'disconnected', line, updatedAt: freshness.lastRefreshAt };
   }
-  const stack = selectTriageStack(openEscalations, sessionSummaries, now, opts);
+  const stack = selectAttentionStack(openEscalations, sessionSummaries, now, opts);
   if (stack.length === 0) return { tone: 'clear', line: 'All clear', updatedAt: now };
 
   let stuck = 0;

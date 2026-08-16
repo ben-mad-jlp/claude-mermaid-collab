@@ -45,6 +45,7 @@ function esc(p: Partial<Escalation> & { questionText?: string }): Escalation {
     lastSeenAt: p.lastSeenAt ?? null,
     recurrenceCount: p.recurrenceCount ?? 0,
     resolutionNote: p.resolutionNote ?? null,
+    expiresAt: p.expiresAt ?? null,
   };
 }
 

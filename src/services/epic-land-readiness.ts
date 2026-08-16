@@ -18,7 +18,7 @@
 import type { Todo } from './todo-store';
 import { listTodos } from './todo-store';
 import { isEpicTodo, isLandTodo } from './invariant-check';
-import { epicBranchName } from './epic-branch-status';
+import { epicBranchName, detectTrunkRef } from './epic-branch-status';
 import { criterionEdgesOf } from './criterion-edges';
 
 /** [GATE] / [GATE:<kind>] — a decision node that authors no code. */
@@ -30,13 +30,29 @@ export function isGateTodo(t: Todo): boolean {
 export interface CommitProbeResult {
   /** shas carrying the trailer that are REACHABLE from the epic tip. */
   onEpicTip: string[];
+  /** shas carrying the trailer that are REACHABLE from the trunk. */
+  onTrunk?: string[];
   /** shas carrying the trailer anywhere in the repo (any ref). */
   anyRef: string[];
 }
 export type CommitProbe = (todoId: string) => CommitProbeResult | Promise<CommitProbeResult>;
 
 export type ExemptReason = 'container' | 'gate' | 'land-leaf' | 'epic' | 'dup-settled' | 'adopted';
-export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified';
+export type FindingKind = 'missing' | 'stranded' | 'orphaned-proof' | 'dup-unverified' | 'adopt-unverified' | 'unlanded';
+
+/** Absence findings — work that is genuinely absent from the epic branch (vs unlanded but present). */
+export const ABSENCE_FINDING_KINDS: readonly FindingKind[] = [
+  'missing',
+  'stranded',
+  'dup-unverified',
+  'adopt-unverified',
+  'orphaned-proof',
+];
+
+/** True if a finding represents work that is genuinely absent (not merely unlanded). */
+export function isAbsenceFinding(f: LandFinding): boolean {
+  return ABSENCE_FINDING_KINDS.includes(f.kind);
+}
 
 /** Provenance handle written by adoptBranchAsEpic: `adopt_branch_as_epic:<sha8>`.
  *  The bare verb (no sha) is the pre-2026-08-07 form and carries no evidence. */
@@ -68,9 +84,10 @@ export interface LandFinding {
   title: string;
   /** 'missing' = no commit on ANY ref (accepted nothing).
    *  'stranded' = a commit exists on some ref but is NOT reachable from the epic tip.
+   *  'unlanded' = a commit is reachable from the epic tip but NOT from the trunk.
    *  'orphaned-proof' = a non-terminal descendant tagged with a criterion this epic serves. */
   kind: FindingKind;
-  /** Populated for 'stranded': where the work actually sits. */
+  /** Populated for 'stranded' or 'unlanded': where the work actually sits. */
   strayShas: string[];
   reason: string;
 }
@@ -138,6 +155,8 @@ export async function buildLandReadiness(
   probe: CommitProbe,
   project: string = '',
   reachProbe?: ReachProbe,
+  trunkRef?: string,
+  classifyUnlanded: boolean = true,
 ): Promise<LandReadinessReport> {
   const epicBranch = epicBranchName(epicId);
 
@@ -338,8 +357,37 @@ export async function buildLandReadiness(
     checked++;
     const p = await probe(desc.id);
 
-    if (p.onEpicTip.length > 0) {
-      // Landed on the epic tip. Check for duplicates.
+    if ((p.onTrunk?.length ?? 0) > 0) {
+      // Landed on trunk. Check for duplicates (keyed on epic tip only).
+      if (p.onEpicTip.length > 2) {
+        duplicateCommits.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          count: p.onEpicTip.length,
+          shas: p.onEpicTip,
+        });
+      }
+    } else if (p.onEpicTip.length > 0 && classifyUnlanded && trunkRef) {
+      // Reachable from epic tip but not from trunk: unlanded commit.
+      // Check for duplicates (keyed on epic tip only).
+      if (p.onEpicTip.length > 2) {
+        duplicateCommits.push({
+          todoId: desc.id,
+          title: desc.title ?? '',
+          count: p.onEpicTip.length,
+          shas: p.onEpicTip,
+        });
+      }
+      findings.push({
+        todoId: desc.id,
+        title: desc.title ?? '',
+        kind: 'unlanded',
+        strayShas: p.onEpicTip,
+        reason: `unlanded: ${p.onEpicTip.join(', ')} — reachable from ${epicBranch}, absent from ${trunkRef}`,
+      });
+    } else if (p.onEpicTip.length > 0) {
+      // Reachable from epic tip but classifyUnlanded is false or trunkRef is missing.
+      // Check for duplicates (keyed on epic tip only).
       if (p.onEpicTip.length > 2) {
         duplicateCommits.push({
           todoId: desc.id,
@@ -349,13 +397,14 @@ export async function buildLandReadiness(
         });
       }
     } else if (p.anyRef.length > 0) {
-      // Commit exists but not on the epic tip.
+      // Commit exists but not on the epic tip or trunk.
+      const trunkName = trunkRef ?? 'trunk';
       findings.push({
         todoId: desc.id,
         title: desc.title ?? '',
         kind: 'stranded',
         strayShas: p.anyRef,
-        reason: `stranded: ${p.anyRef.join(', ')}`,
+        reason: `stranded: ${p.anyRef.join(', ')} — absent from ${epicBranch} and ${trunkName}`,
       });
     } else {
       // No commit anywhere.
@@ -386,9 +435,11 @@ export async function buildLandReadiness(
 
 /**
  * A real commit probe rooted at `project` and `epicBranch`.
- * Searches the epic tip first (reachability), then all refs (stray detection).
+ * Searches the epic tip first (reachability), then the trunk, then all refs (stray detection).
  */
 export function makeCommitProbe(project: string, epicBranch: string): CommitProbe {
+  let trunkP: Promise<string> | null = null;
+
   return async (todoId: string): Promise<CommitProbeResult> => {
     const grep = async (ref: string[]) => {
       const res = await runGit(project, [
@@ -407,35 +458,101 @@ export function makeCommitProbe(project: string, epicBranch: string): CommitProb
 
     // Reachable from the epic tip.
     const onEpicTip = await grep([`refs/heads/${epicBranch}`]);
-    // Anywhere in the repo (only when tip is empty, for stray detection).
-    const anyRef = onEpicTip.length > 0 ? onEpicTip : await grep(['--all']);
 
-    return { onEpicTip, anyRef };
+    // Resolve trunk once per factory.
+    if (!trunkP) {
+      trunkP = detectTrunkRef(project);
+    }
+    const trunkRef = await trunkP;
+
+    // Reachable from the trunk (skip if trunk == epicBranch to avoid double-grep).
+    let onTrunk: string[] = [];
+    if (trunkRef !== epicBranch) {
+      onTrunk = await grep([`refs/heads/${trunkRef}`]);
+    }
+
+    // Anywhere in the repo (only when both tips are empty, for stray detection).
+    const anyRef = onEpicTip.length > 0 || onTrunk.length > 0
+      ? [...new Set([...onEpicTip, ...onTrunk])]  // union
+      : await grep(['--all']);
+
+    return { onEpicTip, onTrunk: onTrunk.length > 0 ? onTrunk : undefined, anyRef };
   };
 }
 
 /**
- * A real reachability probe: is `sha` an ancestor of the epic tip? `merge-base
- * --is-ancestor` exits 0 for yes, non-zero for no AND for a sha that does not resolve —
- * both of which must read as "not verified", so the non-zero collapse is correct here.
+ * Pure union/abstain decision over merge-base exit codes.
+ * - exit 0 on any arm ⇒ true (reachable).
+ * - exit 1 ⇒ that arm votes "not an ancestor".
+ * - any other code (128, etc) ⇒ that arm ABSTAINS.
+ * - no arm returned 0 ⇒ false (fail-safe).
+ */
+export function reachVerdict(codes: number[]): boolean {
+  for (const code of codes) {
+    if (code === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * A real reachability probe: is `sha` an ancestor of the epic tip or trunk?
+ * Tests both refs (epic tip + trunk) and unions the results via reachVerdict.
+ * `merge-base --is-ancestor` exits 0 for yes, 1 for no, and other codes for
+ * unresolvable refs (e.g., 128 from a deleted ref) — both non-zero votes abstain
+ * so a missing ref does not block.
  */
 export function makeReachProbe(project: string, epicBranch: string): ReachProbe {
+  let trunkP: Promise<string> | null = null;
+
   return async (sha: string): Promise<boolean> => {
     if (!/^[0-9a-fA-F]{4,40}$/.test(sha)) return false; // never hand an arbitrary string to git
-    const res = await runGit(project, ['merge-base', '--is-ancestor', sha, `refs/heads/${epicBranch}`]);
-    return res.code === 0;
+
+    // Resolve trunk once per factory.
+    if (!trunkP) {
+      trunkP = detectTrunkRef(project);
+    }
+    const trunkRef = await trunkP;
+
+    // Probe epic tip.
+    const epicRes = await runGit(project, ['merge-base', '--is-ancestor', sha, `refs/heads/${epicBranch}`]);
+
+    // Probe trunk (skip if same as epicBranch).
+    let trunkRes = { code: 0 };  // if skipped, assume reachable from the epic probe
+    if (trunkRef !== epicBranch) {
+      trunkRes = await runGit(project, ['merge-base', '--is-ancestor', sha, `refs/heads/${trunkRef}`]);
+    }
+
+    return reachVerdict([epicRes.code, trunkRes.code]);
   };
 }
 
+/** Test seam: counts real presence sweeps (getEpicLandReadiness invocations) so the
+ *  measure-once tests can prove ONE sweep per landEpic call (audit O5). Deliberately a
+ *  counter, NOT a cache — per-call threading in coordinator-land is the dedupe; a cache
+ *  here would go stale against store rows that move independently of git shas. */
+export const _presenceSweepCounter = { count: 0 };
+/** Test seam: reset the presence-sweep counter. */
+export function _resetPresenceSweepCounter(): void {
+  _presenceSweepCounter.count = 0;
+}
+
 /** DB-backed wrapper: load the project's work-graph and report land readiness. */
-export async function getEpicLandReadiness(project: string, epicId: string): Promise<LandReadinessReport> {
+export async function getEpicLandReadiness(
+  project: string,
+  epicId: string,
+  opts?: { classifyUnlanded?: boolean },
+): Promise<LandReadinessReport> {
+  _presenceSweepCounter.count++;
   const todos = listTodos(project, { includeCompleted: true });
   const epicBranch = epicBranchName(epicId);
+  const trunkRef = await detectTrunkRef(project);
   return buildLandReadiness(
     todos,
     epicId,
     makeCommitProbe(project, epicBranch),
     project,
     makeReachProbe(project, epicBranch),
+    trunkRef,
+    opts?.classifyUnlanded ?? false,
   );
 }

@@ -3,11 +3,12 @@ import type { Todo } from './todo-store';
 import { listReadyTodos, claimTodo, releaseExpiredClaims, completeTodo, updateTodo, getTodo, listTodos, reclaimClaim, reclaimOrphan, releaseClaim, resetTodo, stampEpicLandedAt, clearEpicLandedAt, bumpRetryCountIfOwned, decrementRetryCountIfOwned } from './todo-store';
 import { stampEpicLandedAtGated } from './epic-landed-stamp-gate';
 import { isEpic, isLand, isMission, kindOf, labelFor, stripLabel, type TodoKind } from './todo-kind.ts';
-import { findBlockedSplits, type BlockedSplit } from './claimability';
+import { findBlockedSplits, type BlockedSplit, claimReason } from './claimability';
 import { DEFAULT_ORPHAN_GRACE_MS, DEFAULT_PULSE_STALE_MS } from './coordinator-core';
 import { reapDeadWorkers as reapDeadWorkersImpl, type WorkerLivenessDeps } from './worker-liveness';
 import { MAX_REDISPATCH, STRANDED_REOPEN_CAP } from './harness-caps';
-import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize } from './orchestrator-config';
+import { getOrchestratorLevel, listOrchestratorProjects, getProjectPoolConfig, getProjectPoolSize, isExplorerEnabled } from './orchestrator-config';
+import { filterExplorerHeld, EXPLORER_OFF_SUPPRESSION_REASON } from './explore-run-epic';
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
@@ -899,6 +900,16 @@ export interface Oi1LandWorktree {
   epicHeadSha(epicId: string): Promise<string | null>;
 }
 
+// Worktree interface for the accept-time ancestor gate, extending Oi1LandWorktree with
+// the four members the gate probes (commitOnIntegration, epicBranchName, isGitRepoPublic,
+// resolveIntegrationRef). WorktreeManager satisfies it structurally.
+export interface Oi1AncestorWorktree extends Oi1LandWorktree {
+  isGitRepoPublic(): Promise<boolean>;
+  resolveIntegrationRef(): Promise<string | null>;
+  commitOnIntegration(epicId: string, todoId: string, ref: string): Promise<boolean | null>;
+  epicBranchName(epicId: string): string;
+}
+
 // Optional dependency bag for step 2, with fail-closed floor and post-land hooks.
 export interface Oi1LandDeps {
   typecheckFloor?: (o: { repo: string; epicWorktreeCwd: string }) => Promise<LandTypecheckProof>;
@@ -923,6 +934,8 @@ export interface Oi1LandDeps {
     masterSha?: string | null;
     baseRef?: string;
   }) => Promise<void>;
+  wm?: Oi1AncestorWorktree;
+  authority?: (project: string, epicId: string, todos: Todo[]) => boolean;
 }
 
 /**
@@ -1079,6 +1092,42 @@ export async function oi1ReconcileLandStep(args: {
   return { landConflict };
 }
 
+// --- OI-1: union reachability probe (accept-time ancestor gate helper) -----------
+// Two-arm reachability check: a leaf's commit is reachable if it appears in EITHER
+// the trunk (ARM A, integration ref) OR the epic accumulation branch (ARM B).
+// Rationale: mirrors bp1FilterStrandedFoundations (lines 1212–1224) — work on the
+// epic branch is legitimately unseen from trunk until it lands. Only both-false
+// (stranded from both surfaces) triggers a reversal.
+export async function oi1UnionReachable(
+  wm: Oi1AncestorWorktree,
+  epicId: string,
+  todoId: string,
+  intRef: string,
+): Promise<{
+  reachableTrunk: boolean | null;
+  reachableEpic: boolean | null;
+  epicBranch: string;
+  verdict: 'reachable' | 'unreachable' | 'indeterminate';
+}> {
+  const epicBranch = wm.epicBranchName(epicId);
+  // ARM A: probe trunk (integration ref).
+  const reachableTrunk = await wm.commitOnIntegration(epicId, todoId, intRef).catch(() => null);
+  // ARM B: probe epic accumulation branch.
+  const reachableEpic = await wm.commitOnIntegration(epicId, todoId, epicBranch).catch(() => null);
+
+  // Verdict: reachable if EITHER arm is true; unreachable only if BOTH are false.
+  let verdict: 'reachable' | 'unreachable' | 'indeterminate';
+  if (reachableTrunk === true || reachableEpic === true) {
+    verdict = 'reachable';
+  } else if (reachableTrunk === false && reachableEpic === false) {
+    verdict = 'unreachable';
+  } else {
+    verdict = 'indeterminate'; // a null + false pair → accept.
+  }
+
+  return { reachableTrunk, reachableEpic, epicBranch, verdict };
+}
+
 // --- OI-1: accept-time ANCESTOR-OF-INTEGRATION gate -----------------------------
 // Close the stranded-acceptance class: `accepted` must imply `reachable from the
 // integration branch`, so accepted work can never silently fail to ship. This runs
@@ -1113,12 +1162,13 @@ export async function acceptTimeAncestorGate(
   // closing the silent-strand class. Empty/hallucinated completions are STILL caught by
   // resolveCompletion's work-committed re-verify, so skipping here is safe.
   const allTodos = listTodos(project, { includeCompleted: true });
-  if (!epicAutoLandAuthority(project, epicId, allTodos)) {
+  const authority = deps?.authority ?? epicAutoLandAuthority;
+  if (!authority(project, epicId, allTodos)) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-not-autoland-authorized' }) });
     return true;
   }
   const targetProject = (getTodo(project, todoId)?.targetProject) ?? project;
-  const wm = getWorktreeManager(targetProject);
+  const wm = deps?.wm ?? getWorktreeManager(targetProject);
   if (!(await wm.isGitRepoPublic())) {
     recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, oi1: 'skip-non-git' }) });
     return true; // fail-safe: not a git repo → today's behaviour.
@@ -1130,15 +1180,20 @@ export async function acceptTimeAncestorGate(
   }
 
   // 1. first probe.
-  let reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
-  if (reachable === null) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-accept' }) });
+  const probeResult = await oi1UnionReachable(wm as Oi1AncestorWorktree, epicId, todoId, intRef);
+  if (probeResult.verdict === 'indeterminate') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: probeResult.epicBranch, reachableTrunk: probeResult.reachableTrunk, reachableEpic: probeResult.reachableEpic, oi1: 'indeterminate-accept' }) });
     return true; // fail-safe: indeterminate (no commit / git error) → accept.
   }
-  if (reachable === true) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-accept' }) });
-    await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
-    return true;
+  if (probeResult.verdict === 'reachable') {
+    // Only stamp if the commit is on the integration ref (ARM A = true).
+    // If only ARM B (epic branch) is true, the epic still needs to be landed by the reconcile step.
+    if (probeResult.reachableTrunk === true) {
+      recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: probeResult.epicBranch, reachableTrunk: probeResult.reachableTrunk, reachableEpic: probeResult.reachableEpic, oi1: 'reachable-accept' }) });
+      await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
+      return true;
+    }
+    // ARM B (epic) is true but ARM A (trunk) is false/null — pass through to reconcile.
   }
 
   // 2. NOT reachable yet — one-shot idempotent epic→integration land reconcile.
@@ -1146,14 +1201,14 @@ export async function acceptTimeAncestorGate(
   const { landConflict } = await oi1ReconcileLandStep({ project, todoId, epicId, intRef, session, targetProject, wm, deps });
 
   // 3. re-probe after the reconcile attempt.
-  reachable = await wm.commitOnIntegration(epicId, todoId, intRef);
-  if (reachable === true) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reachable-after-land' }) });
+  const reprobeResult = await oi1UnionReachable(wm as Oi1AncestorWorktree, epicId, todoId, intRef);
+  if (reprobeResult.verdict === 'reachable') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'reachable-after-land' }) });
     await stampEpicLandedAtGated(project, epicId, new Date().toISOString(), { session });
     return true;
   }
-  if (reachable === null) {
-    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'indeterminate-after-land-accept' }) });
+  if (reprobeResult.verdict === 'indeterminate') {
+    recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'indeterminate-after-land-accept' }) });
     return true; // fail-safe.
   }
 
@@ -1174,7 +1229,7 @@ export async function acceptTimeAncestorGate(
   // reopenStrandedAccept resets the leaf to `ready` (actionable) and raises an
   // escalation; we annotate the reason as integration-unreachable (counted above).
   await reopenStrandedAccept(project, todoId, epicId, rolledUp, title, intRef, session);
-  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, oi1: 'reversed-not-on-integration' }) });
+  recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId, epicId, intRef, epicBranch: reprobeResult.epicBranch, reachableTrunk: reprobeResult.reachableTrunk, reachableEpic: reprobeResult.reachableEpic, oi1: 'reversed-not-on-integration' }) });
   return false;
 }
 
@@ -1290,6 +1345,12 @@ export interface ClaimSuppressionReport {
   blocked: boolean;
 }
 
+/** The suppression reason a bucket-planning leaf reports. Named (never silent) so
+ *  daemon_status / the claim-suppression report says exactly why nothing is claiming —
+ *  a lever whose effect you cannot see on the board is how wedges happen. */
+export const BUCKET_PLANNING_SUPPRESSION_REASON =
+  "bucket-planning: parented under a bucket epic — planning-only, never auto-run; re-home to a real epic to run";
+
 export async function diagnoseClaimSuppression(project: string): Promise<ClaimSuppressionReport> {
   const level = getOrchestratorLevel(project);
   const ready = listReadyTodos(project);
@@ -1298,13 +1359,15 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   // and the childrenIndex built from it is threaded into isHeadlessLeaf/
   // headlessExclusionReason below instead of each re-querying per candidate.
   const allTodosSnapshot = listTodos(project, { includeCompleted: true });
+  const byId = new Map(allTodosSnapshot.map((t) => [t.id, t]));
+  const bucketPlanningSuppressed = allTodosSnapshot.filter((t) => !isEpic(t) && !isMission(t) && claimReason(t, byId) === 'bucket-planning').map((t) => ({ todoId: t.id, title: displayTitle(t), reason: BUCKET_PLANNING_SUPPRESSION_REASON }));
   const childrenIndex = buildChildrenIndex(allTodosSnapshot);
   const blockedSplits = findBlockedSplits(allTodosSnapshot);
   const pendingSplitProposals = listOpenSplitProposals(project);
   const blocked = blockedSplits.length > 0 || pendingSplitProposals.length > 0;
   // Project-wide gates short-circuit the whole set (mirror claimGuard's early returns).
   if (overDailyBudget(project)) {
-    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: mk('over-daily-budget'), claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
+    return { level, ready: ready.length, claimable: 0, projectGate: 'over-daily-budget', suppressed: [...mk('over-daily-budget'), ...bucketPlanningSuppressed], claimableIds: [], blockedSplits, pendingSplitProposals, blocked };
   }
   // Per-leaf pipeline, in claimGuard order: probe → stranded-foundation → headless.
   const ids = (ts: Todo[]) => new Set(ts.map((t) => t.id));
@@ -1314,21 +1377,25 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
   const bp1Ok = ids(afterBp1);
   const afterHeadless = afterBp1.filter((t) => isHeadlessLeaf(t, childrenIndex));
   const headlessOk = ids(afterHeadless);
+  // EXPLORER SWITCH, in claimGuard's own position (last per-leaf filter). Held explore
+  // leaves are REPORTED with the explorer-off reason rather than vanishing from the board.
+  const afterExplorer = filterExplorerHeld(afterHeadless, allTodosSnapshot, isExplorerEnabled(project));
+  const explorerOk = ids(afterExplorer);
   const suppressed = classifyClaimSuppression(
     ready.map((t) => ({ id: t.id, title: displayTitle(t), claimProbe: t.claimProbe ?? null, notHeadlessReason: headlessExclusionReason(t, childrenIndex) })),
-    probeOk, bp1Ok, headlessOk,
+    probeOk, bp1Ok, headlessOk, explorerOk,
   );
   // The breaker gate applies AFTER the per-leaf filters in claimGuard, suppressing the
   // remaining set; report it as the project gate when open (the per-leaf reasons above
   // still hold and are kept for detail).
   const projectGate = breakerOpen() ? 'breaker-open' as const : null;
-  const claimable = projectGate ? [] : afterHeadless;
+  const claimable = projectGate ? [] : afterExplorer;
   return {
     level,
     ready: ready.length,
     claimable: claimable.length,
     projectGate,
-    suppressed,
+    suppressed: [...suppressed, ...bucketPlanningSuppressed],
     claimableIds: claimable.map((t) => t.id),
     blockedSplits,
     pendingSplitProposals,
@@ -1339,18 +1406,24 @@ export async function diagnoseClaimSuppression(project: string): Promise<ClaimSu
 /** Pure classification (exported for tests): given the ready leaves and the id-sets
  *  that SURVIVED each successive claimGuard filter, attribute each suppressed leaf to
  *  the FIRST filter that dropped it — same order claimGuard applies them (probe →
- *  stranded-foundation → headless). A leaf in all three sets is claimable (omitted). */
+ *  stranded-foundation → headless → explorer-switch). A leaf in all four sets is
+ *  claimable (omitted).
+ *
+ *  `explorerOk` is optional and defaults to "nothing held" so a caller that predates the
+ *  Explorer switch keeps its exact behaviour. */
 export function classifyClaimSuppression(
   ready: Array<{ id: string; title: string; claimProbe: string | null; notHeadlessReason: string | null }>,
   probeOk: Set<string>,
   bp1Ok: Set<string>,
   headlessOk: Set<string>,
+  explorerOk?: Set<string>,
 ): Array<{ todoId: string; title: string; reason: string }> {
   const out: Array<{ todoId: string; title: string; reason: string }> = [];
   for (const t of ready) {
     if (!probeOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `probe-down: ${t.claimProbe ?? '?'}` });
     else if (!bp1Ok.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: 'stranded-foundation (dep accepted but reachable from neither trunk nor the epic branch — truly unintegrated; drops at auto only)' });
     else if (!headlessOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: `not-headless: ${t.notHeadlessReason ?? 'unknown'}` });
+    else if (explorerOk && !explorerOk.has(t.id)) out.push({ todoId: t.id, title: t.title, reason: EXPLORER_OFF_SUPPRESSION_REASON });
   }
   return out;
 }
@@ -2304,8 +2377,16 @@ export function makeCoordinatorDeps(): CoordinatorDeps {
       // filter) — isHeadlessLeaf used to call listTodos per candidate here, so this loop alone
       // was an O(n) full-table reads per tick (O(n^2) across n ticks' worth of candidates).
       if (claimable.length > 0) {
-        const childrenIndex = buildChildrenIndex(listTodos(project, { includeCompleted: true }));
+        const allTodos = listTodos(project, { includeCompleted: true });
+        const childrenIndex = buildChildrenIndex(allTodos);
         claimable = claimable.filter((t) => isHeadlessLeaf(t, childrenIndex));
+        // EXPLORER SWITCH: with it off, leaves homed under the live 'Explore runs' epic
+        // are held out of the claimable set. They stay FILED and PROMOTED (nothing is
+        // lost, no status write) — flipping the switch back on drains the queue on the
+        // next tick. The hold is NOT silent: diagnoseClaimSuppression names explorer-off
+        // for each held leaf. The enabled read is checked FIRST so the snapshot scan for
+        // explore-epic ids is only paid when the switch is actually off.
+        claimable = filterExplorerHeld(claimable, allTodos, isExplorerEnabled(project));
       }
       // P3 headless circuit-breaker: while the per-process cap window is open, hold ALL headless
       // leaves out too (the only thing left after the filter) — claim nothing this window.

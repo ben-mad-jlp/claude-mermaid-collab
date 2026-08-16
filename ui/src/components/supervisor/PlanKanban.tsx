@@ -23,7 +23,7 @@ import { computeWaveMap } from './roadmapToMermaid';
 import { liveBucketTodo, FUNNEL_SEGMENTS, type FunnelKey } from './bridge/funnel';
 import { CopyId } from '@/components/CopyId';
 import { buildTodoHierarchy } from '@/lib/todoHierarchy';
-import { isBucketEpicUI, bucketTypeOfTodo, TRIAGE_TAGS, BUCKET_LANE_LABEL, BUCKET_TYPE_ORDER, type BucketType, type TriageTag } from '@/lib/bucketRegistry';
+import { isBucketEpicUI, workRequestTypeOfTodo, WORK_REQUEST_VIEW_LABEL, WORK_REQUEST_VIEW_ORDER, normalizeWorkRequestType } from '@/lib/workRequestRegistry';
 import { criterionTagFor } from '@/lib/criterionTag';
 
 export interface PlanKanbanProps {
@@ -227,7 +227,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     // One lane per declared epic (sorted children).
     for (const epicId of h.epicIds) {
       const epic = h.byId.get(epicId)!;
-      if (isBucketEpicUI(epic)) continue; // buckets render in the Triage section, not plan lanes
+      if (isBucketEpicUI(epic)) continue; // buckets render in the work-requests section, not plan lanes
       if (epic.status === 'dropped') continue;
       const items = (h.childrenByEpic.get(epicId) ?? []).slice().sort(byWaveOrder);
       const nonDroppedChildCount = items.filter((t) => t.status !== 'dropped').length;
@@ -266,27 +266,28 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
     return out.sort((a, b) => a.rank - b.rank);
   }, [todos, waveMap, inflightLeafIds, byId]);
 
-  const triageLanes = useMemo(() => {
+  const workRequestViews = useMemo(() => {
     const h = buildTodoHierarchy(todos);
-    const byType = new Map<BucketType, SessionTodo[]>();
+    const byType = new Map<'explore'|'bugfix'|'feature', SessionTodo[]>();
     for (const epicId of h.epicIds) {
       const epic = h.byId.get(epicId)!;
       if (epic.status === 'dropped' || !isBucketEpicUI(epic)) continue;
-      const type = bucketTypeOfTodo(epic);
+      const type = workRequestTypeOfTodo(epic);
       if (!type) continue;
+      const view = normalizeWorkRequestType(type);
+      if (!view) continue;
       const kids = (h.childrenByEpic.get(epicId) ?? []).filter((t) => !TERMINAL.has(t.status));
-      byType.set(type, [...(byType.get(type) ?? []), ...kids]);
+      byType.set(view, [...(byType.get(view) ?? []), ...kids]);
     }
     const byWaveOrder = (a: SessionTodo, b: SessionTodo) => {
       const wa = waveMap.get(a.id) ?? 0, wb = waveMap.get(b.id) ?? 0;
       return wa !== wb ? wa - wb : (a.order ?? 0) - (b.order ?? 0);
     };
-    return BUCKET_TYPE_ORDER
-      .filter((t) => byType.has(t))
-      .map((t) => ({ type: t, label: BUCKET_LANE_LABEL[t], items: byType.get(t)!.slice().sort(byWaveOrder) }));
+    return WORK_REQUEST_VIEW_ORDER
+      .filter((v) => byType.has(v))
+      .map((v) => ({ type: v, label: WORK_REQUEST_VIEW_LABEL[v], items: byType.get(v)!.slice().sort(byWaveOrder) }));
   }, [todos, waveMap]);
 
-  const [triageFilter, setTriageFilter] = useState<TriageTag | 'all'>('all');
 
   const visibleLanes = useMemo(
     () =>
@@ -437,49 +438,19 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
           );
         })}
 
-        {triageLanes.length > 0 && (
-          <section data-testid="triage-section" className="rounded-lg border bg-gray-50/60 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700">
+        {workRequestViews.length > 0 && (
+          <section data-testid="work-requests-section" className="rounded-lg border bg-gray-50/60 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700">
             <header className="flex items-center gap-2 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
-              <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Triage</span>
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">Work requests</span>
             </header>
-            <div className="px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 flex gap-1 flex-wrap">
-              <button
-                type="button"
-                data-testid="triage-filter-all"
-                onClick={() => setTriageFilter('all')}
-                className={`text-3xs px-2 py-0.5 rounded transition-colors ${
-                  triageFilter === 'all'
-                    ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 font-semibold'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                }`}
-              >
-                all
-              </button>
-              {TRIAGE_TAGS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  data-testid={`triage-filter-${tag}`}
-                  onClick={() => setTriageFilter(tag)}
-                  className={`text-3xs px-2 py-0.5 rounded transition-colors capitalize ${
-                    triageFilter === tag
-                      ? 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 font-semibold'
-                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
             <div className="space-y-2 p-1.5">
-              {triageLanes.map((lane) => (
-                <div key={lane.type} data-testid={`triage-lane-${lane.type}`} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
+              {workRequestViews.map((lane) => (
+                <div key={lane.type} data-testid={`work-request-view-${lane.type}`} className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
                   <header className="px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
                     {lane.label}
                   </header>
                   <div className="flex flex-wrap gap-1.5 p-1.5">
                     {lane.items
-                      .filter((t) => triageFilter === 'all' || t.triageTag === triageFilter)
                       .map((t) => (
                         <div key={t.id} className="space-y-1 w-56">
                           <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />

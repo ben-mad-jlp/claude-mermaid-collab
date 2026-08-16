@@ -26,7 +26,8 @@ import { type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor } from './land-authority';
+import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor, type ThreadedStewardMeasurements } from './land-authority';
+import { getEpicLandReadiness, type LandReadinessReport } from './epic-land-readiness';
 import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
 import { loadProjectManifest, type ProjectManifest } from '../config/project-manifest';
@@ -40,6 +41,13 @@ import { recordSelfLand, isSelfProject } from './deploy-service';
 import { getWorktreeManager, resolveEpicId, execAsync, epicAutoLandAuthority, isMissionEpic, MISSION_AUTOLAND_ARMED } from './coordinator-live';
 import { teardownEpic } from './epic-teardown';
 import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot } from './land-workgraph-guard';
+
+/** Timeout honesty: how long an 'epic-ready-to-land' card is PROMISED to live before
+ *  the reconcile stale sweep may reap it. Before expiresAt existed, the sweep killed
+ *  these cards after ~60s — mid-land, forcing the create-and-consume-immediately
+ *  ritual. 30 minutes; each keyed re-raise (every reconcile tick while the epic is
+ *  still up) refreshes the deadline, so a live card never expires mid-surface. */
+export const EPIC_LAND_CARD_TIMEOUT_MS = 30 * 60 * 1000;
 
 // --- durable condition identity for the land escalations --------------------------
 // createEscalation's keyed dedup (supervisor-store.ts) bumps an OPEN row with the same
@@ -60,6 +68,7 @@ export type LandReasonClass =
   | 'presence-findings'
   | 'open-children'
   | 'not-ready'
+  | 'trunk-red'
   | 'other';
 
 /** `landReadiness` blocker codes (land-authority.ts) → class. `gate-failed` joins
@@ -79,6 +88,10 @@ const LAND_REASON_CLASSES: Record<string, LandReasonClass> = {
   'no-active-mission': 'not-ready',
   'foreign-mission': 'not-ready',
   'land-not-ready': 'not-ready',
+  'trunk-red': 'trunk-red',
+  // Behind-trunk with no file overlap: the merge result is unmeasured — same class of
+  // condition as a stale build base (repair-forge incident, 2026-08-14).
+  'behind-trunk-fi-first': 'stale-base',
 };
 
 /** Collapse a free-text land failure string to a `LandReasonClass`. Handles the two
@@ -216,6 +229,10 @@ export interface LandEpicOutcome {
   dirtyPaths?: string[];
   /** True when a corrupted post-land tree was detected and repaired via reset --hard <landSha>. */
   treeRestored?: boolean;
+  /** Files attributed to the floor failure when the land was refused due to gate failure. */
+  attributedFiles?: string[];
+  /** Verdict for floor failure attribution: 'trunk-red' or 'gate-regression'. */
+  landAttribution?: 'trunk-red' | 'gate-regression';
 }
 
 export interface LandProof {
@@ -230,6 +247,19 @@ export interface LandProof {
  *  human-readable card message. */
 export function landRefusalCardText(o: { epicBranch: string; reason: string; detail?: string | null }): string {
   return `Land blocked — ${o.reason} (tip ${o.epicBranch}). Master is UNTOUCHED.\n${o.detail ?? ''}`;
+}
+
+/** Pure helper to extract attribution fields from a gate result.
+ *  Returns an object with attributedFiles and landAttribution when floorAttribution is present,
+ *  otherwise returns an empty object. */
+export function landAttributionFields(gate: EpicLandGateResult): { attributedFiles?: string[]; landAttribution?: 'trunk-red' | 'gate-regression' } {
+  if (!gate.floorAttribution) {
+    return {};
+  }
+  return {
+    attributedFiles: gate.floorAttribution.files,
+    landAttribution: gate.floorAttribution.verdict,
+  };
 }
 
 /** ONE PROOF: delegates entirely to the SAME `landReadiness()` the human click and the
@@ -250,6 +280,9 @@ async function deriveEpicLandProof(a: {
   epicWorktreeCwd: string;
   snapshot?: { baseSha: string; epicTipSha: string };
   actor?: LandActor;
+  /** Steward-stage measurements to consume instead of re-probing (audit O4/O5/O6);
+   *  landReadiness only trusts them while the probed-at shas still match `snapshot`. */
+  measurements?: ThreadedStewardMeasurements;
 }): Promise<LandProof> {
   const notRun: EpicLandGateResult = {
     status: 'error',
@@ -270,6 +303,7 @@ async function deriveEpicLandProof(a: {
     probes: { worktreeCwd: () => a.epicWorktreeCwd },
     snapshot: a.snapshot,
     actor: a.actor,
+    ...(a.measurements ?? {}),
   });
   const gate = readiness.gate ?? notRun;
 
@@ -708,6 +742,7 @@ export async function surfaceEpicLand(
             questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)}) rolled up READ-ONLY: tree identical to master, nothing to decide. Auto-landing to close the epic — this card is a record, not a request.`,
             conditionKey: cond.conditionKey,
             conditionTuple: cond.conditionTuple,
+            timeoutMs: EPIC_LAND_CARD_TIMEOUT_MS,
           });
           if (escalation?.id) {
             const doLand = opts.landEpicFn ?? landEpic;
@@ -773,6 +808,7 @@ export async function surfaceEpicLand(
         questionText: `Epic ${epicBranch} (${epicId.slice(0, 8)})${repoTag} rolled up. ${proofSummary}${staleFlag}. Land onto master? (read-only surface — master untouched)`,
         conditionKey: cond.conditionKey,
         conditionTuple: cond.conditionTuple,
+        timeoutMs: EPIC_LAND_CARD_TIMEOUT_MS,
       });
       recordSupervisorAudit({ kind: 'reconcile', project, session, detail: JSON.stringify({ todoId: linkTodoId, epicId, epicBranch, repo, landable: proofGreen, reason: readiness.blockers.map((b) => b.code).join(',') || 'ok', landGate: readiness.gate?.status ?? 'unknown', children: repoChildIds.length, behindMaster: behind, multiRepo, missionEpic, missionLandAuthority, armed: MISSION_AUTOLAND_ARMED }) });
 
@@ -940,11 +976,35 @@ async function runStewardPrecheck(
   targetProject: string,
   todosAtProofTime: Todo[],
   ctx: { escalationId: string | null; session: string },
-): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] } | LandEpicOutcome> {
+): Promise<{ ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[]; measurements?: ThreadedStewardMeasurements } | LandEpicOutcome> {
   const { buildChildren, byRepo } = epicGatingChildren(todosAtProofTime, epicId, project);
   const epicChildIds = byRepo.get(targetProject) ?? buildChildren.map((t) => t.id);
   const wm = getWorktreeManager(targetProject);
   const epic = await wm.ensureEpic(epicId).catch(() => null);
+  const epicCwd = epic?.path ?? targetProject;
+
+  // Measure-once threading (audit O4/O5/O6): pin the shas the steward is about to probe
+  // at (trunk head + epic tip), the SAME way runProofStage snapshots them, so the proof
+  // stage can verify nothing moved before consuming these measurements instead of
+  // re-running tsc, the dry-merge worktree trial, and the G9 presence sweep.
+  const resolveShas = async (): Promise<{ master: string; epicTip: string } | null> => {
+    try {
+      const trunkRef = await wm.detectBaseBranch().catch(() => 'master');
+      const master = (await execFileAsync('git', ['-C', targetProject, 'rev-parse', trunkRef], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+      const epicTip = (await execFileAsync('git', ['-C', epicCwd, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 10_000 })).stdout.trim();
+      return master && epicTip ? { master, epicTip } : null;
+    } catch {
+      return null; // sha capture is best-effort — absent shas just means no threading
+    }
+  };
+  const shasBefore = await resolveShas();
+
+  // Capture the FULL presence report the steward's G9 check computes (realRunners'
+  // default discards everything but the findings), so the proof stage can consume it.
+  // Only when the sweep target is the same repo landReadiness will sweep (the steward
+  // sweeps ctx.project; landReadiness sweeps the target repo) — otherwise leave the
+  // default runner in place and let the proof stage re-probe.
+  let presenceReport: LandReadinessReport | null = null;
   const verdict = await validateStewardProof(
     'land_epic',
     { kind: 'epic-landable', epicId, epicBranch },
@@ -956,27 +1016,62 @@ async function runStewardPrecheck(
         return d ? { id: d.id, status: d.status, acceptanceStatus: d.acceptanceStatus } : null;
       },
       epicChildIds,
-      epicWorktreeCwd: epic?.path ?? targetProject,
+      epicWorktreeCwd: epicCwd,
       masterCwd: targetProject,
+      ...(project === targetProject
+        ? {
+            runners: {
+              unlandedLeaves: async (p: string, e: string) => {
+                try {
+                  presenceReport = await getEpicLandReadiness(p, e);
+                  return presenceReport.findings;
+                } catch {
+                  return []; // mirror realRunners.unlandedLeaves' catch-to-empty
+                }
+              },
+            },
+          }
+        : {}),
     },
   );
   if (!verdict.ok) {
     recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'rejected', reason: verdict.reason }) });
     return { ok: false, landed: false, reason: verdict.reason, epicId, epicBranch };
   }
-  return { ok: true, epic, epicChildIds };
+
+  // A green steward verdict re-derived children-done, tsc-clean, merge-clean, and the
+  // presence sweep from ground truth. Thread them forward ONLY if the shas did not move
+  // while the steward was probing (a mid-probe trunk/tip move makes the pair of shas an
+  // unreliable pin — safer to let the proof stage measure fresh).
+  const shasAfter = await resolveShas();
+  const measurements: ThreadedStewardMeasurements | undefined =
+    shasBefore && shasAfter && shasBefore.master === shasAfter.master && shasBefore.epicTip === shasAfter.epicTip
+      ? {
+          stewardProof: { tscClean: true, mergeClean: true, probedAtShas: shasAfter },
+          ...(presenceReport ? { presence: presenceReport } : {}),
+          childrenChecked: true,
+        }
+      : undefined;
+  return { ok: true, epic, epicChildIds, measurements };
 }
 
-async function checkStaleness(
+/** Test seam for checkStaleness — lets tests stub the revalidate (FI + re-gate) step. */
+export interface StalenessStageDeps {
+  revalidate?: (targetProject: string, epicId: string) => Promise<RevalidateResult>;
+}
+
+export async function checkStaleness(
   wm: ReturnType<typeof getWorktreeManager>,
   targetProject: string,
   epicId: string,
   epicBranch: string,
   ctx: { project: string; session: string; escalationId: string | null; todoId: string },
+  stageDeps?: StalenessStageDeps,
 ): Promise<{ ok: boolean } | LandEpicOutcome> {
+  const revalidate = stageDeps?.revalidate ?? ((p: string, e: string) => revalidateStaleEpic(p, e));
   const staleness = await wm.epicBuildBaseStaleness(epicId).catch(() => null);
   if (staleness?.stale) {
-    const rev = await revalidateStaleEpic(targetProject, epicId);
+    const rev = await revalidate(targetProject, epicId);
     if (!rev.ok) {
       const failReason = `stale-build-base:${rev.reason}`;
       const detail =
@@ -1004,6 +1099,53 @@ async function checkStaleness(
       return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
     }
     recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'revalidated', commitsAhead: staleness.commitsAhead, reason: staleness.reason }) });
+    return { ok: true };
+  }
+
+  // Behind-trunk ⇒ FI first, REGARDLESS of file overlap (repair-forge incident,
+  // 2026-08-14): two branches can each be green while their MERGE is red — a semantic
+  // conflict needs no overlapping paths. The overlap-based stale-build-base check above
+  // stays as the cheaper early tripwire; this closes the no-overlap gap. If the epic
+  // branch is behind trunk by ANY commits, refuse to land the unmeasured merge:
+  // forward-integrate trunk into the epic branch (--no-ff, never rebase) and re-gate,
+  // so the proof stage that follows measures the post-FI tree — which IS the merge
+  // result. A conflicted FI aborts untouched and raises the existing human-rebase
+  // escalation; master unmoved.
+  const behind =
+    staleness != null ? staleness.commitsAhead : await wm.epicBehindBase(epicId).catch(() => 0);
+  if (behind > 0) {
+    const rev = await revalidate(targetProject, epicId);
+    if (!rev.ok) {
+      const failReason = 'behind-trunk-fi-first';
+      const detail =
+        rev.reason === 'forward-integrate-conflict'
+          ? `re-integration hit a merge conflict (${rev.conflictedPaths.join(', ') || 'unknown'})`
+          : rev.reason === 'revalidation-gate-failed'
+            ? `the re-run gate FAILED:\n${rev.output}`
+            : rev.reason;
+      const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), 'behind-trunk']);
+      createEscalation({
+        project: ctx.project,
+        session: ctx.session,
+        todoId: ctx.todoId,
+        kind: 'assumption-invalidated',
+        audience: 'human',
+        conditionKey: cond.conditionKey,
+        conditionTuple: cond.conditionTuple,
+        questionText:
+          `Land blocked — epic ${epicBranch} is ${behind} commit(s) behind trunk and must be ` +
+          `forward-integrated before landing (the merge result is otherwise unmeasured, even with ` +
+          `no overlapping files). ${detail}. Master is UNTOUCHED — merge master into ${epicBranch}, ` +
+          `resolve/fix, re-gate, then re-land.`,
+      });
+      recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: failReason, behind, revReason: rev.reason }) });
+      return { ok: false, landed: false, reason: failReason, epicId, epicBranch };
+    }
+    // FI clean + gate green: continue the land in the SAME job against the new epic tip.
+    // The proof stage snapshots the tip AFTER this stage, so the gate measures the
+    // post-FI tree; any steward measurements threaded from the precheck were pinned to
+    // the pre-FI shas and are invalidated by the sha-match guard in landReadiness.
+    recordSupervisorAudit({ kind: 'reconcile', project: ctx.project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'forward-integrated', reason: 'behind-trunk-fi-first', behind }) });
   }
   return { ok: true };
 }
@@ -1016,6 +1158,7 @@ async function runProofStage(
   todosAtProofTime: Todo[],
   epic: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null,
   ctx: { escalationId: string | null; session: string; todoId: string; actor?: LandActor },
+  measurements?: ThreadedStewardMeasurements,
 ): Promise<{ ok: boolean; proof?: LandProof } | LandEpicOutcome> {
   const wm = getWorktreeManager(targetProject);
 
@@ -1040,6 +1183,7 @@ async function runProofStage(
     epicWorktreeCwd: epic?.path ?? targetProject,
     snapshot,
     actor: ctx.actor,
+    measurements,
   });
   if (!proof.ok) {
     const cond = landCondition('assumption-invalidated', [epicId.slice(0, 8), landReasonClass(proof.reason)]);
@@ -1055,7 +1199,7 @@ async function runProofStage(
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
     await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
-    return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
+    return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch, ...landAttributionFields(proof.gate) };
   }
   return { ok: true, proof };
 }
@@ -1438,9 +1582,10 @@ export async function landEpic(
         const outcome = stewardResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
-      const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[] };
+      const stewardOk = stewardResult as { ok: boolean; epic?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['ensureEpic']>> | null; epicChildIds?: string[]; measurements?: ThreadedStewardMeasurements };
       const epic = stewardOk.epic ?? null;
       const epicChildIds = stewardOk.epicChildIds ?? [];
+      const stewardMeasurements = stewardOk.measurements;
 
       const stalenessResult = await deps.checkStaleness(wm, targetProject, epicId, epicBranch, ctx);
       if (!stalenessResult.ok) {
@@ -1448,7 +1593,7 @@ export async function landEpic(
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
-      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor });
+      const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor }, stewardMeasurements);
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
@@ -1498,6 +1643,15 @@ export async function landEpic(
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
       await refreshProjectDigestOnLand(targetProject);
+      // Master just moved — fire-and-forget the FULL-SUITE trunk anchor so the impacted
+      // base/land gates have a green anchor at the new sha instead of every epic base
+      // paying full price until one happens to coincide (trunk-anchor.ts). Capped +
+      // coalesced inside ensureTrunkAnchor; must never block or fail a completed land.
+      try {
+        void import('./trunk-anchor.js')
+          .then((m) => m.ensureTrunkAnchor(targetProject))
+          .catch(() => { /* advisory */ });
+      } catch { /* advisory */ }
       return { ok: true, landed: true, reason: 'ok', epicId, epicBranch, masterSha: land.masterSha, selfLand, treeRestored };
     } catch (e) {
       threw = true;

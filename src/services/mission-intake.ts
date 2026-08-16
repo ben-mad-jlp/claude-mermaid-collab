@@ -44,6 +44,45 @@ const DEFAULT_THRESHOLD = 8;
 const DEFAULT_MIN_SESSIONS = 2;
 const DEFAULT_MAX_PENDING = 3;
 
+// ---------------------------------------------------------------------------
+// Throttle (audit item 7b / E7): keep the mission-intake pass OFF the every-tick
+// (~30s + every 250ms-debounced kick) cadence.
+//
+// The pass previously ran UNTHROTTLED for every watched project on every tick AND
+// every kicked tick. When intake is enabled it pays a listMissions (a full-table
+// todos scan) plus a frictionTrends rollup per run — for a detector whose output is
+// an UNAPPROVED draft awaiting a human. Sub-minute freshness buys nothing; a friction
+// cluster that clears the bar at second 0 vs second 300 drafts the same mission.
+// Same gate shape as archival-sweep's ARCHIVAL_SWEEP_INTERVAL_MS /
+// shouldRunArchivalSweep with the same injectable clock + reset test hooks. Matches
+// its 300s hygiene neighbors (archival, landed-epic sweep) — intake is the rarest
+// and most-gated pass in the loop.
+// ---------------------------------------------------------------------------
+
+/** Minimum spacing between mission-intake passes for a single project. */
+export const MISSION_INTAKE_INTERVAL_MS = 300_000; // 5 min
+
+const lastMissionIntakeMs = new Map<string, number>();
+
+/**
+ * Throttle gate for runMissionIntakePass. Returns true (and records `now` as the last
+ * run) when the pass is due for `project`; false while a previous run is within
+ * MISSION_INTAKE_INTERVAL_MS. First call for a project always runs. `now` is injectable
+ * for deterministic tests.
+ */
+export function shouldRunMissionIntakePass(project: string, now: number = Date.now()): boolean {
+  const last = lastMissionIntakeMs.get(project);
+  if (last !== undefined && now - last < MISSION_INTAKE_INTERVAL_MS) return false;
+  lastMissionIntakeMs.set(project, now);
+  return true;
+}
+
+/** Test seam: clear the per-project throttle clock (all projects, or one). */
+export function _resetMissionIntakeThrottle(project?: string): void {
+  if (project === undefined) lastMissionIntakeMs.clear();
+  else lastMissionIntakeMs.delete(project);
+}
+
 /** Operational-layer friction is NEVER mission-eligible (locked constraint, enforced here in code). */
 export const INTAKE_ELIGIBLE_LAYERS: readonly FrictionLayer[] = ['domain', 'orchestration'];
 
@@ -193,6 +232,16 @@ export interface MissionIntakeResult {
 export interface MissionIntakeDeps {
   trends?: (project: string) => FrictionTrends;
   listTodos?: (project: string) => Todo[];
+  /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+   *  (`listTodos(project, { includeCompleted: true })`, read ONCE per tick). When provided
+   *  (and `listTodos` is not), the 3-surface dedup and listMissions read it instead of
+   *  re-scanning the table. Absent ⇒ self-read — external callers unchanged. ACCEPTED
+   *  STALENESS: passes earlier in the same tick may have created todos this snapshot
+   *  misses (e.g. a friction-triage bug todo for the same reason); the permanent
+   *  per-cluster actioned marker + the next pass's dedup make any double-file a
+   *  one-time, human-gated draft, never a loop. (The tick invalidates its snapshot
+   *  after mutating passes, so in practice intake sees post-triage state.) */
+  todosSnapshot?: Todo[];
   listMissions?: (project: string) => MissionSummary[];
   intakeEnabled?: (project: string) => boolean;
   isActioned?: (project: string, sig: string) => boolean;
@@ -259,7 +308,9 @@ export async function runMissionIntakePass(
   deps: MissionIntakeDeps = {},
 ): Promise<MissionIntakeResult> {
   const trendsFn = deps.trends ?? ((p: string) => frictionTrends(p));
-  const listMissionsFn = deps.listMissions ?? ((p: string) => listMissions(p));
+  // 7a: thread the tick's shared snapshot into listMissions (zero extra todos scans)
+  // and the dedup surfaces below. An explicitly-injected dep always wins.
+  const listMissionsFn = deps.listMissions ?? ((p: string) => listMissions(p, { allTodos: deps.todosSnapshot }));
   const intakeEnabledFn = deps.intakeEnabled ?? ((p: string) => getIntakeEnabled(p));
   const isActioned = deps.isActioned ?? ((p: string, s: string) => isClusterIntakeActioned(p, s));
   const markActioned = deps.markActioned ?? ((p: string, prov: IntakeProvenance) => markClusterIntakeActioned(p, prov));
@@ -279,7 +330,7 @@ export async function runMissionIntakePass(
 
   // Deterministic detector: eligible layer ∧ count≥threshold ∧ sessions≥min ∧ !actioned ∧ !covered.
   const coversDeps: MissionCoversDeps = {
-    listTodos: deps.listTodos,
+    listTodos: deps.listTodos ?? (deps.todosSnapshot ? () => deps.todosSnapshot! : undefined),
     listMissions: listMissionsFn,
     getProvenance: deps.getProvenance,
   };

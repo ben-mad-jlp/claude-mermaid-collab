@@ -57,3 +57,41 @@ describe('InflightPanel — daemon-authoritative set', () => {
     expect(screen.getByText(/1 in flight/)).toBeTruthy();
   });
 });
+
+describe('InflightPanel — base-gate wait visibility', () => {
+  it('a between-nodes row whose epic has a base gate in flight says so (joined via todo.parentId)', async () => {
+    daemonResponse = {
+      now, inflight: [],
+      baseGates: [{ key: 'k', project: 'p', baseSha: 'sha1', epicIds: ['epicX'], startedAt: now - 12 * 60000, running: true, sinceMs: 12 * 60000 }],
+      breaker: { open: false, openUntil: null }, paused: [],
+    };
+    const todos = [
+      { id: 'todo-1', title: 'Queued leaf', status: 'in_progress', parentId: 'epicX', kind: 'leaf' },
+      { id: 'epicX', title: 'The epic', status: 'in_progress', kind: 'epic' },
+    ] as unknown as SessionTodo[];
+    render(<InflightPanel todos={todos} project="p" serverScope="s" />);
+    await waitFor(() => expect(screen.getByTestId('inflight-panel')).toBeTruthy());
+    expect(screen.getByText(/waiting on base gate · 12m/)).toBeTruthy();
+  });
+
+  it('a leaf with a server-computed baseGateWait renders the wait line from sinceMs', async () => {
+    daemonResponse = {
+      now, inflight: [leaf('todo-1', { epicId: 'epicX', baseGateWait: { running: true, forEpicId: 'epicX', sinceMs: 3 * 60000 } })],
+      breaker: { open: false, openUntil: null }, paused: [],
+    };
+    render(<InflightPanel todos={[]} project="p" serverScope="s" />);
+    await waitFor(() => expect(screen.getByTestId('inflight-panel')).toBeTruthy());
+    expect(screen.getByText(/waiting on base gate · 3m/)).toBeTruthy();
+  });
+
+  it('a row without a base-gate wait renders exactly as before — no wait line', async () => {
+    daemonResponse = {
+      now, inflight: [leaf('todo-1')],
+      baseGates: [],
+      breaker: { open: false, openUntil: null }, paused: [],
+    };
+    render(<InflightPanel todos={[]} project="p" serverScope="s" />);
+    await waitFor(() => expect(screen.getByTestId('inflight-panel')).toBeTruthy());
+    expect(screen.queryByText(/waiting on base gate/)).toBeNull();
+  });
+});

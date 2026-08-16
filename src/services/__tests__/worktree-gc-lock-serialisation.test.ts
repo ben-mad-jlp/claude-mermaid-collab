@@ -20,6 +20,7 @@ import { createTodo, _closeProject } from '../todo-store';
 import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { gcLeafWorktrees } from '../leaf-worktree-reaper';
 import { recordEpicLand } from '../epic-land-record-store';
+import { harnessTimeoutMs, raceDeadlockGuard } from '../../testing/test-timeout-budget';
 
 async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const proc = (globalThis as any).Bun.spawn(['git', '-C', cwd, ...args], {
@@ -94,20 +95,14 @@ describe('worktree GC lock serialisation', () => {
     await runGit(repo, ['branch', epicBranch, 'master']);
 
     // Run gcLeafWorktrees — if the lock is not held, an interleaving mutation could deadlock.
-    // Timeout test catches hangs. Explicit 5s timeout ensures a deadlock is detected.
+    // The derived deadlock guard catches hangs from held locks manifesting as timeouts.
     const reportPromise = gcLeafWorktrees(repo);
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      const id = setTimeout(() => {
-        clearTimeout(id);
-        reject(new Error('gcLeafWorktrees timed out (possible deadlock)'));
-      }, 5000);
-    });
-    const report = await Promise.race([reportPromise, timeoutPromise]);
+    const report = await raceDeadlockGuard(reportPromise, 'gcLeafWorktrees');
 
     // Main assertion: the sweep completed and scanned at least the epic worktree.
     // Deadlock would manifest as a hang that the timeout catches.
     expect(report.scanned).toBeGreaterThanOrEqual(1);
-  });
+  }, harnessTimeoutMs());
 
   it('a runExclusive section started first never interleaves with the GC sweep', async () => {
     const wm = getWorktreeManager(repo);
@@ -154,5 +149,5 @@ describe('worktree GC lock serialisation', () => {
     // The exact order is: outer:start, outer:end, then gc:end (GC reads, then mutations).
     expect(events.indexOf('outer:start')).toBeLessThan(events.indexOf('outer:end'));
     expect(events.indexOf('outer:end')).toBeLessThan(events.indexOf('gc:end'));
-  });
+  }, harnessTimeoutMs());
 });

@@ -77,7 +77,9 @@ describe('resolveBaseGreen quarantine downgrade', () => {
     expect(r?.quarantinedOnlyFailures).toBeUndefined();
   });
 
-  it('empty/absent baselineFailures stays fail', async () => {
+  // ADVISORY BASE GATE (2026-08-14): a red naming ZERO failing tests is a vague red —
+  // demoted to 'error' (an incident, never stored, never a hold) instead of the old 'fail'.
+  it('empty/absent baselineFailures with unparseable output demotes to error (vague red)', async () => {
     const project = '/downgrade-c';
     const targetProject = '/downgrade-c-target';
     const now = Date.now();
@@ -95,7 +97,7 @@ describe('resolveBaseGreen quarantine downgrade', () => {
       ensureEpicWorktree, runGate, now: () => now,
     });
 
-    expect(r?.status).toBe('fail');
+    expect(r?.status).toBe('error');
   });
 
   it('TTL-expired quarantine does not downgrade', async () => {

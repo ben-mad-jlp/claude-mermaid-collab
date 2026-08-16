@@ -19,6 +19,7 @@ import { QUARANTINE_SEGMENT } from '../src/services/quarantine.ts';
 import { partitionTestLanes } from '../src/services/nested-runner-lane.ts';
 import path from 'path';
 import { extractFailingTests } from '../src/services/gate-runner';
+import { memoizedTsc } from '../src/services/tsc-memo';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
@@ -190,6 +191,25 @@ export async function runLanes(opts: {
   return { failed, ranFast, ranSerial, ranNested };
 }
 
+/** Restrict a lane partition to an EXACT requested file set (repo-relative or absolute
+ *  paths). Lane classification is preserved — a serial/nested file stays in its lane.
+ *  Requested paths that are not collected bun:test candidates come back as `missing`
+ *  (typo'd path, vitest-only file, quarantined) so the caller can surface them instead of
+ *  silently running less than asked. */
+export function restrictToRequestedFiles(
+  partition: { fast: string[]; serial: string[]; nested: string[] },
+  requested: string[],
+): { fast: string[]; serial: string[]; nested: string[]; missing: string[] } {
+  const wanted = new Set(requested.map((p) => path.resolve(ROOT, p)));
+  const keep = (files: string[]) => files.filter((f) => wanted.has(path.resolve(f)));
+  const fast = keep(partition.fast);
+  const serial = keep(partition.serial);
+  const nested = keep(partition.nested);
+  const collected = new Set([...fast, ...serial, ...nested].map((f) => path.resolve(f)));
+  const missing = requested.filter((p) => !collected.has(path.resolve(ROOT, p)));
+  return { fast, serial, nested, missing };
+}
+
 function findBunTestFiles(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
@@ -227,7 +247,23 @@ async function main(): Promise<void> {
     args.find((a) => a.startsWith('--nested-timeout='))?.split('=')[1] ?? process.env.NESTED_LANE_TIMEOUT_MS ?? '900000',
   );
 
-  const { fast, serial, nested } = collectBackendTestFiles(DEFAULT_TEST_ROOTS, filter);
+  let { fast, serial, nested } = collectBackendTestFiles(DEFAULT_TEST_ROOTS, filter);
+
+  // --files=<comma-separated repo-relative paths>: run ONLY these test files (the land
+  // gate's impacted-set floor). Exact-path match, lanes preserved. Absent ⇒ behavior is
+  // byte-identical to before the flag existed. Note: with a subset run, the baseline's
+  // "FIXED" report is meaningless (unrun files look fixed) — only netNew/countGrowth
+  // gate the exit code, and those only cover files actually run.
+  const filesArg = args.find((a) => a.startsWith('--files='))?.split('=')[1];
+  if (filesArg != null) {
+    const requested = filesArg.split(',').map((s) => s.trim()).filter(Boolean);
+    const restricted = restrictToRequestedFiles({ fast, serial, nested }, requested);
+    ({ fast, serial, nested } = restricted);
+    if (restricted.missing.length > 0) {
+      console.log(`--files: ${restricted.missing.length} requested file(s) are not bun:test candidates (skipped):`);
+      for (const m of restricted.missing) console.log(`  ? ${m}`);
+    }
+  }
 
   // Report collected files
   if (nested.length > 0) {
@@ -252,20 +288,33 @@ async function main(): Promise<void> {
 
   // Gate on a clean desktop typecheck before running any backend test files, so a type break
   // under desktop/src fails test:backend / test:backend:floor independently of the per-leaf gate.
+  //
+  // Consults the durable tree-keyed tsc verdict (src/services/tsc-memo.ts): this script is a
+  // CHILD PROCESS of the gate runners, and it resolves the same worker ledger they do via the
+  // MERMAID_SUPERVISOR_DIR discipline (store-paths.globalStoreDir) — so on a clean tree the
+  // desktop tsc runs ONCE per tree across every test-backend invocation (base gate floor lane,
+  // land gate floor, --files= impacted runs) instead of once per invocation. A dirty tree
+  // (local dev edits) always runs for real. The import is free of new weight: gate-runner →
+  // leaf-gate already dragged worker-ledger into this script's module graph.
   {
-    const proc = Bun.spawn(['npx', 'tsc', '--noEmit', '-p', 'tsconfig.json'], {
-      cwd: path.join(ROOT, 'desktop'),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-    const code = await proc.exited;
-    if (code !== 0) {
-      console.log(`\n✗ desktop typecheck FAILED:\n`);
-      console.log((err + out).trim().split('\n').slice(-20).join('\n'));
+    const desktopCwd = path.join(ROOT, 'desktop');
+    const runner = async (cwd: string, command: string) => {
+      try {
+        const proc = Bun.spawn(['sh', '-c', command], { cwd, stdout: 'pipe', stderr: 'pipe' });
+        const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+        const code = await proc.exited;
+        return { ran: true, code, output: err + out };
+      } catch (e) {
+        return { ran: false, code: -1, output: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const r = await memoizedTsc(desktopCwd, 'npx tsc --noEmit -p tsconfig.json', { runner });
+    if (r.code !== 0 || !r.ran) {
+      console.log(`\n✗ desktop typecheck FAILED${r.source === 'memo' ? ' (memoized verdict)' : ''}:\n`);
+      console.log(r.output.trim().split('\n').slice(-20).join('\n'));
       process.exit(1);
     }
-    console.log('✓ desktop typecheck passed\n');
+    console.log(`✓ desktop typecheck passed${r.source === 'memo' ? ' (memoized verdict)' : ''}\n`);
   }
 
   const totalFiles =

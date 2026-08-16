@@ -69,6 +69,12 @@ export const REANNOUNCE_BASE_MS = MIN_NUDGE_INTERVAL_MS * 5;
 
 export interface NotificationTickDeps {
   loadTodos?: (project: string) => Todo[];
+  /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+   *  (`listTodos(project, { includeCompleted: true })`, read ONCE per tick). When
+   *  provided, the pass performs NO todos read of its own. Absent ⇒ self-read via
+   *  `loadTodos` — external callers are unchanged. This pass never mutates todos, so
+   *  a start-of-tick snapshot is exact, not stale. */
+  todosSnapshot?: Todo[];
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   now?: () => number;
 }
@@ -105,7 +111,7 @@ export async function runNotificationTick(
   }
 
   // 1. Diff vs the last snapshot, then update it (first pass seeds → emits nothing).
-  const todos = load(project);
+  const todos = deps.todosSnapshot ?? load(project);
   const prev = snapByProject.get(project) ?? new Map();
   const changes = diffTodos(prev, todos, project);
   snapByProject.set(project, snapshotTodos(todos));

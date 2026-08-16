@@ -17,6 +17,207 @@ import { todoServesCriterion } from './criterion-edges.js';
 
 const execFileAsync = promisify(execFile);
 
+/** Alias map entry: prefix, wildcard flag, and absolute target directories/files. */
+interface AliasEntry {
+  prefix: string;
+  wildcard: boolean;
+  targets: string[];
+}
+
+/** Memoized alias maps per repoRoot */
+const aliasMapCache = new Map<string, AliasEntry[]>();
+
+/** Reset the alias map cache. Test hook only. */
+export function _resetPathAliasCache(): void {
+  aliasMapCache.clear();
+}
+
+/** Parse JSON with support for single-line and multi-line comments plus trailing commas.
+ *  Plain JSON.parse runs FIRST: the comment-stripping regexes are string-blind, and a
+ *  tsconfig paths block like `"@/*": ["src/*"]` contains `/*` INSIDE strings — stripping
+ *  a valid file corrupts it (observed 2026-08-14: readPathAliases returned [] for this
+ *  repo's own ui/tsconfig.json, re-blinding the alias-aware reachability guard). */
+function parseJsonWithComments(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Genuinely JSONC — strip and retry. Still string-blind, but only reached for files
+    // plain JSON.parse rejects, where comments/trailing commas are the likely cause.
+  }
+  // Strip single-line comments
+  let stripped = text.replace(/\/\/.*$/gm, '');
+  // Strip multi-line comments (/* ... */)
+  stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Strip trailing commas before closing braces/brackets
+  stripped = stripped.replace(/,(\s*[}\]])/g, '$1');
+  return JSON.parse(stripped);
+}
+
+/** Read TypeScript path aliases from tsconfig.json files in the repo.
+ *  Returns entries { prefix, wildcard, targets: string[] } where targets are ABSOLUTE paths.
+ *  Parses <repoRoot>/tsconfig.json and <repoRoot>/ui/tsconfig.json.
+ *  Returns [] if any read/parse fails.
+ */
+export function readPathAliases(repoRoot: string): AliasEntry[] {
+  // Check cache first
+  if (aliasMapCache.has(repoRoot)) {
+    return aliasMapCache.get(repoRoot) || [];
+  }
+
+  const entries: AliasEntry[] = [];
+
+  // Read both tsconfig.json files
+  const tsconfigPaths = [
+    join(repoRoot, 'tsconfig.json'),
+    join(repoRoot, 'ui', 'tsconfig.json'),
+  ];
+
+  for (const tsconfigPath of tsconfigPaths) {
+    if (!existsSync(tsconfigPath)) {
+      continue;
+    }
+
+    try {
+      const content = readFileSync(tsconfigPath, 'utf8');
+      const config = parseJsonWithComments(content);
+
+      if (!config.compilerOptions || !config.compilerOptions.paths) {
+        continue;
+      }
+
+      const paths = config.compilerOptions.paths as Record<string, string[]>;
+      const baseUrl = config.compilerOptions.baseUrl ?? '.';
+      const tsconfigDir = dirname(tsconfigPath);
+      const basePath = resolve(tsconfigDir, baseUrl);
+
+      // Process each path entry
+      for (const [pattern, targets] of Object.entries(paths)) {
+        if (!Array.isArray(targets)) {
+          continue;
+        }
+
+        // Check if pattern ends with /*
+        const wildcard = pattern.endsWith('/*');
+        const prefix = wildcard ? pattern.slice(0, -2) : pattern;
+
+        // Resolve each target to an absolute path
+        const absoluteTargets = targets
+          .map(target => {
+            // Replace the wildcard tail if present
+            const resolved = wildcard
+              ? target.replace(/\/\*$/, '')
+              : target;
+            return resolve(basePath, resolved);
+          })
+          .filter(p => p.length > 0);
+
+        if (absoluteTargets.length > 0) {
+          entries.push({
+            prefix,
+            wildcard,
+            targets: absoluteTargets,
+          });
+        }
+      }
+    } catch {
+      // Ignore parse errors — continue with other tsconfig files
+    }
+  }
+
+  // Sort by prefix length (longest first) for greedy matching
+  entries.sort((a, b) => b.prefix.length - a.prefix.length);
+
+  // Memoize and return
+  aliasMapCache.set(repoRoot, entries);
+  return entries;
+}
+
+/** Expand a non-relative specifier through the alias map into candidate bases.
+ *  Returns absolute paths sorted by longest matching prefix first.
+ */
+export function aliasCandidateBases(
+  spec: string,
+  repoRoot: string,
+): string[] {
+  const aliases = readPathAliases(repoRoot);
+  const candidates: string[] = [];
+
+  for (const entry of aliases) {
+    if (spec === entry.prefix) {
+      // Exact match (e.g. @types matches @types/)
+      candidates.push(...entry.targets);
+    } else if (entry.wildcard && spec.startsWith(entry.prefix + '/')) {
+      // Wildcard match: @/* with spec @/lib/foo
+      const tail = spec.slice(entry.prefix.length + 1); // +1 for the /
+      for (const target of entry.targets) {
+        const candidate = join(target, tail);
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  return candidates;
+}
+
+/** Check if a resolved candidate base matches the target path, accounting for
+ *  extension resolution (.ts, .tsx, /index.ts, /index.tsx, .js → .ts mapping).
+ */
+export function matchesResolvedPath(
+  absBase: string,
+  relPath: string,
+  repoRoot: string,
+): boolean {
+  // Normalize relPath to POSIX
+  const relPathNorm = relPath.split('\\').join('/');
+
+  // Try exact match first
+  const baseRel = relative(repoRoot, absBase).split('\\').join('/');
+  if (baseRel === relPathNorm) {
+    return true;
+  }
+
+  // Try adding extensions: .ts, .tsx, /index.ts, /index.tsx
+  const candidates = [
+    `${absBase}.ts`,
+    `${absBase}.tsx`,
+    join(absBase, 'index.ts'),
+    join(absBase, 'index.tsx'),
+  ];
+
+  for (const candidate of candidates) {
+    const candidateRel = relative(repoRoot, candidate).split('\\').join('/');
+    if (candidateRel === relPathNorm) {
+      return true;
+    }
+  }
+
+  // If absBase ends with .js, strip it and try .ts/.tsx
+  if (absBase.endsWith('.js')) {
+    const stripped = absBase.slice(0, -3);
+    const strippedRel = relative(repoRoot, stripped).split('\\').join('/');
+
+    if (strippedRel === relPathNorm) {
+      return true;
+    }
+
+    const strippedCandidates = [
+      `${stripped}.ts`,
+      `${stripped}.tsx`,
+      join(stripped, 'index.ts'),
+      join(stripped, 'index.tsx'),
+    ];
+
+    for (const candidate of strippedCandidates) {
+      const candidateRel = relative(repoRoot, candidate).split('\\').join('/');
+      if (candidateRel === relPathNorm) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /** Async git runner, mirroring the shape from tree-integrity.ts:14 */
 async function git(
   cwd: string,
@@ -189,7 +390,7 @@ function importsFile(
 }
 
 /** Resolve an import specifier to see if it matches relPath.
- *  Handles relative specifiers, extension resolution, .js → .ts mapping.
+ *  Handles relative specifiers, alias specifiers, extension resolution, .js → .ts mapping.
  */
 function resolveImportSpec(
   spec: string,
@@ -197,57 +398,36 @@ function resolveImportSpec(
   relPath: string,
   repoRoot: string,
 ): boolean {
-  // Only relative specifiers (starting with .) can resolve to relPath
-  if (!spec.startsWith('.')) {
+  // Handle relative specifiers
+  if (spec.startsWith('.')) {
+    let resolved = resolve(importingDir, spec);
+    if (matchesResolvedPath(resolved, relPath, repoRoot)) {
+      return true;
+    }
+
+    // If spec ends .js, strip it and try again
+    if (spec.endsWith('.js')) {
+      const stripped = spec.slice(0, -3);
+      const resolvedStripped = resolve(importingDir, stripped);
+      if (matchesResolvedPath(resolvedStripped, relPath, repoRoot)) {
+        return true;
+      }
+    }
+
     return false;
   }
 
-  // Resolve the import path
-  let resolved = resolve(importingDir, spec);
-  const resolvedRel = relative(repoRoot, resolved).split('\\').join('/');
-
-  // Try exact match first
-  if (resolvedRel === relPath) {
-    return true;
-  }
-
-  // Try adding extensions: .ts, .tsx, /index.ts, /index.tsx
-  const candidates = [
-    `${resolved}.ts`,
-    `${resolved}.tsx`,
-    `${join(resolved, 'index.ts')}`,
-    `${join(resolved, 'index.tsx')}`,
-  ];
-
+  // Handle alias specifiers
+  const candidates = aliasCandidateBases(spec, repoRoot);
   for (const candidate of candidates) {
-    const candidateRel = relative(repoRoot, candidate).split('\\').join('/');
-    if (candidateRel === relPath) {
-      return true;
-    }
-  }
-
-  // If spec ends .js, strip it and try .ts/.tsx
-  if (spec.endsWith('.js')) {
-    const stripped = spec.slice(0, -3);
-    let resolvedStripped = resolve(importingDir, stripped);
-    const resolvedStrippedRel = relative(repoRoot, resolvedStripped)
-      .split('\\')
-      .join('/');
-
-    if (resolvedStrippedRel === relPath) {
+    if (matchesResolvedPath(candidate, relPath, repoRoot)) {
       return true;
     }
 
-    const strippedCandidates = [
-      `${resolvedStripped}.ts`,
-      `${resolvedStripped}.tsx`,
-      `${join(resolvedStripped, 'index.ts')}`,
-      `${join(resolvedStripped, 'index.tsx')}`,
-    ];
-
-    for (const candidate of strippedCandidates) {
-      const candidateRel = relative(repoRoot, candidate).split('\\').join('/');
-      if (candidateRel === relPath) {
+    // If candidate ends .js, strip it and try again
+    if (candidate.endsWith('.js')) {
+      const stripped = candidate.slice(0, -3);
+      if (matchesResolvedPath(stripped, relPath, repoRoot)) {
         return true;
       }
     }

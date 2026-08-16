@@ -12,7 +12,7 @@
 import type { Todo } from './todo-store';
 import { listTodos, readClaim } from './todo-store';
 import type { LandReadinessReport } from './epic-land-readiness';
-import { getEpicLandReadiness } from './epic-land-readiness';
+import { getEpicLandReadiness, isAbsenceFinding } from './epic-land-readiness';
 import type { EpicLandGateResult, EpicLandGateOpts } from './epic-land-gate';
 import { runEpicLandGate, landGateTrailer, landGateSummary } from './epic-land-gate';
 import { isEpicTodo, isLandTodo } from './invariant-check';
@@ -43,7 +43,8 @@ export type LandBlockCode =
   | 'gate-failed'
   | 'tsc-failed'
   | 'merge-conflict'
-  | 'open-children';
+  | 'open-children'
+  | 'trunk-red';
 
 /** A single blocker with code, message, and optional detail */
 export interface LandBlocker {
@@ -79,6 +80,37 @@ export interface LandAuthorityVerdict extends LandReadinessVerdict {
   authorized: boolean;
   ownership: 'n/a' | 'owned' | 'foreign' | 'bucket' | 'unowned';
   trailer: string;
+}
+
+/**
+ * Measurements the steward precheck already took, threaded into `landReadiness` so a
+ * single `landEpic` call measures ONCE (audit O4/O5/O6 — one land paid double: tsc +
+ * dry-merge re-proved, the G9 presence sweep re-swept, and open-children re-asked over
+ * the same snapshot). Consumption is strictly guarded: the proofs are trusted ONLY when
+ * `probedAtShas` still equals the `snapshot` shas at readiness time — if the trunk or
+ * the epic tip moved between the steward stage and the proof stage, every step falls
+ * back to a fresh probe. Absent (every external caller today), behavior is
+ * byte-identical to the unthreaded path.
+ *
+ * This is per-call threading, NOT a cache: `getEpicLandReadiness` gains no memo here —
+ * a cache on the presence sweep has staleness risk (store rows move independently of
+ * git shas) that the audit did not price.
+ */
+export interface ThreadedStewardMeasurements {
+  /** The steward's re-derived tsc + dry-merge verdicts, pinned to the shas they were
+   *  probed at (trunk head + epic tip). */
+  stewardProof?: {
+    tscClean: boolean;
+    mergeClean: boolean;
+    probedAtShas: { master: string; epicTip: string };
+  };
+  /** The steward's G9 presence sweep result (full report, not just findings). */
+  presence?: LandReadinessReport;
+  /** True when the steward already verified the epic's children against the same todo
+   *  snapshot this readiness call receives; skips the duplicate mid-pipeline read. The
+   *  post-proof FRESH open-children re-check at merge time is unaffected (it reads a
+   *  new store snapshot and always runs). */
+  childrenChecked?: boolean;
 }
 
 /** Injected probes for testing */
@@ -383,7 +415,7 @@ async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<
 export async function landReadiness(
   project: string,
   epicId: string,
-  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor },
+  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor } & ThreadedStewardMeasurements,
 ): Promise<LandReadinessVerdict> {
   const probes = opts?.probes ?? {};
   const allTodos = opts?.todos ?? (probes.todos ? probes.todos(project) : listTodos(project, { includeCompleted: true }));
@@ -394,24 +426,44 @@ export async function landReadiness(
   let gate: EpicLandGateResult | null = null;
   let presence: LandReadinessReport = { project, epicId, epicBranch, blocking: false, findings: [], exemptions: [], duplicateCommits: [], checked: 0 };
 
-  // Step 1: Check [LAND] leaf dependencies
-  const depBlocker = checkLandDeps(allTodos, epicId);
-  if (depBlocker) {
-    blockers.push(depBlocker);
-  }
+  // Threaded steward measurements (audit O4/O5/O6): trust the steward's proofs ONLY when
+  // the shas it probed at still equal this call's snapshot shas. A moved trunk or epic
+  // tip (e.g. a stale-base forward-integration between stages) invalidates ALL of them —
+  // never consume a stale proof. No snapshot ⇒ nothing to compare against ⇒ re-probe.
+  const stewardProof = opts?.stewardProof;
+  const stewardShasMatch = !!(
+    stewardProof &&
+    opts?.snapshot &&
+    stewardProof.probedAtShas.master === opts.snapshot.baseSha &&
+    stewardProof.probedAtShas.epicTip === opts.snapshot.epicTipSha
+  );
 
-  const openChildrenBlocker = checkOpenChildren(allTodos, epicId);
-  if (openChildrenBlocker) {
-    blockers.push(openChildrenBlocker);
+  // Step 1: Check [LAND] leaf dependencies + open children — skipped only when the
+  // steward already asked over the same snapshot AND the shas held (the post-proof
+  // fresh re-check at merge time in coordinator-land still always runs).
+  let depBlocker: LandBlocker | null = null;
+  if (!(opts?.childrenChecked && stewardShasMatch)) {
+    depBlocker = checkLandDeps(allTodos, epicId);
+    if (depBlocker) {
+      blockers.push(depBlocker);
+    }
+
+    const openChildrenBlocker = checkOpenChildren(allTodos, epicId);
+    if (openChildrenBlocker) {
+      blockers.push(openChildrenBlocker);
+    }
   }
 
   // Resolve the epic worktree cwd for merge and tsc probes
   const cwdProbe = probes.worktreeCwd ?? resolveEpicWorktreeCwd;
   const epicWorktreeCwd = await cwdProbe(project, epicId);
 
-  // Step 2: Check merge and tsc
+  // Step 2: Check merge and tsc — consume the steward's measurement when the shas held;
+  // otherwise probe fresh (byte-identical to the unthreaded path).
   const mergeProbe = probes.merge || ((p, b, w) => defaultMergeProbe(p, b, w));
-  const mergeResult = await mergeProbe(project, epicBranch, epicWorktreeCwd);
+  const mergeResult = stewardShasMatch
+    ? { tscClean: stewardProof!.tscClean, mergeClean: stewardProof!.mergeClean }
+    : await mergeProbe(project, epicBranch, epicWorktreeCwd);
 
   if (!mergeResult.tscClean) {
     blockers.push({
@@ -427,20 +479,27 @@ export async function landReadiness(
     });
   }
 
-  // Step 3: Check presence (G9)
-  const presenceProbe = probes.presence || ((p, e) => getEpicLandReadiness(p, e));
-  presence = await presenceProbe(project, epicId);
+  // Step 3: Check presence (G9) — consume the steward's sweep when the shas held.
+  if (opts?.presence && stewardShasMatch) {
+    presence = opts.presence;
+  } else {
+    const presenceProbe = probes.presence || ((p, e) => getEpicLandReadiness(p, e));
+    presence = await presenceProbe(project, epicId);
+  }
 
-  if (presence.blocking) {
-    const orphaned = presence.findings.filter((f) => f.kind === 'orphaned-proof').length;
-    const absent = presence.findings.length - orphaned;
+  // Filter to absence findings only (exclude unlanded, which is normal pre-land state)
+  const absentFindings = presence.findings.filter(isAbsenceFinding);
+
+  if (absentFindings.length > 0) {
+    const orphaned = absentFindings.filter((f) => f.kind === 'orphaned-proof').length;
+    const absent = absentFindings.length - orphaned;
     const messageParts: string[] = [];
     if (absent > 0) messageParts.push(`Accepted CODE leaves have no commits reachable from epic branch`);
     if (orphaned > 0) messageParts.push(`${orphaned} proof leaf/leaves for served criteria are not accepted/done`);
     blockers.push({
       code: 'presence-findings',
       message: messageParts.join('; '),
-      detail: presence.findings.map((f) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
+      detail: absentFindings.map((f) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
     });
   }
 
@@ -459,32 +518,42 @@ export async function landReadiness(
 
   gate = await gateProbe(gateOpts);
 
-  // Gate produces regressions (branch-red, master-green) — blocking
-  if (gate.regressions.length > 0) {
+  // Check for trunk-red attribution first
+  if (gate.floorAttribution?.verdict === 'trunk-red') {
     blockers.push({
-      code: 'gate-regression',
-      message: `Land gate found ${gate.regressions.length} regressions (branch fails, master passes)`,
+      code: 'trunk-red',
+      message: `Regression floor failed due to trunk-red: ${gate.floorAttribution.files.length} file(s) failing at base`,
+      detail: gate.floorAttribution.files.join(', '),
     });
-  }
+  } else {
+    // Gate produces regressions (branch-red, master-green) — blocking
+    if (gate.regressions.length > 0) {
+      blockers.push({
+        code: 'gate-regression',
+        message: `Land gate found ${gate.regressions.length} regressions (branch fails, master passes)`,
+        detail: gate.floorAttribution?.files.join(', '),
+      });
+    }
 
-  // Gate errors or incidents — blocking
-  if (gate.status === 'error' || gate.incidents.length > 0) {
-    blockers.push({
-      code: 'gate-error',
-      message: `Land gate encountered errors: ${gate.reasons[0] ?? 'unknown'}`,
-    });
-  }
+    // Gate errors or incidents — blocking
+    if (gate.status === 'error' || gate.incidents.length > 0) {
+      blockers.push({
+        code: 'gate-error',
+        message: `Land gate encountered errors: ${gate.reasons[0] ?? 'unknown'}`,
+      });
+    }
 
-  // Gate FAILED without regressions/incidents recorded (e.g. a gate-internal typecheck
-  // failure short-circuits with status:'fail' and empty regressions/incidents arrays) —
-  // blocking. The regression/incident checks above do not cover this case on their own,
-  // so it needs its own explicit check to keep landReadiness at least as strict as the
-  // pre-consolidation per-actor proof it replaces.
-  if (gate.status === 'fail' && gate.regressions.length === 0 && gate.incidents.length === 0) {
-    blockers.push({
-      code: 'gate-failed',
-      message: `Land gate failed: ${gate.reasons[0] ?? 'unknown'}`,
-    });
+    // Gate FAILED without regressions/incidents recorded (e.g. a gate-internal typecheck
+    // failure short-circuits with status:'fail' and empty regressions/incidents arrays) —
+    // blocking. The regression/incident checks above do not cover this case on their own,
+    // so it needs its own explicit check to keep landReadiness at least as strict as the
+    // pre-consolidation per-actor proof it replaces.
+    if (gate.status === 'fail' && gate.regressions.length === 0 && gate.incidents.length === 0) {
+      blockers.push({
+        code: 'gate-failed',
+        message: `Land gate failed: ${gate.reasons[0] ?? 'unknown'}`,
+      });
+    }
   }
 
   // Inherited red (branch-red and master-red) — reported, not blocking

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import type { Escalation } from '@/stores/supervisorStore';
 import {
-  selectTriageStack,
-  selectTriageTop,
+  selectAttentionStack,
+  selectAttentionTop,
   wedgeMinutes,
   escalationSeverity,
   SEV_GATED_OR_WEDGED,
   SEV_ROUTINE,
   SEV_UNKNOWN_SOFT,
   type SessionSummary,
-} from './triageSelectors';
+} from './attentionSelectors';
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -30,9 +30,9 @@ const asRecord = (...s: SessionSummary[]): Record<string, SessionSummary> =>
 
 const NOW = 1_000_000;
 
-// ── selectTriageStack ─────────────────────────────────────────────────────────
+// ── selectAttentionStack ─────────────────────────────────────────────────────
 
-describe('selectTriageStack', () => {
+describe('selectAttentionStack', () => {
   it('operator-gated + wedged outrank routine approvals (core invariant)', () => {
     const escalations: Escalation[] = [
       esc('e-routine', 'open', 200),               // SEV_ROUTINE, no operatorGated
@@ -43,7 +43,7 @@ describe('selectTriageStack', () => {
       summary('s-unknown', 'unknown', 500),         // SEV_UNKNOWN_SOFT
     );
 
-    const stack = selectTriageStack(escalations, summaries, NOW);
+    const stack = selectAttentionStack(escalations, summaries, NOW);
 
     // Every gated/wedged item is SEV_GATED_OR_WEDGED; routine is SEV_ROUTINE
     const gatedItems = stack.filter((i) => i.severity === SEV_GATED_OR_WEDGED);
@@ -76,7 +76,7 @@ describe('selectTriageStack', () => {
     expect(lastRoutineIdx).toBeLessThan(firstUnknownIdx);
   });
 
-  it('selectTriageTop returns the most-urgent item', () => {
+  it('selectAttentionTop returns the most-urgent item', () => {
     const escalations: Escalation[] = [
       esc('e-routine-1', 'open', 100),
       esc('e-routine-2', 'open', 200),
@@ -86,7 +86,7 @@ describe('selectTriageStack', () => {
       summary('s-active', 'active', 150),  // excluded
     );
 
-    const top = selectTriageTop(escalations, summaries, NOW);
+    const top = selectAttentionTop(escalations, summaries, NOW);
 
     expect(top).not.toBeNull();
     expect(top!.kind).toBe('escalation');
@@ -106,7 +106,7 @@ describe('selectTriageStack', () => {
       summary('s-wedged-new', 'wedged', 500),  // SEV_GATED_OR_WEDGED, newer timestamp
     );
 
-    const stack = selectTriageStack(escalations, summaries, NOW);
+    const stack = selectAttentionStack(escalations, summaries, NOW);
 
     expect(stack.length).toBe(2);
     // Wedge must be first despite having a newer (larger) since value
@@ -126,13 +126,13 @@ describe('selectTriageStack', () => {
       summary('s-wedged-older', 'wedged', 50),   // top tier, since=50
     );
 
-    const stack = selectTriageStack(escalations, summaries, NOW);
+    const stack = selectAttentionStack(escalations, summaries, NOW);
 
     // Top tier: s-wedged-older (since=50) before e-gated-newer (since=100)
     expect(stack[0].since).toBe(50);
     expect(stack[1].since).toBe(100);
 
-    const top = selectTriageTop(escalations, summaries, NOW);
+    const top = selectAttentionTop(escalations, summaries, NOW);
     expect(top!.since).toBe(50);
 
     // Routine tier: e-routine-b (since=150) before e-routine-a (since=300)
@@ -144,7 +144,7 @@ describe('selectTriageStack', () => {
   it('exclusions hold', () => {
     // Non-open escalation is omitted
     const closedEsc: Escalation[] = [esc('e-resolved', 'resolved', 100)];
-    expect(selectTriageStack(closedEsc, {}, NOW)).toHaveLength(0);
+    expect(selectAttentionStack(closedEsc, {}, NOW)).toHaveLength(0);
 
     // active/quiet/stalled sessions are omitted
     const irrelevantSessions = asRecord(
@@ -152,27 +152,27 @@ describe('selectTriageStack', () => {
       summary('s-quiet',   'quiet',   200),
       summary('s-stalled', 'stalled', 300),
     );
-    expect(selectTriageStack([], irrelevantSessions, NOW)).toHaveLength(0);
+    expect(selectAttentionStack([], irrelevantSessions, NOW)).toHaveLength(0);
 
     // Snoozed wedge is excluded when snoozedUntil > now
     const snoozedSessions = asRecord(
       summary('s-snoozed', 'wedged', 100, { snoozedUntil: NOW + 1000 }),
     );
-    expect(selectTriageStack([], snoozedSessions, NOW)).toHaveLength(0);
+    expect(selectAttentionStack([], snoozedSessions, NOW)).toHaveLength(0);
 
     // Expired snooze (snoozedUntil < now) is included
     const expiredSnoozeSessions = asRecord(
       summary('s-expired-snooze', 'wedged', 100, { snoozedUntil: NOW - 1 }),
     );
-    expect(selectTriageStack([], expiredSnoozeSessions, NOW)).toHaveLength(1);
+    expect(selectAttentionStack([], expiredSnoozeSessions, NOW)).toHaveLength(1);
 
     // Empty inputs
-    expect(selectTriageStack([], {}, NOW)).toEqual([]);
-    expect(selectTriageTop([], {}, NOW)).toBeNull();
+    expect(selectAttentionStack([], {}, NOW)).toEqual([]);
+    expect(selectAttentionTop([], {}, NOW)).toBeNull();
   });
 
-  // NOTE: per-escalation snooze is no longer a selectTriageStack concern — the 4th arg
-  // is TriageStackOpts {onlyYouIds, clearedIds} and per-item snooze lives in the
+  // NOTE: per-escalation snooze is no longer a selectAttentionStack concern — the 4th arg
+  // is AttentionStackOpts {onlyYouIds, clearedIds} and per-item snooze lives in the
   // notification store. (The old snooze-map-signature test was removed in the Zen redesign.)
 
   it('escalationSeverity unit pin — confirms constant ordering 3 > 2 > 1', () => {

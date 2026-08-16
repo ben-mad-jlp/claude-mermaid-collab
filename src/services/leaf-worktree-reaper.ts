@@ -1122,9 +1122,14 @@ export async function sweepStrayMutationProbeTemps(
 
 export async function tickGcLeafWorktrees(
   project: string,
-  opts: { now?: number; gc?: (project: string, o?: { skipProbeSweep?: boolean; sweepOpts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean; remove?: (p: string) => Promise<void> } }) => Promise<GcReport>; sweep?: (project: string, o?: { now?: number }) => Promise<string[]> } = {},
+  opts: { now?: number; gc?: (project: string, o?: { skipProbeSweep?: boolean; sweepOpts?: { now?: number; maxAgeMs?: number; tmpRoot?: string; dryRun?: boolean; remove?: (p: string) => Promise<void> } }) => Promise<GcReport>; sweep?: (project: string, o?: { now?: number }) => Promise<string[]>; trashSweep?: (project: string, o?: { now?: number }) => Promise<string[] | null> } = {},
 ): Promise<GcReport | null> {
   const now = opts.now ?? Date.now();
+  // Trash hard-delete pass rides the same coordinator tick (audit item 9: it was a dead
+  // schedule with zero production callers). Fired BEFORE this function's own GC throttle
+  // gate — it self-gates on its own coarser (hourly) throttle — and fire-and-forget:
+  // trash sweeping must never delay or fail the GC pass.
+  void (opts.trashSweep ?? tickSweepWorktreeTrash)(project, { now });
   if ((now - (lastGcMs.get(project) ?? 0)) < WORKTREE_GC_INTERVAL_MS) return null;
   lastGcMs.set(project, now);
   if (opts.sweep) {
@@ -1135,19 +1140,27 @@ export async function tickGcLeafWorktrees(
 }
 
 const lastTrashSweepMs = new Map<string, number>();
-const TRASH_SWEEP_THROTTLE_MS = 60 * 60_000; // hourly
+export const TRASH_SWEEP_THROTTLE_MS = 60 * 60_000; // hourly
 
 /** Hard-deletes `.collab/.trash/<ts>/*` entries older than WorktreeManager's
- *  WORKTREE_TRASH_TTL_MS. Throttled per project; fire-and-forget from the coordinator
- *  tick, same shape as tickGcLeafWorktrees. */
-export async function tickSweepWorktreeTrash(project: string): Promise<string[] | null> {
-  const now = Date.now();
+ *  WORKTREE_TRASH_TTL_MS. Throttled per project (hourly); fired fire-and-forget from
+ *  every tickGcLeafWorktrees call (which coordinator-live fires per liveness tick via
+ *  worker-liveness deps). Best-effort: any failure returns null and re-arms next hour.
+ *  `now`/`sweep` are injectable for deterministic throttle tests. */
+export async function tickSweepWorktreeTrash(
+  project: string,
+  opts: { now?: number; sweep?: (now: number) => Promise<string[]> } = {},
+): Promise<string[] | null> {
+  const now = opts.now ?? Date.now();
   if ((now - (lastTrashSweepMs.get(project) ?? 0)) < TRASH_SWEEP_THROTTLE_MS) return null;
   lastTrashSweepMs.set(project, now);
-  const wm = getWorktreeManager(project);
-  const removed = await wm.sweepTrash(now);
-  if (removed.length > 0) {
-    console.log(`[worktree-gc] swept ${removed.length} expired trash entr${removed.length === 1 ? 'y' : 'ies'}`);
+  try {
+    const removed = await (opts.sweep ? opts.sweep(now) : getWorktreeManager(project).sweepTrash(now));
+    if (removed.length > 0) {
+      console.log(`[worktree-gc] swept ${removed.length} expired trash entr${removed.length === 1 ? 'y' : 'ies'}`);
+    }
+    return removed;
+  } catch {
+    return null; // best-effort — never let a trash-sweep failure surface into the tick
   }
-  return removed;
 }

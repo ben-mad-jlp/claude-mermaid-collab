@@ -656,6 +656,68 @@ export function buildCriteriaRepairPrompt(
   ].join('\n');
 }
 
+/** One criterion the TARGETED-REWRITE node must restate: the offending text, the gate's reason,
+ *  and the compliant shape. `shape` is passed IN (from criteria-citability's compliantShapeFor)
+ *  rather than computed here, mirroring buildBlueprintRepairPrompt's missingField: this file
+ *  stays free of gate imports. */
+export interface CriterionRewriteRequest {
+  text: string;
+  reason?: string;
+  shape?: string;
+}
+
+/** L4 (disposition-routed repair): build the TARGETED prompt for an uncitable ABSENCE (or
+ *  out-of-diff-location) criterion. Unlike buildCriteriaRepairPrompt this does NOT re-author the
+ *  blueprint — it asks for ONLY the replacement criterion sentence(s), which the executor splices
+ *  in place of the offending line. Every other criterion and every other byte of the blueprint is
+ *  preserved by the splice, so the node has nothing to re-emit and nothing to accidentally lose.
+ *
+ *  WHY: the full re-author measured ~138s of opus / ~11.7k output tokens / ~523k cache reads to
+ *  fix ONE sentence, and it re-derived the whole plan (a fresh chance to drop a task or change a
+ *  file list) as a side effect. The reply contract here is one numbered line per criterion, so the
+ *  node's whole job is a sentence rewrite. Anything unparsed simply leaves that criterion as-is
+ *  and the leaf parks exactly as it does today — never a silent drop. */
+export function buildCriterionRewritePrompt(
+  leaf: Todo,
+  offenders: readonly CriterionRewriteRequest[],
+): string {
+  const title = leaf.title ?? leaf.id;
+  const description = leaf.description ?? '(no description)';
+
+  const numbered = offenders.flatMap((o, i) => [
+    `${i + 1}. "${o.text}"`,
+    `   WHY IT IS UNCITABLE: ${o.reason || 'the criterion asserts something no file:line in this diff can prove'}`,
+    ...(o.shape ? [`   ${o.shape}`] : []),
+  ]);
+
+  return [
+    'You are the BLUEPRINT node, doing ONE narrow job: restating uncitable acceptance criteria.',
+    'Do NOT write code. Do NOT re-author the blueprint. Do NOT write any file.',
+    `Title: ${title}`,
+    `Description: ${description}`,
+    '',
+    'Every acceptance criterion must be satisfiable by a `file:line` citation inside the diff this',
+    'leaf produces, or by a named mechanical check whose result is asserted. These criteria are not:',
+    '',
+    ...numbered,
+    '',
+    'Each one encodes REAL work — it is NOT being deleted. Restate each as the OBSERVABLE CODE',
+    'CHANGE that proves it, or as one of the citable DELETION/REMOVAL forms below. Keep the same',
+    'meaning and the same scope: a restatement that proves LESS than the original is a regression.',
+    '',
+    ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
+    '',
+    'REPLY FORMAT — this is the whole reply, nothing else. Emit EXACTLY one line per criterion',
+    'above, in the same order, as:',
+    '',
+    ...offenders.map((_, i) => `${i + 1}) <the replacement criterion, one line, no leading bullet>`),
+    '',
+    'No preamble, no explanation, no code fences, no blank-line padding, no extra criteria. Each',
+    'replacement is a SINGLE line: it is spliced verbatim into the blueprint in place of the line',
+    'it replaces, and every other criterion stays exactly as written.',
+  ].join('\n');
+}
+
 /** Build the repair prompt for a blueprint node whose v2 diff contract (diff-contract.ts) is
  *  UNDERSPECIFIED for its declared leafKind per the §4 strictness matrix
  *  (validateContractForKind) — a required requirement kind has zero entries. Mirrors
@@ -807,8 +869,9 @@ export function buildVerifyPrompt(
         'Compose a findings report (markdown): what was verified, the overall verdict, and each',
         'finding with enough detail to act on (and how to reproduce).',
         'For EACH distinct finding, file one bucket item via the collab MCP tool',
-        '`mcp__mermaid__file_to_bucket` (title = the finding, description = detail + repro, bucket',
-        '"bugfix") if that tool is available; if it is not, include the would-be todos as a section in the report.',
+        '`mcp__mermaid__file_bugfix` with observedFailure (concrete symptom/error text), evidence (a',
+        'path:line anchor or identifier), and fixedMeans (measurable assertion of what was fixed) if that tool is available;',
+        'if it is not, include the would-be todos as a section in the report.',
         'OUTPUT the COMPLETE report markdown as your FINAL reply message, verbatim — that final',
         'message IS the deliverable: the executor writes it to the worktree and commits it onto the',
         'epic branch. Do NOT write files yourself and do NOT run git — just emit the markdown and',
@@ -898,8 +961,9 @@ export function buildReviewPrompt(leaf: Todo, baseRef: string, lens: ReviewLens 
     REVIEW_LENS_INSTRUCTIONS[lens],
     '',
     'For EACH distinct gap/finding, file one bucket item via the collab MCP tool',
-    '`mcp__mermaid__file_to_bucket` (title = the finding, description = detail + where + why it',
-    'matters, bucket "bugfix") if that tool is available; if it is not, list the would-be todos as a section in the report.',
+    '`mcp__mermaid__file_bugfix` with observedFailure (concrete symptom/error text), evidence (a',
+    'path:line anchor or identifier), and fixedMeans (measurable assertion of what was fixed) if that tool is available;',
+    'if it is not, list the would-be todos as a section in the report.',
     '',
     'Then compose a REVIEW REPORT (markdown): what was reviewed (and the diff base you used), the',
     'per-decision check results, and each finding with enough detail to act on.',

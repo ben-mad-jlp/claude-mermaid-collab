@@ -68,6 +68,36 @@ describe('GET /api/conductor/journal', () => {
     expect(body.rows.map((r) => r.startedAt)).toEqual([3000, 2000]);
   });
 
+  it('pages with offset and reports the unpaged total for the filter', async () => {
+    const res = await get(`?project=${encodeURIComponent(PROJECT)}&limit=2&offset=2`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: Array<{ startedAt: number }>; total: number };
+    expect(body.rows.map((r) => r.startedAt)).toEqual([1000]);
+    expect(body.total).toBe(3);
+  });
+
+  it('total reflects the missionId filter, not the whole project', async () => {
+    const res = await get(`?project=${encodeURIComponent(PROJECT)}&missionId=m1&limit=1`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: Array<{ startedAt: number }>; total: number };
+    expect(body.rows.map((r) => r.startedAt)).toEqual([3000]);
+    expect(body.total).toBe(2);
+  });
+
+  it('400s on a negative offset', async () => {
+    const res = await get(`?project=${encodeURIComponent(PROJECT)}&offset=-1`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('offset must be a non-negative number');
+  });
+
+  it('400s on a NaN offset', async () => {
+    const res = await get(`?project=${encodeURIComponent(PROJECT)}&offset=abc`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('offset must be a non-negative number');
+  });
+
   it('400s when project is missing', async () => {
     const res = await get('');
     expect(res.status).toBe(400);

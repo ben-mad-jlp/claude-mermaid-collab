@@ -11,9 +11,9 @@
  *
  * Hermetic: only node: builtins and Bun globals. No relative import of any other `src/`
  * module —
- * `epic-branch-status.ts`, `invariant-check.ts`, `epic-landed-stamp-gate.ts`, and
- * `sweep-measurement.ts` all sit above this module in the import graph, and a heavy edge
- * here previously caused a module-init TDZ cycle.
+ * `epic-branch-status.ts`, `invariant-check.ts`, and `epic-landed-stamp-gate.ts` all sit
+ * above this module in the import graph, and a heavy edge here previously caused a
+ * module-init TDZ cycle.
  */
 
 export type GitRunner = (cwd: string, args: string[]) => Promise<{ code: number; stdout: string }>;

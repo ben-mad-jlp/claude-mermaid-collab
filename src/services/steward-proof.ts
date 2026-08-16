@@ -24,8 +24,9 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { detectCompileCheck } from './compile-gate.ts';
-import { getEpicLandReadiness } from './epic-land-readiness.ts';
+import { getEpicLandReadiness, isAbsenceFinding } from './epic-land-readiness.ts';
 import { resolveTrunkRef as sharedResolveTrunkRef } from './trunk-ref.ts';
+import { memoizedTsc, type TscRunner } from './tsc-memo.ts';
 
 export type StewardVerb = 'reset_todo' | 'override_accept_todo' | 'land_epic';
 
@@ -150,10 +151,19 @@ export async function memoizedMergeClean(deps: {
  * untracked) changes tsc input WITHOUT moving HEAD, so dirty trees must NEVER cache.
  * The porcelain-empty guard gates BOTH read and store: a dirty tree yields resolveKey()
  * return '', which skips the cache entirely (mirrors memoizedMergeClean's empty-key path).
+ *
+ * NOTE: `realRunners.tscClean` no longer uses THIS in-process Map — it routes through the
+ * DURABLE tree-keyed verdict layer (tsc-memo.ts), which every typecheck runner (base gate,
+ * land gate, land floor, test-backend's desktop preamble) shares, keyed on the TREE object
+ * so a green from any one of them answers the others across processes. The pure
+ * `memoizedTscClean` wrapper below is kept as the generic in-process memo primitive (and
+ * for its tests); `_resetTscCleanCache` still clears the in-process bits — the durable
+ * ledger row deliberately survives it (that durability is the point; hermetic tests
+ * isolate it via MERMAID_SUPERVISOR_DIR).
  */
 export const TSC_CLEAN_TTL_MS = 10 * 60 * 1000;
 const tscCleanCache = new Map<string, { pass: boolean; at: number }>();
-/** Test seam: clear the tsc-compile memo so the next call recomputes. */
+/** Test seam: clear the in-process tsc-compile memo so the next call recomputes. */
 export function _resetTscCleanCache(): void {
   tscCleanCache.clear();
 }
@@ -248,6 +258,51 @@ export async function resolveTrunkRef(cwd: string): Promise<string> {
   return sharedResolveTrunkRef(cwd);
 }
 
+/** The real `tscClean` predicate, exported with its runner seam so tests can drive the
+ *  durable-memo path without spawning a real compiler (realRunners.tscClean delegates). */
+export async function stewardTscClean(cwd: string, runnerOverride?: TscRunner): Promise<boolean> {
+  // MEMOIZED via the DURABLE tree-keyed verdict layer (tsc-memo.ts), which replaced the
+  // private ${cwd}:${HEAD} Map here: the shared row is keyed on the TREE object (never
+  // the commit sha — a no-op tip-bump still hits) plus the command, so a green measured
+  // by ANY typecheck runner (base gate, land gate, land floor, test-backend's desktop
+  // preamble) answers this one too, across processes. The dirty-tree discipline is
+  // unchanged — tsc-memo runs uncached (no consult, no store) when porcelain is not
+  // empty or the identity cannot be resolved.
+  //
+  // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
+  // for languages with no static compile step (e.g. Python) — running tsc there is a
+  // false-fail. The land still rests on the other proofs (merge-clean, children-done).
+  const check = detectCompileCheck(cwd);
+  if (!check) return true;
+  const runner: TscRunner = runnerOverride ?? (async (c, command) => {
+    const [bin, ...args] = command.split(' ');
+    const r = await execAsync(bin, args, { cwd: c });
+    // ABSTAIN when the COMPILER ITSELF is absent (incident 2026-08-04, mission db089158).
+    // qbs has a qbs.sln at its root, so detectCompileCheck selects `dotnet build` — but
+    // `dotnet` is not installed on this host. execFile returned ENOENT, which the old
+    // numeric coercion flattened to code 1, so "no compiler" read identically to "the
+    // build is red". Every land of every epic was blocked by a `tsc-failed` blocker on
+    // changes containing zero C# and zero TypeScript (the ros-api epic is nine .js/.sh
+    // files). Seven epic branches stranded, $47.53 spent, nothing landed.
+    //
+    // A gate that CANNOT RUN must report INAPPLICABLE, never FAILURE — the same rule the
+    // `!check` branch above already follows for a language with no compile step. Reported
+    // as ran:false, which tsc-memo NEVER records: installing the toolchain must take
+    // effect immediately, without waiting out a memo keyed on an unchanged tree.
+    if (r.notFound) {
+      console.warn(
+        `[steward-proof] compile gate ABSTAIN in ${c}: ${check.label} check \`${check.cmd}\` ` +
+        `could not run (binary not installed). Treating as not-applicable, not as a failure.`,
+      );
+      return { ran: false, code: r.code, output: r.stdout };
+    }
+    return { ran: true, code: r.code, output: r.stdout };
+  });
+  const r = await memoizedTsc(cwd, check.cmd, { runner });
+  if (!r.ran) return true; // abstain (compiler absent) — inapplicable, never a failure
+  return r.code === 0;
+}
+
 export const realRunners: ProofRunners = {
   async commitsBehindMaster(cwd, baseRef = 'master') {
     const r = await execAsync('git', ['rev-list', '--count', `HEAD..${baseRef}`], { cwd });
@@ -255,49 +310,7 @@ export const realRunners: ProofRunners = {
     return parseInt(r.stdout.trim(), 10) || 0;
   },
   tscClean(cwd) {
-    // MEMOIZED on (cwd, HEAD): a pristine tree at HEAD X fully determines tsc input, so
-    // ${cwd}:${HEAD} is a safe key. A dirty tree (staged/unstaged/untracked) changes
-    // input WITHOUT moving HEAD, so it must never cache — resolveKey returns '' for
-    // dirty/untracked/failed-to-resolve, which gates BOTH read and store.
-    return memoizedTscClean({
-      resolveKey: async () => {
-        const dirtyR = await execAsync('git', ['-C', cwd, 'status', '--porcelain']);
-        if (dirtyR.code !== 0) return ''; // no repo / git failed → run uncached (behavior unchanged)
-        if (dirtyR.stdout.trim()) return ''; // dirty/untracked → run uncached (gate BOTH read and store)
-        const headR = await execAsync('git', ['-C', cwd, 'rev-parse', 'HEAD']);
-        const head = headR.code === 0 ? headR.stdout.trim() : '';
-        return head ? `${cwd}:${head}` : '';
-      },
-      compute: async () => {
-        // Language-aware: tsc for TS, dotnet build for .NET, and TRUE (no compile blocker)
-        // for languages with no static compile step (e.g. Python) — running tsc there is a
-        // false-fail. The land still rests on the other proofs (merge-clean, children-done).
-        const check = detectCompileCheck(cwd);
-        if (!check) return { pass: true, cacheable: true };
-        const [bin, ...args] = check.cmd.split(' ');
-        const r = await execAsync(bin, args, { cwd });
-        // ABSTAIN when the COMPILER ITSELF is absent (incident 2026-08-04, mission db089158).
-        // qbs has a qbs.sln at its root, so detectCompileCheck selects `dotnet build` — but
-        // `dotnet` is not installed on this host. execFile returned ENOENT, which the old
-        // numeric coercion flattened to code 1, so "no compiler" read identically to "the
-        // build is red". Every land of every epic was blocked by a `tsc-failed` blocker on
-        // changes containing zero C# and zero TypeScript (the ros-api epic is nine .js/.sh
-        // files). Seven epic branches stranded, $47.53 spent, nothing landed.
-        //
-        // A gate that CANNOT RUN must report INAPPLICABLE, never FAILURE — the same rule the
-        // `!check` branch above already follows for a language with no compile step. NOT
-        // cacheable: installing the toolchain must take effect immediately, without waiting
-        // out a memo keyed on an unchanged HEAD.
-        if (r.notFound) {
-          console.warn(
-            `[steward-proof] compile gate ABSTAIN in ${cwd}: ${check.label} check \`${check.cmd}\` ` +
-            `could not run (binary not installed). Treating as not-applicable, not as a failure.`,
-          );
-          return { pass: true, cacheable: false };
-        }
-        return { pass: r.code === 0, cacheable: true };
-      },
-    });
+    return stewardTscClean(cwd);
   },
   epicMergeClean(masterCwd, epicBranch) {
     // MEMOIZED on (masterSha, epicBranchSha): the trial below is a pure function of the
@@ -354,7 +367,7 @@ export const realRunners: ProofRunners = {
   },
   async unlandedLeaves(project: string, epicId: string) {
     try {
-      return (await getEpicLandReadiness(project, epicId)).findings;
+      return (await getEpicLandReadiness(project, epicId)).findings.filter(isAbsenceFinding);
     } catch {
       return [];
     }
@@ -400,11 +413,12 @@ export async function validateStewardProof(
     // (4) G9 — PRESENCE: every accepted CODE leaf beneath the epic has a commit reachable
     // from the epic tip. Complements the correctness gate; presence != correctness.
     const unlanded = await r.unlandedLeaves(ctx.project, proof.epicId);
-    if (unlanded.length > 0) {
+    const absenceFindings = unlanded.filter(isAbsenceFinding);
+    if (absenceFindings.length > 0) {
       return {
         ok: false,
         reason: 'epic-leaves-unlanded',
-        detail: unlanded.map((f: any) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
+        detail: absenceFindings.map((f: any) => `${f.todoId.slice(0, 8)} ${f.kind}: ${f.title}`).join('; '),
       };
     }
     return { ok: true, reason: 'ok' };

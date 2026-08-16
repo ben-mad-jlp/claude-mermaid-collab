@@ -13,6 +13,7 @@ import { getTodo, updateTodo, removeTodo, deriveTodoViews, isBucketEpicTitle, li
 import { computeWorkgraphHealth } from '../services/workgraph-health.js';
 import { isEpic, isMission, stripLabel } from '../services/todo-kind.js';
 import { ensureBucket, type BucketType } from '../services/bucket-registry.js';
+import { ensureExploreRunEpic } from '../services/explore-run-epic.js';
 import { addSessionTodo } from './tools/session-todos.js';
 import { trackingProjectRoot } from '../services/project-registry.js';
 import { criterionEdgesOf } from '../services/criterion-edges.js';
@@ -23,10 +24,18 @@ import {
 import { runQuarantinedSpec } from '../services/quarantine-runner.js';
 import { recordFinding, findByFailureIdentity, bumpRecurrence, type Finding } from '../services/finding-store.js';
 import { validateExploreRequest, type ExploreVacuityWarning } from '../services/explore-request.js';
-import { BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
+import { validateBugfixFiling, validateFeatureFiling, BugfixFilingRefusedError, FeatureFilingRefusedError } from '../services/typed-filing-request.js';
+import type { BugfixSpec } from '../services/bugfix-spec.js';
+import { EXPLORE_QUEUE_MAX, recordAutoAction } from '../services/auto-action-audit.js';
 
 function broadcastTodosUpdated(project: string, session: string): void {
   getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session });
+}
+
+/** Get the first line of a string, trimmed, truncated to ~200 chars. */
+function firstLine(text: string, maxLen: number = 200): string {
+  const line = text.split('\n')[0]?.trim() ?? '';
+  return line.length > maxLen ? line.slice(0, maxLen) + '…' : line;
 }
 
 /** Thrown by createEpicWithLandLeaf when a mission-homed epic declares no
@@ -91,6 +100,19 @@ export class ExploreOracleRefusedError extends Error {
   }
 }
 
+/** Thrown by fileExploreRequest when the live explore queue has reached capacity,
+ *  before any leaf row is written. */
+export class ExploreQueueFullError extends Error {
+  readonly code = 'explore-queue-full';
+  constructor(liveCount: number, cap: number) {
+    super(
+      `file_explore: explore queue is full — ${liveCount} live explores >= EXPLORE_QUEUE_MAX ${cap}. ` +
+      `Wait for an existing 'Explore runs' epic leaf to complete before filing another.`,
+    );
+    this.name = 'ExploreQueueFullError';
+  }
+}
+
 /** Returns `err.code` for any typed workgraph error, else undefined. */
 export function workgraphErrorCode(err: unknown): string | undefined {
   if (
@@ -98,6 +120,7 @@ export function workgraphErrorCode(err: unknown): string | undefined {
     || err instanceof MissingTargetProjectError
     || err instanceof DuplicateOfDoneLeafError
     || err instanceof ExploreOracleRefusedError
+    || err instanceof ExploreQueueFullError
     || err instanceof BugfixFilingRefusedError
     || err instanceof FeatureFilingRefusedError
   ) {
@@ -145,7 +168,7 @@ export async function createEpicWithLandLeaf(
   const strippedTitle = stripLabel(opts.title);
   if (!strippedTitle) throw new Error('create_epic: title must be non-empty after stripping the role prefix');
   if (isBucketEpicTitle(strippedTitle)) {
-    throw new Error('create_epic: bucket titles are refused — use file_to_bucket for Inbox/Bugfix inbox');
+    throw new Error('create_epic: bucket titles are refused — use file_bugfix/file_feature for quick-capture');
   }
 
   // Resolve `home` into the epic's missionId extra. Present-vs-absent is load-bearing:
@@ -253,7 +276,7 @@ export async function addLeavesToEpic(
   if (!parent) throw new Error('add_leaves: no such epic ' + epicId);
   if (!isEpic(parent)) throw new Error('add_leaves: parentId must be an epic');
   if (parent.isBucket) {
-    throw new Error('add_leaves: bucket epics are quick-capture only — use file_to_bucket, not add_leaves');
+    throw new Error('add_leaves: bucket epics are quick-capture only — use file_bugfix/file_feature, not add_leaves');
   }
 
   // Inherit the parent epic's targetProject onto every created leaf so leaves execute
@@ -349,19 +372,23 @@ export interface FileToBucketOpts {
   priority?: 0 | 1 | 2 | 3 | 4;
   status?: Extract<TodoStatus, 'backlog' | 'planned'>;
   link?: TodoLink;
+  bugfixSpec?: BugfixSpec | null;
 }
 
 /**
- * Quick-capture a leaf under the Inbox (default) or Bugfix inbox bucket epic,
- * auto-creating the singleton bucket via ensureBucket. Only the two bucket-relevant
+ * Quick-capture a leaf under the Inbox (default), Bugfix inbox, or Feature requests bucket epic,
+ * auto-creating the singleton bucket via ensureBucket. Only the bucket-relevant
  * statuses (backlog|planned) are exposed by the verb; defaults to 'backlog'.
+ * Accepts any BucketType; defaults to 'inbox' when opts.bucket is absent/unknown.
  */
 export async function fileToBucketLeaf(
   project: string,
   session: string,
   opts: FileToBucketOpts,
 ): Promise<Todo> {
-  const bucketType: BucketType = opts.bucket === 'bugfix' ? 'bugfix' : 'inbox';
+  const bucketType: BucketType = (opts.bucket && ['bugfix', 'feature', 'explore'].includes(opts.bucket))
+    ? opts.bucket
+    : 'inbox';
   const parentId = await ensureBucket(project, bucketType);
   const leaf = await addSessionTodo(project, session, opts.title, opts.link, {
     kind: 'leaf',
@@ -369,6 +396,7 @@ export async function fileToBucketLeaf(
     description: opts.description,
     priority: opts.priority,
     status: opts.status ?? 'backlog',
+    bugfixSpec: opts.bugfixSpec ?? null,
   });
 
   // Post-condition: verify the bucket parent is not terminal after filing the leaf.
@@ -492,7 +520,7 @@ export interface FileExploreOpts {
   reach?: string;
   title?: string;
   description?: string;
-  status?: Extract<TodoStatus, 'backlog' | 'planned'>;
+  status?: Extract<TodoStatus, 'backlog' | 'planned' | 'ready'>;
 }
 
 export async function fileExploreRequest(
@@ -503,15 +531,54 @@ export async function fileExploreRequest(
   const { refusal, warnings } = validateExploreRequest({ oracle: opts.oracle, scope: opts.scope, target: opts.target });
   if (refusal !== null) throw new ExploreOracleRefusedError(refusal);
 
-  const parentId = await ensureBucket(project, 'explore');
+  const parentId = await ensureExploreRunEpic(project);
+
+  // Cap check: count live explores under the epic before creating a new one.
+  const live = listTodos(project, { includeCompleted: true }).filter(
+    (t) => t.parentId === parentId && t.type === 'explore' && t.status !== 'done' && t.status !== 'dropped',
+  );
+  if (live.length >= EXPLORE_QUEUE_MAX) {
+    try {
+      recordAutoAction({
+        project,
+        session,
+        action: 'explore-dispatch',
+        outcome: 'capped',
+        reason: `explore-queue-full: ${live.length} live explores >= EXPLORE_QUEUE_MAX ${EXPLORE_QUEUE_MAX}`,
+      });
+    } catch (err) {
+      console.warn('recordAutoAction failed on capped path:', err);
+    }
+    throw new ExploreQueueFullError(live.length, EXPLORE_QUEUE_MAX);
+  }
+
   const leaf = await addSessionTodo(project, session, opts.title ?? opts.oracle, undefined, {
     kind: 'leaf',
     parentId,
     type: 'explore',
     description: opts.description,
-    status: opts.status ?? 'backlog',
+    status: opts.status ?? 'ready',
     exploreSpec: { scope: opts.scope, target: opts.target, oracle: opts.oracle, not: opts.not ?? null, reach: opts.reach ?? null },
   });
+
+  // Success-path audit: record the dispatch with details.
+  try {
+    recordAutoAction({
+      project,
+      session,
+      action: 'explore-dispatch',
+      outcome: 'performed',
+      reason: `filed-by:${session} — ${firstLine(opts.oracle)}`,
+      detail: {
+        leafId: leaf.id,
+        session,
+        target: opts.target,
+        queueDepth: live.length + 1,
+      },
+    });
+  } catch (err) {
+    console.warn('recordAutoAction failed on success path:', err);
+  }
 
   return { leaf, warnings };
 }
@@ -522,7 +589,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'create_epic',
     description:
-      "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox — those are quick-capture only, created via file_to_bucket). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
+      "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox/Feature requests — those are quick-capture only, created via file_bugfix/file_feature). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -574,25 +641,6 @@ export const WORKGRAPH_TOOL_DEFS = [
     },
   },
   {
-    name: 'file_to_bucket',
-    description:
-      "Quick-capture: file a leaf under the Inbox or Bugfix inbox bucket epic (auto-created if missing). For unplanned thoughts/bugs that don't yet warrant a full epic — re-home later via promote_to_epic.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        project: { type: 'string' },
-        session: { type: 'string' },
-        title: { type: 'string' },
-        bucket: { type: 'string', enum: ['inbox', 'bugfix'] },
-        description: { type: 'string' },
-        priority: { type: 'number', enum: [0, 1, 2, 3, 4] },
-        status: { type: 'string', enum: ['backlog', 'planned'] },
-        link: { type: 'object', properties: { blueprintId: { type: 'string' } } },
-      },
-      required: ['project', 'session', 'title'],
-    },
-  },
-  {
     name: 'file_finding',
     description:
       "File a reproducible finding from a red quarantined spec. Creates a leaf under the Bugfix bucket epic and persists typed metadata (violated claim, implicated files, ruled-out paths, failure identity) for dedup and recurrence tracking. Refuses if repro is missing, uncommitted, has no __quarantine__ segment, or runs green. A second filing against the same failureIdentity does not create a new leaf or finding row — it bumps recurrenceCount on the existing finding and returns the existing leaf with recurrence:true in the response.",
@@ -616,7 +664,7 @@ export const WORKGRAPH_TOOL_DEFS = [
   {
     name: 'file_explore',
     description:
-      "File an explore-node investigation request as a leaf under the Explore requests bucket epic. `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
+      "File an explore-node investigation request as a leaf under the rolling 'Explore runs' epic. The leaf is dispatchable immediately (no re-homing required). `oracle` is the falsifiable claim the explore node tests — it is validated up front and REFUSED (zero rows written, error code explore-oracle-refused) if empty. A syntactically-present oracle is never refused but rides back non-fatal `warnings` for up to three vacuity tells: no-named-anchor (no identifier/path:line/hash reference), oracle-subsumed-by-scope (adds no tokens beyond scope+target), no-falsifiable-predicate (no must/never/always/equals/... assertion word).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -629,7 +677,7 @@ export const WORKGRAPH_TOOL_DEFS = [
         reach: { type: 'string' },
         title: { type: 'string' },
         description: { type: 'string' },
-        status: { type: 'string', enum: ['backlog', 'planned'] },
+        status: { type: 'string', enum: ['backlog', 'planned', 'ready'], description: "Leaf status: 'backlog' (unplanned), 'planned' (planned but unapproved), or 'ready' (approved, dispatchable — default)." },
       },
       required: ['project', 'session', 'scope', 'target', 'oracle'],
     },
@@ -644,6 +692,40 @@ export const WORKGRAPH_TOOL_DEFS = [
         epicId: { type: 'string', description: 'Optional — scope the report to this one epic (its own row plus any of its direct children that are orphans/open).' },
       },
       required: ['project'],
+    },
+  },
+  {
+    name: 'file_bugfix',
+    description:
+      'File a typed bugfix report. Creates a leaf under the Bugfix bucket epic (auto-created if missing) with structured metadata (observed failure, evidence anchor, fixed means). Required fields: project, session, observedFailure, evidence, fixedMeans. The validator refuses filings with codes no-failure-shape (observedFailure lacks failure keywords), no-named-anchor (evidence has no path:line or identifier), or no-falsifiable-predicate (fixedMeans lacks measurable assertion). A refusal writes ZERO rows and returns error code bugfix-filing-refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        observedFailure: { type: 'string', description: 'Description of the concrete symptom or error observed.' },
+        evidence: { type: 'string', description: 'Grounding anchor: a file path:line, identifier, or hash reference.' },
+        fixedMeans: { type: 'string', description: 'Measurable assertion of what was fixed.' },
+        title: { type: 'string', description: 'Leaf title (defaults to observedFailure).' },
+        description: { type: 'string' },
+      },
+      required: ['project', 'session', 'observedFailure', 'evidence', 'fixedMeans'],
+    },
+  },
+  {
+    name: 'file_feature',
+    description:
+      'File a typed feature request. Creates a leaf under the Feature requests bucket epic (auto-created if missing) with a user-visible outcome statement. Required fields: project, session, outcome. The validator refuses filings with code no-user-visible-outcome (outcome lacks both a surface term and an action verb). A refusal writes ZERO rows and returns error code feature-filing-refused.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string' },
+        session: { type: 'string' },
+        outcome: { type: 'string', description: 'What the user can now see or do (must name a surface like "operator", "card", "panel" and an action like "sees", "shows", "displays").' },
+        title: { type: 'string', description: 'Leaf title (defaults to outcome).' },
+        description: { type: 'string' },
+      },
+      required: ['project', 'session', 'outcome'],
     },
   },
 ];
@@ -703,20 +785,6 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         2,
       );
     }
-    case 'file_to_bucket': {
-      const { project, session, title } = args as { project: string; session: string; title: string };
-      if (!project || !session || !title) throw new Error('Missing required: project, session, title');
-      const created = await fileToBucketLeaf(project, session, {
-        title,
-        bucket: args.bucket,
-        description: args.description,
-        priority: args.priority,
-        status: args.status,
-        link: args.link,
-      });
-      broadcastTodosUpdated(project, session);
-      return JSON.stringify({ leaf: deriveTodoViews(project, [created])[0] }, null, 2);
-    }
     case 'file_finding': {
       const { project, session, violatedClaim, repro } = args as { project: string; session: string; violatedClaim: string; repro: string };
       if (!project || !session || violatedClaim === undefined || repro === undefined) throw new Error('Missing required: project, session, violatedClaim, repro');
@@ -744,6 +812,41 @@ export async function handleWorkgraphTool(name: string, args: any): Promise<stri
         description: args.description,
         status: args.status,
       }));
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
+    }
+    case 'file_bugfix': {
+      const { project, session, observedFailure, evidence, fixedMeans } = args as { project: string; session: string; observedFailure: string; evidence: string; fixedMeans: string };
+      if (!project || !session || !observedFailure || !evidence || !fixedMeans) throw new Error('Missing required: project, session, observedFailure, evidence, fixedMeans');
+      const { refusal, warnings } = validateBugfixFiling({ observedFailure, evidence, fixedMeans, title: args.title, description: args.description });
+      if (refusal !== null) {
+        await withWorkgraphErrorCode(() => {
+          throw new BugfixFilingRefusedError(refusal);
+        });
+      }
+      const leaf = await fileToBucketLeaf(project, session, {
+        title: args.title ?? observedFailure,
+        bucket: 'bugfix',
+        description: args.description ?? `Failure: ${observedFailure}\nEvidence: ${evidence}\nFixed: ${fixedMeans}`,
+        bugfixSpec: { observedFailure, evidence, fixedMeans },
+      });
+      broadcastTodosUpdated(project, session);
+      return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
+    }
+    case 'file_feature': {
+      const { project, session, outcome } = args as { project: string; session: string; outcome: string };
+      if (!project || !session || !outcome) throw new Error('Missing required: project, session, outcome');
+      const { refusal, warnings } = validateFeatureFiling({ outcome, title: args.title, description: args.description });
+      if (refusal !== null) {
+        await withWorkgraphErrorCode(() => {
+          throw new FeatureFilingRefusedError(refusal);
+        });
+      }
+      const leaf = await fileToBucketLeaf(project, session, {
+        title: args.title ?? outcome,
+        bucket: 'feature',
+        description: args.description,
+      });
       broadcastTodosUpdated(project, session);
       return JSON.stringify({ leaf: deriveTodoViews(project, [leaf])[0], warnings }, null, 2);
     }

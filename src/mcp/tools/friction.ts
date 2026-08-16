@@ -5,9 +5,15 @@
  */
 import {
   recordFriction,
+  recordFrictionWithRecurrence,
   listFriction,
+  countFriction,
   type FrictionLayer,
   type FrictionNote, retractFriction } from '../../services/friction-store.js';
+import { autoFileRecurringFriction } from '../../services/friction-recurrence-filer.js';
+
+export const DEFAULT_LIMIT = 100;
+export const MAX_LIMIT = 500;
 
 export const recordFrictionSchema = {
   type: 'object',
@@ -30,14 +36,18 @@ export const recordFrictionSchema = {
 export const listFrictionSchema = {
   type: 'object',
   properties: {
-    project: { type: 'string', description: 'Absolute path to project root' },
-    todoId: { type: 'string', description: 'Filter to one todo (optional)' },
-    session: { type: 'string', description: 'Filter to one session (optional)' },
     layer: {
       type: 'string',
       enum: ['orchestration', 'domain', 'operational'],
       description: 'Filter by layer, e.g. "domain" to answer "which todos hit domain-layer friction and why" (optional)',
     },
+    limit: { type: 'number', description: 'Maximum number of notes to return (default 100, max 500)' },
+    offset: { type: 'number', description: 'Offset into result set (default 0)' },
+    project: { type: 'string', description: 'Absolute path to project root' },
+    retryReason: { type: 'string', description: 'Filter by retry reason (exact match, optional)' },
+    session: { type: 'string', description: 'Filter to one session (optional)' },
+    since: { type: 'string', description: 'ISO-8601 timestamp: include notes created at or after this time (optional)' },
+    todoId: { type: 'string', description: 'Filter to one todo (optional)' },
   },
   required: ['project'],
 };
@@ -50,8 +60,8 @@ export async function recordFrictionTool(args: {
   session?: string;
   attempt?: number;
   detail?: string;
-}): Promise<{ success: true; note: FrictionNote }> {
-  const note = await recordFriction(args.project, {
+}): Promise<{ success: true; note: FrictionNote; signature: string; priorCount: number; priorNoteIds: string[] }> {
+  const { note, signature, priorCount, priorNoteIds } = await recordFrictionWithRecurrence(args.project, {
     todoId: args.todoId ?? null,
     layer: args.layer,
     retryReason: args.retryReason,
@@ -59,7 +69,9 @@ export async function recordFrictionTool(args: {
     attempt: args.attempt,
     detail: args.detail ?? null,
   });
-  return { success: true, note };
+  try { await autoFileRecurringFriction(args.project, { signature, priorCount, priorNoteIds, note }); }
+  catch (err) { console.warn('[record_friction] auto-filer failed (non-fatal):', err); }
+  return { success: true, note, signature, priorCount, priorNoteIds };
 }
 
 export function listFrictionTool(args: {
@@ -68,14 +80,43 @@ export function listFrictionTool(args: {
   session?: string;
   layer?: FrictionLayer;
   includeRetracted?: boolean;
-}): { notes: FrictionNote[]; count: number } {
-  const notes = listFriction(args.project, {
+  limit?: number;
+  offset?: number;
+  since?: string;
+  retryReason?: string;
+}): { notes: FrictionNote[]; count: number; total: number; limit: number; offset: number; hasMore: boolean } {
+  const limit = Math.min(Math.max(1, Number(args.limit) || DEFAULT_LIMIT), MAX_LIMIT);
+  const offset = Math.max(0, Number(args.offset) || 0);
+
+  const filter = {
     todoId: args.todoId,
     session: args.session,
     layer: args.layer,
     includeRetracted: args.includeRetracted,
+    retryReason: args.retryReason,
+    since: args.since,
+    limit,
+    offset,
+  };
+
+  const notes = listFriction(args.project, filter);
+  const total = countFriction(args.project, {
+    todoId: args.todoId,
+    session: args.session,
+    layer: args.layer,
+    includeRetracted: args.includeRetracted,
+    retryReason: args.retryReason,
+    since: args.since,
   });
-  return { notes, count: notes.length };
+
+  return {
+    notes,
+    count: notes.length,
+    total,
+    limit,
+    offset,
+    hasMore: offset + notes.length < total,
+  };
 }
 
 export const reportDogfoodSchema = {

@@ -9,6 +9,7 @@ import type { GateSpawn } from './leaf-gate';
 import { defaultGateSpawn, resolveGateDeclaration } from './leaf-gate';
 import { loadManifestSource } from '../config/project-manifest';
 import { detectCompileCheck } from './compile-gate';
+import { memoizedTsc } from './tsc-memo';
 
 export interface LandTypecheckProof {
   status: 'pass' | 'fail' | 'error' | 'not-applicable';
@@ -105,7 +106,10 @@ export async function runLandTypecheckFloor(o: {
   }
 
   // --- Run semantics ---
-  const r = await spawn(o.epicWorktreeCwd, cmd);
+  // Durable tree-keyed consult (tsc-memo.ts): a clean tree already type-checked by any
+  // runner with this same command serves here with zero spawns. Fail-closed semantics
+  // below are unchanged — a memo-served FAIL carries its recorded output tail.
+  const r = await memoizedTsc(o.epicWorktreeCwd, cmd, { runner: spawn });
 
   // ran === false: the selected check could not execute → error (fail-closed)
   if (!r.ran) {

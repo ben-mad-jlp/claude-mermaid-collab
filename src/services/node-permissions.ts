@@ -66,7 +66,7 @@ const WRITE = 'Write';
 const GREP = 'Grep';
 const GLOB = 'Glob';
 const BASH = 'Bash';
-const REPORT_MCP = 'mcp__mermaid__file_to_bucket';
+const REPORT_MCP = 'mcp__mermaid__file_bugfix';
 const FINDING_MCP = 'mcp__mermaid__file_finding';
 /** The electron-agent-bridge desktop verbs (CDP against the live app). */
 const DESKTOP_MCP = [

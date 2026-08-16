@@ -4,7 +4,9 @@
  *  builds prompts, plans model assignments, spawns lens nodes in parallel,
  *  parses and joins verdicts, and records the final result. */
 
-import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts } from './criterion-verify-panel.js';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn } from './criterion-verify-panel.js';
 import { planPanelModels, assertDistinctPanel, PANEL_LENS_TIMEOUT_MS } from './criterion-verify-panel-plan.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
@@ -94,9 +96,53 @@ export async function runCriterionVerifyPanel(
     verifiedAtSha: criterion.verifiedAtSha,
   };
 
+  // 2a. Compute assertion facts: resolve candidate paths and read file text safely
+  let assertionFacts: AssertionFact[] | undefined;
+  try {
+    // Candidate paths = evidencePaths + test files named in criterion text
+    const testPathPattern = /[\w./-]*[\w-]+\.(?:test|spec)\.tsx?\b/g;
+    const namedTestPaths = new Set<string>();
+    let testMatch;
+    while ((testMatch = testPathPattern.exec(criterion.text)) !== null) {
+      namedTestPaths.add(testMatch[0]);
+    }
+
+    const candidatePaths = new Set<string>([
+      ...criterion.evidencePaths,
+      ...namedTestPaths,
+    ]);
+
+    // Read each file and build facts array
+    const files: Array<{ path: string; text: string }> = [];
+    for (const candidatePath of candidatePaths) {
+      try {
+        const fullPath = isAbsolute(candidatePath) ? candidatePath : join(project, candidatePath);
+        const text = readFileSync(fullPath, 'utf8');
+        files.push({ path: candidatePath, text });
+      } catch {
+        // File missing or unreadable; contribute nothing to facts
+      }
+    }
+
+    // For each parsed assertion name, find first file that declares it
+    const parsedNames = parseNamedAssertions(criterion.text);
+    assertionFacts = parsedNames.map((name) => {
+      for (const file of files) {
+        const caller = declaringCallerIn(file.text, name);
+        if (caller !== null) {
+          return { name, path: file.path, caller };
+        }
+      }
+      return { name, path: null, caller: null };
+    });
+  } catch {
+    // Fail-safe: if any error occurs, degrade to undefined (no facts)
+    assertionFacts = undefined;
+  }
+
   const prompts: Record<VerifyLens, string> = {} as any;
   for (const lens of lenses) {
-    prompts[lens] = buildLensVerifyPrompt(lens, ctx);
+    prompts[lens] = buildLensVerifyPrompt(lens, ctx, assertionFacts);
   }
 
   // 3. Plan models and assert distinctness BEFORE any invoke
@@ -145,26 +191,37 @@ export async function runCriterionVerifyPanel(
     causes.push(parsed === 'error' ? 'infra' : parsed === 'not-met' ? 'genuine-not-met' : 'met');
   }
 
-  // 5. Join verdicts with unanimity check
-  const join = joinPanelVerdicts(verdicts);
-  const unanimousMet = verdicts.every((v) => v.met);
-  const met = join.met && unanimousMet;
+  // 5. Join verdicts — filter infra lenses and check majority coverage.
+  // Infra lenses (timeouts, parse failures) cannot cast a vote, so the majority is computed
+  // over the parseable subset only. If coverage is below majority, return infra-degraded hold.
+  // Otherwise, join over parseable lenses only via the shared strict-majority rule.
+  const parseableVerdicts = verdicts.filter((_, i) => causes[i] !== 'infra');
+  const requiredMajority = Math.floor(lenses.length / 2) + 1;
 
-  const outcome: 'pass' | 'dissent' | 'infra-degraded' =
-    unanimousMet ? 'pass'
-    : causes.some((c) => c === 'genuine-not-met') ? 'dissent'
-    : causes.every((c) => c === 'infra') ? 'infra-degraded'
-    : 'dissent';
-
+  let met: boolean;
+  let outcome: 'pass' | 'dissent' | 'infra-degraded';
   let dissent: string | undefined;
   let hold = false;
 
-  if (!met) {
+  if (parseableVerdicts.length < requiredMajority) {
+    // Below-majority coverage: infra-degraded hold, no grading.
+    met = false;
     hold = true;
-    dissent = join.dissent || verdicts
+    outcome = 'infra-degraded';
+    const notMetParseable = parseableVerdicts
       .filter((v) => !v.met)
       .map((v) => `${v.lens}: ${v.reason}`)
       .join('; ');
+    dissent = notMetParseable || undefined;
+  } else {
+    // Sufficient coverage: join over parseable set only.
+    const join = joinPanelVerdicts(parseableVerdicts);
+    met = join.met;
+    outcome = met ? 'pass' : 'dissent';
+    if (!met) {
+      hold = true;
+      dissent = join.dissent;
+    }
   }
 
   // 6. Record the verdict — ALWAYS with a non-null evidence string and the criterion's
@@ -180,9 +237,9 @@ export async function runCriterionVerifyPanel(
   const shaLabel = currentHeadSha ?? 'unknown-sha';
   const evidence =
     outcome === 'pass'
-      ? `Auto-panel PASS at ${shaLabel} — unanimous met across ${lenses.length} distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
+      ? `Auto-panel PASS at ${shaLabel} — strict-majority met (${verdicts.filter((v) => v.met).length}/${lenses.length}) across distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
       : outcome === 'infra-degraded'
-        ? `Auto-panel HOLD (infra-degraded — no lens produced a parseable verdict; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
+        ? `Auto-panel HOLD (infra-degraded — only ${parseableVerdicts.length}/${lenses.length} lenses produced a parseable verdict, below the required majority of ${requiredMajority}; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
         : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
   const evidencePaths = criterion.evidencePaths ?? [];
 

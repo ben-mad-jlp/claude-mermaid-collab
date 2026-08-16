@@ -48,6 +48,26 @@ export const EPIC_CHURN_REJECT_THRESHOLD = 2;
  *  Origin: src/services/conductor-pass.ts (runConductorPass fail-retry counter). */
 export const CONDUCTOR_SERVE_RETRY_CAP = 3;
 
+/** How many CONSECUTIVE EMPTY CONDUCTS the conductor may spend on ONE unchanged serve-state
+ *  before it stops re-arming and cards a human once.
+ *
+ *  An EMPTY CONDUCT is a pass that RAN a conductor node (ran=1, outcome 'conducted') and filed
+ *  NOTHING and carried NOTHING. Such a pass is no longer allowed to become the debounce anchor
+ *  (see latestProductivePassFp) — otherwise the world fingerprint never moves, the conductor is
+ *  the only actor that could move it, and the mission is locked forever (mission 949dda42,
+ *  2026-08-14: 253s of Opus, 15.9k output tokens, filed nothing, then every pass for 10 minutes
+ *  returned 'debounced' with three criteria still at `discover`).
+ *
+ *  Un-anchoring ALONE would re-spin a ~4-minute Opus node every 30s forever — exactly the
+ *  unbounded self-excitation the rolled-back-gap comment in conductor-pass.ts warns about
+ *  (2026-07-23: "expected 1 node, got 20"). So the re-arm is BOUNDED here: 2 consecutive empty
+ *  conducts on the same serveFp is enough to prove "the node saw this state and had nothing" —
+ *  one to observe it, one to confirm it was not a one-off — after which the pass stops re-arming
+ *  and raises exactly one deduped card. A productive pass, or any change to serveFp, resets the
+ *  run to 0. Override with CONDUCTOR_EMPTY_CONDUCT_CAP (default 2).
+ *  Origin: src/services/conductor-pass.ts (runConductorPassInner empty-conduct guard). */
+export const CONDUCTOR_EMPTY_CONDUCT_CAP = Math.max(1, Number(process.env.CONDUCTOR_EMPTY_CONDUCT_CAP) || 2);
+
 /** How many attempts a carded leaf may accumulate before the card-triage arm parks it
  *  deterministically instead of letting the conductor re-dispatch it again. Replaces the
  *  same `attempts >= 3` threshold previously spelled out in the conductor's own prompt
@@ -200,6 +220,28 @@ export const CHILDLESS_SERVE_GRACE_MS =
  *  Override with MERMAID_MISSION_STALL_GRACE_MIN. */
 export const MISSION_STALL_GRACE_MS =
   (Number(process.env.MERMAID_MISSION_STALL_GRACE_MIN) || 20) * 60 * 1000;
+
+/** VERIFY-OWED backstop: how long a criterion may have a landing, completed serving work,
+ *  and an awaiting-verify action without a new verify gate running before the mission-loop
+ *  raises a human card. When a serving epic LANDS (the proof is in and stable), verify is
+ *  owed immediately — but if no in-flight conductor node or lease is holding the criterion
+ *  open (all of awaitingVerify/verifyInFlight are zero), the verification is stalled without
+ *  an actor. This threshold bounds that silent drift: past it, the mission is dead-locked
+ *  and a human must either approve the verdict or re-open the epic.
+ *
+ *  Must be strictly shorter than MISSION_STALL_GRACE_MS (the latter decides overall mission
+ *  stall; this is one contributor to it) and strictly longer than CONDUCTOR_BEAT_MS so
+ *  a transient conductor skip does not immediately fire.
+ *
+ *  10 min clears a typical conductor tick (30s) + buffer, leaving idle detect to
+ *  conductor-pass.ts:1076 debounce (returns above verify arm at :1200). This avoids both
+ *  a false alarm on conductor hiccup and unbounded drift when the conductor is genuinely
+ *  blocked elsewhere.
+ *
+ *  Override with MERMAID_VERIFY_OWED_MIN (default 10 minutes).
+ *  Origin: src/services/mission-stall-predicate.ts (isVerifyOwedPastThreshold predicate). */
+export const VERIFY_OWED_BACKSTOP_MS =
+  (Number(process.env.MERMAID_VERIFY_OWED_MIN) || 10) * 60 * 1000;
 
 /** TTL on the in-memory stall episode that backs the 'stalled' derived status. The stall
  *  clock is fed by the mission-loop pass; if the pass STOPS running for a project (project

@@ -102,6 +102,40 @@ export function isRolledBackReplanGap(c: {
 }
 
 /**
+ * FILEABLE SERVE GAP: a `discover` criterion for which a NEW serving epic is genuinely needed,
+ * because no serving epic todo is still OPEN (every one of them is done or dropped, or there
+ * never was one).
+ *
+ * This is the SAME line isRolledBackReplanGap draws, widened by exactly one step — and the
+ * widening is what the two incidents force:
+ *
+ *  - 2026-07-23 20:45-21:20 (self-excitation): the serving epic is OPEN and statically red. A
+ *    conductor pass against it CORRECTLY files nothing: an open epic is already assigned to this
+ *    criterion, so filing a second one is duplicate spend. Nothing is fileable ⇒ the pass must
+ *    settle into the fingerprint debounce after ONE node. This is the case that must NOT re-arm;
+ *    treating "filed nothing" as suspicious here bought 2 nodes where the incident allows 1.
+ *  - 949dda42 (2026-08-14, the empty conduct): the serving epics are CLOSED (`open: false`,
+ *    landed in git but not proving the criterion), so the criterion still derives `discover` with
+ *    servingEpicState 'open' — the state says "an epic exists", the todo says "and it is dead".
+ *    A NEW epic IS needed here, so a pass that files nothing has failed, and must re-arm.
+ *
+ * servingEpicState alone cannot separate those two: BOTH read 'open' (a done-but-not-proving epic
+ * still sits in the serving set). The separating fact is whether any serving epic todo is still
+ * open, which is why it is passed in explicitly — this predicate stays pure and store-free like
+ * its neighbours.
+ *
+ * isRolledBackReplanGap ⊆ isFileableServeGap: with no serving epic at all there is no open one.
+ * Both re-arm paths stay bounded — the 'none' arm by CONDUCTOR_SERVE_RETRY_CAP, this one by
+ * CONDUCTOR_EMPTY_CONDUCT_CAP.
+ */
+export function isFileableServeGap(
+  c: { action: string; servingEpicLive: boolean },
+  hasOpenServingEpic: boolean,
+): boolean {
+  return c.action === 'discover' && !c.servingEpicLive && !hasOpenServingEpic;
+}
+
+/**
  * A hollow-landed done epic doesn't burn the serve cap (LS-1).
  */
 export function isHollowDone(e: Todo, allTodos: readonly Todo[]): boolean {

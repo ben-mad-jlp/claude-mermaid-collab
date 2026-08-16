@@ -44,8 +44,9 @@ export type ExecutionSignal = 'called-observed' | 'called-unobserved' | 'never-c
 /** Final verdict from classifyProbe.
  *  - 'vacuous': the control arm did not run or failed — no usable signal
  *  - 'incident': a mutation arm could not be applied or run
- *  - 'graded': normal execution signal (execution set to one of the four outcomes) */
-export type ProbeVerdict = 'vacuous' | 'incident' | 'graded';
+ *  - 'graded': normal execution signal (execution set to one of the four outcomes)
+ *  - 'unknown': the arm results conflict — no invocation claim can be made */
+export type ProbeVerdict = 'vacuous' | 'incident' | 'graded' | 'unknown';
 
 /** Injected runner: given the arm name, trial worktree cwd, test command,
  *  and marker path, execute the test and return arm outcome.
@@ -72,14 +73,15 @@ export interface MutationProbeResult {
   reason?: string;
 }
 
-/** Classify probe results in rule order: vacuous → incident → graded.
+/** Classify probe results in rule order: vacuous → incident → graded → unknown.
  *  Pure function, no I/O.
  *  Rules:
  *  1. if control did not run or did not pass → vacuous
  *  2. if any arm ran:false (rewrite not applied or spawn failure) → incident
- *  3. if marker not seen → never-called
- *  4. if marker seen and throw arm failed → called-observed
- *  5. if marker seen and throw arm passed → called-unobserved */
+ *  3. if marker not seen and throw arm failed with ran:true → conflict, unknown
+ *  4. if marker not seen → never-called
+ *  5. if marker seen and throw arm failed → called-observed
+ *  6. if marker seen and throw arm passed → called-unobserved */
 export function classifyProbe(
   control: ArmResult,
   neutered: ArmResult,
@@ -110,17 +112,26 @@ export function classifyProbe(
     };
   }
 
-  // Rule 3: marker not seen → never-called
+  // Rule 3: conflict guard — marker not seen but throw arm ran and failed → unknown
+  if (!markerSeen && throwArm.ran && !throwArm.passed) {
+    return {
+      verdict: 'unknown',
+      execution: 'indeterminate',
+      reason: 'marker not seen but throw arm failed, contradicting invocation assumption',
+    };
+  }
+
+  // Rule 4: marker not seen → never-called
   if (!markerSeen) {
     return { verdict: 'graded', execution: 'never-called' };
   }
 
-  // Rule 4: marker seen and throw arm failed → called-observed
+  // Rule 5: marker seen and throw arm failed → called-observed
   if (!throwArm.passed) {
     return { verdict: 'graded', execution: 'called-observed' };
   }
 
-  // Rule 5: marker seen and throw arm passed → called-unobserved
+  // Rule 6: marker seen and throw arm passed → called-unobserved
   return { verdict: 'graded', execution: 'called-unobserved' };
 }
 

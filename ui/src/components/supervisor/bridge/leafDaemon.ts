@@ -2,6 +2,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getWebSocketClient } from '@/lib/websocket';
 import { apiFetch } from '@/lib/api';
 
+/** Present on a leaf iff its epic's base gate is in flight — the leaf is queued behind
+ *  it, not dead (server-side exact join by epicId; src/routes/api.ts daemon route). */
+export interface BaseGateWait {
+  running: boolean;
+  forEpicId?: string | null;
+  sinceMs?: number;
+}
+
+/** A base gate in flight right now (executing or queued behind the concurrency caps),
+ *  with the epics recorded as waiting on it. */
+export interface InflightBaseGate {
+  key: string;
+  project: string;
+  baseSha: string | null;
+  epicIds: string[];
+  startedAt: number;
+  running: boolean;
+  sinceMs: number;
+}
+
 export interface InflightLeaf {
   leafId: string;
   project?: string;
@@ -12,11 +32,13 @@ export interface InflightLeaf {
   startedAt: number;
   elapsedMs: number;
   stale: boolean;
+  baseGateWait?: BaseGateWait;
 }
 
 export interface DaemonStatus {
   now: number;
   inflight?: InflightLeaf[];
+  baseGates?: InflightBaseGate[];
   breaker?: { open: boolean; openUntil: number | null };
   paused?: Array<{ todoId: string; project: string; firstTrippedAt: number | null }>;
   recentSpawns?: Array<{ id?: string; ts?: number; project?: string; session?: string; detail?: string | null; serverId?: string }>;

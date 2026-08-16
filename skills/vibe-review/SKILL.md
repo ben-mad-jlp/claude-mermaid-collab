@@ -444,12 +444,17 @@ Args: {
 
 #### 4.8 File deferred gaps as todos
 
-For any completeness gaps NOT fixed in the fix wave (consciously deferred/shelved), file each as a session todo linked to the blueprint:
+For any completeness gaps NOT fixed in the fix wave (consciously deferred/shelved), file each as a session todo. For genuine defects:
 ```
-Tool: mcp__plugin_mermaid-collab_mermaid__file_to_bucket
-Args: { "project": "<cwd>", "session": "<session>", "title": "<gap description>", "link": { "blueprintId": "<blueprint-id from Step 1>" } }
+Tool: mcp__plugin_mermaid-collab_mermaid__file_bugfix
+Args: { "project": "<cwd>", "session": "<session>", "observedFailure": "<symptom>", "evidence": "<file:line or blueprint anchor>", "fixedMeans": "<measurable fix>", "description": "Blueprint: <blueprint-id from Step 1>" }
 ```
-Only deferred/shelved items become todos — anything fixed in the fix wave does NOT.
+For non-defect gaps:
+```
+Tool: mcp__plugin_mermaid-collab_mermaid__file_feature
+Args: { "project": "<cwd>", "session": "<session>", "outcome": "<user-visible surface + action>", "description": "Blueprint: <blueprint-id from Step 1>" }
+```
+Only deferred/shelved items become todos — anything fixed in the fix wave does NOT. The blueprint id now rides in the `description` field since neither verb accepts a `link` argument.
 
 ---
 
@@ -463,7 +468,7 @@ Minor issues found:
 For each: Fix now / Add as todo / Accept risk
 ```
 - For "Fix now": implement inline
-- For "Add as todo": `mcp__plugin_mermaid-collab_mermaid__file_to_bucket` with `link: { blueprintId: "<blueprint-id from Step 1>" }` (fold a task-level anchor into `description` text if needed — `file_to_bucket`'s `link` shape is `{blueprintId}` only)
+- For "Add as todo": use `file_bugfix` for genuine defects (with `observedFailure`, `evidence`, `fixedMeans`) or `file_feature` for non-defect gaps (with `outcome`); fold the blueprint id into `description` text since neither verb takes a `link` argument.
 - For "Accept risk": note it and continue
 
 ### Case C: Everything clean

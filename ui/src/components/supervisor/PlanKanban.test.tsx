@@ -86,15 +86,16 @@ describe('PlanKanban', () => {
     expect(within(lane).getByText('E2')).toBeInTheDocument();
   });
 
-  it('a BUCKET (Inbox) epic renders in Triage section, not plan lanes', () => {
+  it('a legacy bucketType=inbox epic renders under the explore view and no inbox view exists', () => {
     const inbox = [
       todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
       todo({ id: 'i1', status: 'done', completed: true, parentId: 'INBOX' }),
       todo({ id: 'i2', status: 'ready', parentId: 'INBOX' }),
     ];
     render(<PlanKanban todos={inbox} showCompleted={false} />);
-    expect(screen.getByTestId('triage-section')).toBeInTheDocument();
-    expect(screen.getByTestId('triage-lane-inbox')).toBeInTheDocument();
+    expect(screen.getByTestId('work-requests-section')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-explore')).toBeInTheDocument();
+    expect(screen.queryByTestId('work-request-view-inbox')).toBeNull();
     expect(screen.queryByTestId('epic-lane-INBOX')).toBeNull();
   });
 
@@ -158,44 +159,53 @@ describe('PlanKanban', () => {
     expect(titleEl.className).toContain('break-words');
   });
 
-  it('renders bucket epics in Triage section with non-terminal children only', () => {
+  it('renders bucket epics in work-requests section with non-terminal children only', () => {
     const todos = [
       todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
       todo({ id: 'i1', status: 'ready', parentId: 'INBOX' }),
       todo({ id: 'i2', status: 'done', completed: true, parentId: 'INBOX' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
-    const triageSection = screen.getByTestId('triage-section');
-    const inboxLane = screen.getByTestId('triage-lane-inbox');
-    expect(within(triageSection).getByText('i1')).toBeInTheDocument();
-    expect(within(inboxLane).queryByText('i2')).toBeNull(); // done item filtered out
+    const workRequestsSection = screen.getByTestId('work-requests-section');
+    const exploreLane = screen.getByTestId('work-request-view-explore');
+    expect(within(workRequestsSection).getByText('i1')).toBeInTheDocument();
+    expect(within(exploreLane).queryByText('i2')).toBeNull(); // done item filtered out
   });
 
-  it('splits triage lanes by bucketType', () => {
+  it('renders explore, bugfix and feature views when all three bucket epics are present', () => {
     const todos = [
-      todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
-      todo({ id: 'i1', status: 'ready', parentId: 'INBOX' }),
+      todo({ id: 'EXPLORE', kind: 'epic', bucketType: 'explore' }),
+      todo({ id: 'e1', status: 'ready', parentId: 'EXPLORE' }),
       todo({ id: 'BUGFIX', kind: 'epic', bucketType: 'bugfix' }),
       todo({ id: 'b1', status: 'ready', parentId: 'BUGFIX' }),
+      todo({ id: 'FEATURE', kind: 'epic', bucketType: 'feature' }),
+      todo({ id: 'f1', status: 'ready', parentId: 'FEATURE' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
-    expect(screen.getByTestId('triage-lane-inbox')).toBeInTheDocument();
-    expect(screen.getByTestId('triage-lane-bugfix')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-explore')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-bugfix')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-feature')).toBeInTheDocument();
   });
 
-  it('triageTag filter narrows triage lane items', () => {
+  // The friction-layer filter tabs and per-item chip were removed: nothing in src/ ever set
+  // `frictionLayer` (it was never a todos column), so the three layer tabs always filtered to
+  // zero and the chip never rendered. The tests that covered them set the field on the FIXTURE,
+  // which is why a permanently-dead control stayed green. This asserts the removal instead.
+  it('work-request lanes show every item, with no friction-layer filter or chip', () => {
     const todos = [
-      todo({ id: 'INBOX', kind: 'epic', bucketType: 'inbox' }),
-      todo({ id: 'i1', status: 'ready', parentId: 'INBOX', triageTag: 'domain' }),
-      todo({ id: 'i2', status: 'ready', parentId: 'INBOX', triageTag: 'operational' }),
+      todo({ id: 'EXPLORE', kind: 'epic', bucketType: 'explore' }),
+      todo({ id: 'e1', status: 'ready', parentId: 'EXPLORE' }),
+      todo({ id: 'e2', status: 'ready', parentId: 'EXPLORE' }),
     ];
     render(<PlanKanban todos={todos} showCompleted={false} />);
-    const inboxLane = screen.getByTestId('triage-lane-inbox');
-    expect(within(inboxLane).getByText('i1')).toBeInTheDocument();
-    expect(within(inboxLane).getByText('i2')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('triage-filter-domain'));
-    expect(within(inboxLane).getByText('i1')).toBeInTheDocument();
-    expect(within(inboxLane).queryByText('i2')).toBeNull();
+    const exploreLane = screen.getByTestId('work-request-view-explore');
+    expect(within(exploreLane).getByText('e1')).toBeInTheDocument();
+    expect(within(exploreLane).getByText('e2')).toBeInTheDocument();
+    expect(screen.queryByTestId('friction-layer-tag')).toBeNull();
+    expect(screen.queryByTestId('friction-filter-all')).toBeNull();
+    for (const tag of ['domain', 'orchestration', 'operational']) {
+      expect(screen.queryByTestId(`friction-filter-${tag}`)).toBeNull();
+    }
   });
 
   it('renders promote-to-epic affordance disabled by default', () => {

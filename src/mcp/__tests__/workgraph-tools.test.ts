@@ -1,11 +1,11 @@
-// Runs via `bun test` (bun:sqlite). Coverage for the three work-graph constructor
-// verbs (create_epic / add_leaves / file_to_bucket) plus the cross-verb invariant
+// Runs via `bun test` (bun:sqlite). Coverage for the work-graph constructor
+// verbs (create_epic / add_leaves / file_bugfix / file_feature) plus the cross-verb invariant
 // (no floating todo; every non-bucket epic has exactly one live land leaf).
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { handleWorkgraphTool, WORKGRAPH_TOOL_DEFS } from '../workgraph-tools';
+import { handleWorkgraphTool, WORKGRAPH_TOOL_DEFS, fileToBucketLeaf } from '../workgraph-tools';
 import { getTodo, listTodos, _closeProject, createTodo, updateTodo, splitLeafInto, stampEpicLandedAt } from '../../services/todo-store';
 import { isMission } from '../../services/todo-kind';
 import { isBucketEpic } from '../../services/bucket-registry';
@@ -24,7 +24,7 @@ test('tool defs are handler-less (dispatch is centralized)', () => {
   for (const def of WORKGRAPH_TOOL_DEFS) {
     expect((def as Record<string, unknown>).handler).toBeUndefined();
   }
-  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_explore', 'file_finding', 'file_to_bucket', 'inspect_workgraph']);
+  expect(WORKGRAPH_TOOL_DEFS.map((d) => d.name).sort()).toEqual(['add_leaves', 'create_epic', 'file_bugfix', 'file_explore', 'file_feature', 'file_finding', 'inspect_workgraph']);
 });
 
 async function call(name: string, args: Record<string, unknown>): Promise<any> {
@@ -102,8 +102,8 @@ describe('add_leaves', () => {
 
   test('against a bucket epic throws (case 6)', async () => {
     // file a leaf to force-create the Inbox bucket, then resolve its parent id.
-    const filed = await call('file_to_bucket', { title: 'a thought' });
-    const bucketId = getTodo(project, filed.leaf.id)!.parentId!;
+    const leaf = await fileToBucketLeaf(project, S, { title: 'a thought' });
+    const bucketId = leaf.parentId!;
     await expect(call('add_leaves', { epicId: bucketId, leaves: [{ title: 'x' }] })).rejects.toThrow(/quick-capture/);
   });
 
@@ -122,16 +122,15 @@ describe('add_leaves', () => {
   });
 });
 
-describe('file_to_bucket', () => {
+describe('fileToBucketLeaf helper', () => {
   test('default inbox lands under the Inbox bucket; fields round-trip (case 8)', async () => {
-    const res = await call('file_to_bucket', {
+    const leaf = await fileToBucketLeaf(project, S, {
       title: 'unplanned thought',
       description: 'some detail',
       priority: 2,
       status: 'planned',
       link: { blueprintId: 'bp-123' },
     });
-    const leaf = getTodo(project, res.leaf.id)!;
     const parent = getTodo(project, leaf.parentId!)!;
     expect(isBucketEpic(parent)).toBe(true);
     expect(parent.bucketType).toBe('inbox');
@@ -142,12 +141,88 @@ describe('file_to_bucket', () => {
   });
 
   test('bucket:bugfix lands under a DISTINCT bugfix bucket (case 9)', async () => {
-    const inbox = await call('file_to_bucket', { title: 'inbox item' });
-    const bugfix = await call('file_to_bucket', { title: 'a bug', bucket: 'bugfix' });
-    const inboxParent = getTodo(project, inbox.leaf.id)!.parentId!;
-    const bugfixParent = getTodo(project, bugfix.leaf.id)!.parentId!;
+    const inbox = await fileToBucketLeaf(project, S, { title: 'inbox item' });
+    const bugfixRes = await call('file_bugfix', {
+      observedFailure: 'the API throws a 500 error',
+      evidence: 'src/routes/api.ts:142',
+      fixedMeans: 'must return a 200 on success',
+    });
+    const inboxParent = inbox.parentId!;
+    const bugfixParent = getTodo(project, bugfixRes.leaf.id)!.parentId!;
     expect(bugfixParent).not.toBe(inboxParent);
     expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+  });
+});
+
+test('MCP dispatch refuses file_to_bucket as an unknown tool while file_bugfix succeeds', async () => {
+  const out = await handleWorkgraphTool('file_to_bucket', { project, session: S, title: 'x' });
+  expect(out).toBeNull();
+
+  const res = await handleWorkgraphTool('file_bugfix', {
+    project,
+    session: S,
+    observedFailure: 'the API throws a 500 error',
+    evidence: 'src/routes/api.ts:142',
+    fixedMeans: 'must return a 200 on success',
+  });
+  expect(res).not.toBeNull();
+  const parsed = JSON.parse(res!);
+  expect(parsed.leaf).toBeTruthy();
+  const parent = getTodo(project, parsed.leaf.id)!.parentId;
+  expect(getTodo(project, parent!)!.bucketType).toBe('bugfix');
+});
+
+describe('file_bugfix / file_feature', () => {
+  test('valid bugfix filing lands under a bucketType === bugfix parent', async () => {
+    const res = await call('file_bugfix', {
+      observedFailure: 'the API throws a 500 error',
+      evidence: 'src/routes/api.ts:142',
+      fixedMeans: 'must return a 200 on success',
+    });
+    const leaf = getTodo(project, res.leaf.id)!;
+    const parent = getTodo(project, leaf.parentId!)!;
+    expect(parent.bucketType).toBe('bugfix');
+    expect(leaf.kind).toBe('leaf');
+  });
+
+  test('valid feature filing lands under a DISTINCT bucketType === feature parent', async () => {
+    const bugfixRes = await call('file_bugfix', {
+      observedFailure: 'the API throws a 500 error',
+      evidence: 'src/routes/api.ts:142',
+      fixedMeans: 'must return a 200 on success',
+    });
+    const featureRes = await call('file_feature', {
+      outcome: 'operator can see a live dashboard of all missions',
+    });
+    const bugfixParent = getTodo(project, bugfixRes.leaf.id)!.parentId!;
+    const featureParent = getTodo(project, featureRes.leaf.id)!.parentId!;
+    expect(bugfixParent).not.toBe(featureParent);
+    expect(getTodo(project, bugfixParent)!.bucketType).toBe('bugfix');
+    expect(getTodo(project, featureParent)!.bucketType).toBe('feature');
+  });
+
+  test('bugfix filing with no-failure-shape refusal writes no row and returns error code', async () => {
+    const beforeCount = listTodos(project).length;
+    await expect(
+      call('file_bugfix', {
+        observedFailure: 'it is odd',
+        evidence: 'src/routes/api.ts:142',
+        fixedMeans: 'must return a 200 on success',
+      }),
+    ).rejects.toThrow(/bugfix-filing-refused/);
+    const afterCount = listTodos(project).length;
+    expect(afterCount).toBe(beforeCount);
+  });
+
+  test('feature filing with no-user-visible-outcome refusal writes no row and returns error code', async () => {
+    const beforeCount = listTodos(project).length;
+    await expect(
+      call('file_feature', {
+        outcome: 'internal optimization',
+      }),
+    ).rejects.toThrow(/feature-filing-refused/);
+    const afterCount = listTodos(project).length;
+    expect(afterCount).toBe(beforeCount);
   });
 });
 
@@ -543,7 +618,11 @@ describe('cross-project target inheritance', () => {
 test('INVARIANT: scripted sequence keeps no floating todo + a non-bucket epic gating children are exactly its build children (case 10)', async () => {
   const epic = await call('create_epic', { title: 'Deliverable epic', home: null });
   const { createdIds } = await call('add_leaves', { epicId: epic.epicId, leaves: [{ title: 'leaf A' }, { title: 'leaf B' }] });
-  await call('file_to_bucket', { title: 'a stray thought' });
+  await call('file_bugfix', {
+    observedFailure: 'filing fails to create stray thought',
+    evidence: 'src/routes/api.ts:142',
+    fixedMeans: 'must return a 200 on success',
+  });
 
   const all = listTodos(project, { includeCompleted: true });
 

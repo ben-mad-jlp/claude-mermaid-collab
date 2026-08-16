@@ -66,6 +66,57 @@ describe('mission-loop none-reason classification', () => {
     expect(classifyMissionLoopReason('some-future-reason-nobody-classified')).toBe('stalled');
   });
 
+  test('an unchanged nudge FINGERPRINT is quiet only while the mission is healthy', () => {
+    // The debounce compares a WORLD fingerprint, and on a mission the conductor is the only actor
+    // that can move it, "unchanged" is unfalsifiable from outside. Quiet while everything is met
+    // or building; STALLED the moment a criterion is waiting on somebody with nothing in flight.
+    // Classifying the second case quiet is what made the 949dda42 wedge silent for ~19 passes:
+    // the stall detector was never consulted at all.
+    const quietFacts = { criterionActions: ['met', 'building', 'met'], inflight: true };
+    const stuckFacts = { criterionActions: ['met', 'discover'], inflight: false };
+
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged', stuckFacts)).toBe('stalled');
+    expect(isStalledReason('nudge-fingerprint-unchanged', stuckFacts)).toBe(true);
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged', { criterionActions: ['blocked'], inflight: false })).toBe('stalled');
+
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged', quietFacts)).toBe('quiet');
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged', { criterionActions: ['met', 'building'], inflight: false })).toBe('quiet');
+    // A stuck-looking criterion with work IN FLIGHT is still quiet — somebody IS coming.
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged', { criterionActions: ['discover'], inflight: true })).toBe('quiet');
+    // No facts at all ⇒ the plain table lookup, byte-identical to every pre-existing caller.
+    expect(classifyMissionLoopReason('nudge-fingerprint-unchanged')).toBe('quiet');
+  });
+
+  test('the facts refine EXACTLY ONE reason — the whole rest of the table is untouched', () => {
+    // The strongest form of "nothing else changed": assert the whole table twice, once with the
+    // facts that flip fingerprint-unchanged and once with the facts that do not.
+    const stuckFacts = { criterionActions: ['discover', 'blocked'], inflight: false };
+    const busyFacts = { criterionActions: ['building'], inflight: true };
+    for (const reason of Object.keys(MISSION_LOOP_REASON_CLASS) as MissionLoopReasonBase[]) {
+      const tabled = MISSION_LOOP_REASON_CLASS[reason];
+      expect(classifyMissionLoopReason(reason, busyFacts)).toBe(tabled);
+      expect(classifyMissionLoopReason(reason)).toBe(tabled);
+      expect(classifyMissionLoopReason(reason, stuckFacts)).toBe(
+        reason === 'nudge-fingerprint-unchanged' ? 'stalled' : tabled,
+      );
+    }
+    // …including the detail-suffix path and the unrecognised-reason fallback.
+    expect(classifyMissionLoopReason('no-action:needs-verify', stuckFacts)).toBe('stalled');
+    expect(classifyMissionLoopReason('some-future-reason-nobody-classified', stuckFacts)).toBe('stalled');
+    expect(classifyMissionLoopReason('some-future-reason-nobody-classified', busyFacts)).toBe('stalled');
+  });
+
+  test('a STALLED fingerprint-unchanged reaches the stall clock (it opens an episode)', () => {
+    const stuckFacts = { criterionActions: ['discover'], inflight: false };
+    // Quiet today ⇒ no episode, which is exactly the silence.
+    expect(noteMissionLoopReason(PROJECT, 'm1', 'nudge-fingerprint-unchanged', NOW)).toBeNull();
+    expect(getStallEpisode(PROJECT, 'm1', NOW)).toBeNull();
+    // With the mission's real state threaded in, the detector engages.
+    const ep = noteMissionLoopReason(PROJECT, 'm1', 'nudge-fingerprint-unchanged', NOW, stuckFacts);
+    expect(ep).not.toBeNull();
+    expect(getStallEpisode(PROJECT, 'm1', NOW)).not.toBeNull();
+  });
+
   test('every reason planMissionLoopStep can emit is classified', () => {
     // Drive the planner through each of its no-op arms and assert the reason is in the table.
     const base: MissionLoopStepInput = {

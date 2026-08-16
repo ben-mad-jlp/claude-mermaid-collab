@@ -23,20 +23,31 @@ import { fireStamp } from './nudge-stamp.ts';
 import { resolveNudgeTarget, CONDUCTOR_SESSION } from './nudge-target.ts';
 import {
   MISSION_STALLED_KIND,
+  baseReason,
   buildStallCardText,
   clearMissionStall,
   noteMissionLoopReason,
+  sweepRedTrunkSilence,
   type MissionLoopReasonBase,
+  type MissionLoopReasonFacts,
+  type RepairTodoState,
 } from './mission-stall.ts';
+import { getLatestBaseGateVerdictForBase, latestLedgerTsForEpics } from './worker-ledger.ts';
+import { isClaimable } from './claimability';
+import { listTodos } from './todo-store.ts';
+import { execFileSync } from 'node:child_process';
 import {
   evaluateMissionStall,
   missionStallConditionKey,
   noteStallObservation,
   clearStallObservation,
   IN_FLIGHT_COUNTER_KEYS,
+  isVerifyOwedPastThreshold,
+  verifyOwedConditionKey,
   type MissionStallFacts,
 } from './mission-stall-predicate.ts';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.ts';
+import { VERIFY_OWED_BACKSTOP_MS } from './harness-caps.ts';
 import { createEscalation, listOpenEscalations, resolveEscalation } from './supervisor-store.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
@@ -228,6 +239,13 @@ export function planMissionLoopStep(input: MissionLoopStepInput): MissionLoopAct
 
 export interface MissionLoopDeps {
   list?: (project: string) => MissionSummary[];
+  /** Audit item 7a: the orchestrator tick's shared per-project todos snapshot
+   *  (`listTodos(project, { includeCompleted: true })`, read ONCE per tick). When provided
+   *  (and `list` is not), listMissions and the stall-facts collector read it via their
+   *  `allTodos` seams instead of re-scanning the table ~1+3N times. Absent ⇒ self-read —
+   *  external callers unchanged. This pass never mutates todos (nudges/stamps live in the
+   *  mission sidecar), so a start-of-tick snapshot is exact, not stale. */
+  todosSnapshot?: import('./todo-store.ts').Todo[];
   isIdle?: (project: string, session: string) => boolean;
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   stampNudge?: (project: string, todoId: string, key?: string) => void;
@@ -245,6 +263,91 @@ export interface MissionLoopDeps {
   resolveStallEscalation?: (project: string, conditionKey: string) => void;
   /** Test seam: override project-scoped target resolution. Defaults to resolveNudgeTarget. */
   resolveTarget?: (project: string) => string;
+  /** Test seam: override the red-trunk silence sweep (mission-stall.ts). Defaults to
+   *  runRedTrunkSilenceSweep, which resolves the trunk sha + real ledger/todo readers. */
+  redTrunkSweep?: (project: string, now: number) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Red-trunk silence alarm wiring (2026-08-14: master red 7h+, zero escalations).
+// The pure sweep lives in mission-stall.ts; THIS is the deps-assembly shell — same
+// split as evaluateMissionStall / collectMissionStallFacts above.
+// ---------------------------------------------------------------------------
+
+/** The trunk sha this project's shared verdicts are keyed on: HEAD of the MAIN checkout
+ *  (main-checkout invariant — the main root sits on trunk). Null when the project is not
+ *  a resolvable git root (fail-open: no alarm, never a broken pass). */
+function resolveTrunkSha(project: string): string | null {
+  try {
+    const sha = execFileSync('git', ['-C', project, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch { return null; }
+}
+
+/** Live state of the trunk's repair filing, from the work-graph: absent (nothing filed),
+ *  claimable (a baseRepair todo is 'ready' — the daemon could dispatch it), else
+ *  unclaimable (filed in a state the daemon never schedules — the incident class). */
+function readRepairTodoState(project: string): RepairTodoState {
+  try {
+    const all = listTodos(project);
+    const repairs = all.filter((t) => (t.baseRepair ?? 0) !== 0);
+    if (repairs.length === 0) return 'absent';
+    const byId = new Map(all.map((t) => [t.id, t]));
+    return repairs.some((t) => isClaimable(t, byId)) ? 'claimable' : 'unclaimable';
+  } catch { return 'absent'; }
+}
+
+/** Default red-trunk sweep: real trunk sha + real worker-ledger/todo/escalation deps. */
+function runRedTrunkSilenceSweep(project: string, now: number): void {
+  const trunkSha = resolveTrunkSha(project);
+  if (!trunkSha) return;
+  sweepRedTrunkSilence(project, trunkSha, {
+    now: () => now,
+    readTrunkVerdict: (sha) => {
+      const row = getLatestBaseGateVerdictForBase(sha);
+      return row
+        ? { status: row.status, baseSha: row.baseSha, resultJson: row.resultJson, measuredAt: row.measuredAt }
+        : null;
+    },
+    lastBaseRepairDispatchAt: () => {
+      try {
+        const epicIds = listTodos(project)
+          .filter((t) => (t.baseRepair ?? 0) !== 0)
+          .map((t) => t.id);
+        return latestLedgerTsForEpics(epicIds);
+      } catch { return null; }
+    },
+    repairTodoState: () => readRepairTodoState(project),
+    escalate: (card) => {
+      createEscalation({
+        project,
+        session: 'mission-loop',
+        kind: card.kind,
+        questionText: card.questionText,
+        operatorGated: true,
+        audience: 'human',
+        conditionKey: card.conditionKey,
+        conditionTuple: card.conditionTuple,
+        timeoutMs: card.timeoutMs,
+      });
+    },
+    resolveOpenCard: (conditionKey) => resolveStallEscalation(project, conditionKey),
+  });
+}
+
+/**
+ * Derive the condition key for a stall raise, using the same key that the dedup read uses.
+ * When verify-owed ids are present, use the verify-owed key; otherwise use the legacy
+ * mission-stalled key based on all blocked ids.
+ */
+function stallCardConditionKey(missionId: string, keyIds: string[], verifyOwedIds: string[]): string {
+  if (verifyOwedIds.length >= 1) {
+    return verifyOwedConditionKey(missionId, verifyOwedIds);
+  }
+  return missionStallConditionKey(missionId, keyIds);
 }
 
 /**
@@ -252,11 +355,33 @@ export interface MissionLoopDeps {
  * available at the mission-loop call site (`m: MissionSummary`) plus one extra
  * `listCriteriaWithActions` call (the same scan `collectMissionStatusFacts` already does).
  */
-function collectMissionStallFacts(project: string, m: MissionSummary, now: number): MissionStallFacts {
+function collectMissionStallFacts(project: string, m: MissionSummary, now: number, allTodos?: import('./todo-store.ts').Todo[]): MissionStallFacts {
   const missionId = m.node.id;
-  const blockedCriterionIds = listCriteriaWithActions(project, missionId)
+  const criteria = listCriteriaWithActions(project, missionId);
+
+  // Partition criteria into three sets: escalate/blocked, verify-owed, and age-gated discover-stuck
+  const blockedCriterionIds = criteria
     .filter((c) => c.action === 'escalate')
     .map((c) => c.id);
+
+  const verifyOwedIds = criteria
+    .filter((c) => isVerifyOwedPastThreshold(c, now, VERIFY_OWED_BACKSTOP_MS))
+    .map((c) => c.id);
+
+  const discoverStuckIds = criteria
+    .filter((c) =>
+      c.action === 'discover' &&
+      c.servingEpicState === 'none' &&
+      !c.servingEpicLive &&
+      now - (c.updatedAt ?? 0) >= VERIFY_OWED_BACKSTOP_MS
+    )
+    .map((c) => c.id);
+
+  // Activation rule: stuck is only populated when there are verify-owed or discover-stuck ids
+  const stuck = (verifyOwedIds.length || discoverStuckIds.length)
+    ? [...new Set([...blockedCriterionIds, ...verifyOwedIds, ...discoverStuckIds])]
+    : undefined;
+
   const serveableGaps = m.rollup.gaps ?? 0;
   const awaitingVerify = m.rollup.awaitingVerify ?? 0;
   const epicsBuilding = m.epics.filter((e) => e.status === 'in_progress').length;
@@ -264,8 +389,10 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
 
   let hasBuildingLeaf = false;
   try {
-    const missionRow = getMission(project, missionId);
-    if (missionRow) hasBuildingLeaf = collectMissionStatusFacts(project, missionRow, now).hasBuildingLeaf;
+    // 7a: thread the tick's shared snapshot (when present) so the stall check costs
+    // zero extra full-table scans; absent ⇒ the stores self-read as before.
+    const missionRow = getMission(project, missionId, { allTodos });
+    if (missionRow) hasBuildingLeaf = collectMissionStatusFacts(project, missionRow, now, { allTodos }).hasBuildingLeaf;
   } catch { /* fail closed to false */ }
 
   let recycling = 0;
@@ -274,7 +401,8 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
     if (getStatus(project, session)?.recycleState === 'recovering') recycling = 1;
   } catch { /* fail closed to 0 */ }
 
-  const conditionKey = missionStallConditionKey(missionId, blockedCriterionIds);
+  const keyIds = stuck ?? blockedCriterionIds;
+  const conditionKey = stallCardConditionKey(missionId, keyIds, verifyOwedIds);
   let hasOpenCardForKey = false;
   try {
     hasOpenCardForKey = listOpenEscalations().some((e) => e.project === project && e.conditionKey === conditionKey);
@@ -295,6 +423,8 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
     baseRedCooldown: false,
     blockedCriterionIds,
     hasOpenCardForKey,
+    stuckCriterionIds: stuck,
+    verifyOwedCriterionIds: verifyOwedIds.length > 0 ? verifyOwedIds : undefined,
   };
 }
 
@@ -338,6 +468,44 @@ export interface MissionLoopResult {
  *
  * FAILS OPEN: every store touch is wrapped, because a card path must never break the pass.
  */
+/**
+ * Build the mission facts that let the classifier tell a HEALTHY unchanged fingerprint from a
+ * WEDGED one (see mission-stall.ts's CONDITIONALLY_QUIET).
+ *
+ * Computed ONLY for the reasons that are conditionally classified — every other reason resolves
+ * through the table and must not pay collectMissionStallFacts's project scan.
+ *
+ * `serveableGaps` is the mission-loop's own count of criteria with no live serving epic, i.e. the
+ * `discover` gaps; `blockedCriterionIds` are the blocked ones. The in-flight test deliberately
+ * EXCLUDES `serveableGaps` from IN_FLIGHT_COUNTER_KEYS: a serveable gap is the very thing that
+ * makes an unchanged fingerprint suspicious, so counting it as "in flight" would make the whole
+ * refinement vacuous. Fails open to `undefined` (plain table lookup, today's behaviour).
+ */
+function buildReasonFacts(
+  project: string,
+  m: MissionSummary,
+  now: number,
+  deps: MissionLoopDeps,
+  reason: MissionLoopNoneReason,
+): MissionLoopReasonFacts | undefined {
+  if (baseReason(reason) !== 'nudge-fingerprint-unchanged') return undefined;
+  try {
+    const facts = (deps.buildStallFacts
+      ?? ((p: string, mm: MissionSummary, n: number) => collectMissionStallFacts(p, mm, n, deps.todosSnapshot)))(project, m, now);
+    return {
+      criterionActions: [
+        ...Array<string>(Math.max(0, facts.serveableGaps)).fill('discover'),
+        ...facts.blockedCriterionIds.map(() => 'blocked'),
+      ],
+      inflight: IN_FLIGHT_COUNTER_KEYS
+        .filter((k) => k !== 'serveableGaps')
+        .some((k) => (facts[k] as number) > 0),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function handleNoneReason(
   project: string,
   m: MissionSummary,
@@ -349,7 +517,7 @@ function handleNoneReason(
 ): void {
   const missionId = m.node.id;
   try {
-    noteMissionLoopReason(project, missionId, reason, now);
+    noteMissionLoopReason(project, missionId, reason, now, buildReasonFacts(project, m, now, deps, reason));
 
     if (reason === 'over-budget') {
       const card = (deps.raiseRebetCard ?? raiseOverBudgetRebetCard)(
@@ -391,8 +559,12 @@ function evaluateStallAndMaybeRaise(
   const missionId = m.node.id;
   try {
     const episodeKey = `${project} ${missionId}`;
-    const facts = (deps.buildStallFacts ?? collectMissionStallFacts)(project, m, now);
-    const { stalled, conditionKey, blockedCriterionIds } = evaluateMissionStall(facts, missionId);
+    const facts = (deps.buildStallFacts
+      ?? ((p: string, mm: MissionSummary, n: number) => collectMissionStallFacts(p, mm, n, deps.todosSnapshot)))(project, m, now);
+    const { stalled, conditionKey, blockedCriterionIds, stuckCriterionIds } = evaluateMissionStall(facts, missionId);
+
+    const keyIds = stuckCriterionIds ?? blockedCriterionIds;
+    const verifyOwedIds = facts.verifyOwedCriterionIds ?? [];
 
     if (!stalled) {
       const openEntry = openStallByMission.get(episodeKey);
@@ -400,7 +572,7 @@ function evaluateStallAndMaybeRaise(
         const inFlight = IN_FLIGHT_COUNTER_KEYS.some((k) => (facts[k] as number) > 0);
         const criteriaDropped = facts.unmetCriteria < openEntry.unmetCriteria;
         const blockedChanged =
-          [...blockedCriterionIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
+          [...keyIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
         if (inFlight || criteriaDropped || blockedChanged) {
           clearStallObservation(project, missionId);
           (deps.resolveStallEscalation ?? resolveStallEscalation)(project, openEntry.conditionKey);
@@ -413,7 +585,8 @@ function evaluateStallAndMaybeRaise(
     const episode = noteMissionLoopReason(project, missionId, 'stalled', now);
     if (!episode) return true; // in-TTL/no-op clock read, but the predicate still says stalled
 
-    const count = noteStallObservation(project, missionId, conditionKey!);
+    const cardConditionKey = stallCardConditionKey(missionId, keyIds, verifyOwedIds);
+    const count = noteStallObservation(project, missionId, cardConditionKey);
     if (count < 2) return true;
 
     (deps.createEscalation ?? createEscalation)({
@@ -423,8 +596,10 @@ function evaluateStallAndMaybeRaise(
       todoId: missionId,
       operatorGated: true,
       audience: 'human',
-      conditionKey: conditionKey!,
-      conditionTuple: ['mission-stalled', missionId, ...blockedCriterionIds],
+      conditionKey: cardConditionKey,
+      conditionTuple: verifyOwedIds.length > 0
+        ? ['verify-owed', missionId, ...verifyOwedIds]
+        : ['mission-stalled', missionId, ...keyIds],
       questionText: buildStallCardText({
         missionId,
         missionTitle: m.node.title,
@@ -432,7 +607,7 @@ function evaluateStallAndMaybeRaise(
         stalledForMs: now - episode.since,
       }),
     });
-    openStallByMission.set(episodeKey, { conditionKey: conditionKey!, unmetCriteria: facts.unmetCriteria, blockedCriterionIds });
+    openStallByMission.set(episodeKey, { conditionKey: cardConditionKey, unmetCriteria: facts.unmetCriteria, blockedCriterionIds: keyIds });
     result.stalled.push(missionId);
     return true;
   } catch {
@@ -447,7 +622,9 @@ function evaluateStallAndMaybeRaise(
  * that + the mission `active` flag are the gates; there is no per-project on/off mode.
  */
 export async function runMissionLoopPass(project: string, deps: MissionLoopDeps = {}): Promise<MissionLoopResult> {
-  const list = deps.list ?? listMissions;
+  // 7a: with a tick-shared snapshot, listMissions' enumeration + per-mission facts read
+  // it (via allTodos) instead of paying ~1+3N fresh full-table scans per pass.
+  const list = deps.list ?? ((p: string) => listMissions(p, { allTodos: deps.todosSnapshot }));
   const isIdle = deps.isIdle ?? ((p: string, s: string) => {
     const row = getStatus(p, s);
     return row === null || row.status === 'waiting';
@@ -460,6 +637,11 @@ export async function runMissionLoopPass(project: string, deps: MissionLoopDeps 
   const resolveTarget = deps.resolveTarget ?? resolveNudgeTarget;
 
   const result: MissionLoopResult = { project, nudged: [], skipped: 0, stalled: [], overBudget: [] };
+
+  // Red-trunk silence alarm: project-level (mission-INDEPENDENT — the 2026-08-14 incident
+  // had a red trunk and an unschedulable repair with no mission arm watching). Runs once
+  // per pass, before the mission walk; fail-open — the alarm must never break the pass.
+  try { (deps.redTrunkSweep ?? runRedTrunkSilenceSweep)(project, now); } catch { /* fail-open */ }
 
   let missions: MissionSummary[];
   try { missions = list(project); } catch { return result; }
