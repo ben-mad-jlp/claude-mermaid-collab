@@ -3,15 +3,17 @@
 // Owns the cohesive CAMPAIGN tool group: creating campaigns with validated probes,
 // listing campaigns with probe counts, and reading campaign state with probe verdicts
 // and front derivation. Extracted as a pure adapter over campaign-forge/store/front.
-import { forgeCampaign, InvalidCampaignError } from '../services/campaign-forge.js';
+import { forgeCampaignFromGoal, InvalidCampaignError } from '../services/campaign-forge.js';
 import { listCampaigns, listProbes, listProbeVerdicts, getCampaign, latestCampaignCompletion } from '../services/campaign-store.js';
 import { campaignFront } from '../services/campaign-front.js';
 import { deriveCampaignCompletion } from '../services/campaign-completion.js';
+import { makeJudgmentLLM } from '../services/judgment-llm.js';
+import { resolveTriageRoute } from '../services/config-service.js';
 
 export const CAMPAIGN_TOOL_DEFS = [
   {
     name: 'forge_campaign',
-    description: 'Forge a new campaign with validated probes and an optional goal. Each probe is a deterministic check (kind="command") that can depend on other probes. The goal is free-text and describes what the campaign is judged against. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.',
+    description: 'Forge a new campaign with validated probes and an optional goal. Each probe is a deterministic check (kind="command") that can depend on other probes. The goal is free-text and describes what the campaign is judged against. Probes may be omitted if a goal is given — the goal is then translated into concrete probes via LLM derivation. If the goal is ambiguous (leaves WHAT to measure unclear), returns {"kind":"questions","questions":[…]} and creates no campaign. If probes are provided, they are validated and used directly. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row or a list of clarifying questions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -25,11 +27,11 @@ export const CAMPAIGN_TOOL_DEFS = [
         },
         goal: {
           type: 'string',
-          description: 'Free-text campaign goal (what the campaign is judged against). No shape requirement.',
+          description: 'Free-text campaign goal (what the campaign is judged against). No shape requirement. If probes are omitted, the goal is used to derive them.',
         },
         probes: {
           type: 'array',
-          description: 'Array of probes to validate and create. Each probe is an object with: ref (string), kind ("command"), environment ("worktree"|"rig"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints).',
+          description: 'Array of probes to validate and create. Each probe is an object with: ref (string), kind ("command"), environment ("worktree"|"rig"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints). May be omitted if goal is given.',
           items: {
             type: 'object',
             properties: {
@@ -70,7 +72,7 @@ export const CAMPAIGN_TOOL_DEFS = [
           },
         },
       },
-      required: ['project', 'title', 'probes'],
+      required: ['project', 'title'],
     },
   },
   {
@@ -113,11 +115,17 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const { project, title, goal, probes } = args as { project?: string; title?: string; goal?: string; probes?: any[] };
       if (!project) throw new Error('Missing required: project');
       if (!title) throw new Error('Missing required: title');
-      if (!probes) throw new Error('Missing required: probes');
-      // forgeCampaign throws InvalidCampaignError if validation fails; let it propagate.
-      // The setup.ts try/catch turns it into the tool error response.
-      const result = forgeCampaign(project, { title, goal, probes });
-      return JSON.stringify(result, null, 2);
+      // Build the LLM for derivation (if needed).
+      const llm = makeJudgmentLLM(resolveTriageRoute({ project }));
+      // forgeCampaignFromGoal throws InvalidCampaignError or EmptyCampaignError if validation/constraints fail;
+      // let it propagate. The setup.ts try/catch turns it into the tool error response.
+      const result = await forgeCampaignFromGoal(project, { title, goal, probes }, { llm });
+      // Return both campaign and questions responses — the caller parses the kind field.
+      if (result.kind === 'campaign') {
+        return JSON.stringify(result.campaign, null, 2);
+      } else {
+        return JSON.stringify({ kind: 'questions', questions: result.questions }, null, 2);
+      }
     }
     case 'list_campaigns': {
       const { project } = args as { project?: string };

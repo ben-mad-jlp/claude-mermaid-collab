@@ -6213,15 +6213,15 @@
       "name": "list_quarantine"
     },
     {
-      "description": "Forge a new campaign with validated probes and an optional goal. Each probe is a deterministic check (kind=\"command\") that can depend on other probes. The goal is free-text and describes what the campaign is judged against. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row.",
+      "description": "Forge a new campaign with validated probes and an optional goal. Each probe is a deterministic check (kind=\"command\") that can depend on other probes. The goal is free-text and describes what the campaign is judged against. Probes may be omitted if a goal is given — the goal is then translated into concrete probes via LLM derivation. If the goal is ambiguous (leaves WHAT to measure unclear), returns {\"kind\":\"questions\",\"questions\":[…]} and creates no campaign. If probes are provided, they are validated and used directly. Validates the entire campaign before writing any row — if any probe fails validation, all offenders are named and no rows are written. Returns the created campaign row or a list of clarifying questions.",
       "inputSchema": {
         "properties": {
           "goal": {
-            "description": "Free-text campaign goal (what the campaign is judged against). No shape requirement.",
+            "description": "Free-text campaign goal (what the campaign is judged against). No shape requirement. If probes are omitted, the goal is used to derive them.",
             "type": "string"
           },
           "probes": {
-            "description": "Array of probes to validate and create. Each probe is an object with: ref (string), kind (\"command\"), environment (\"worktree\"|\"rig\"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints).",
+            "description": "Array of probes to validate and create. Each probe is an object with: ref (string), kind (\"command\"), environment (\"worktree\"|\"rig\"), command (string), optional dependsOn (array of refs), declaredPaths (array of file paths), and optional asserts (for validation hints). May be omitted if goal is given.",
             "items": {
               "properties": {
                 "asserts": {
@@ -6287,8 +6287,7 @@
         },
         "required": [
           "project",
-          "title",
-          "probes"
+          "title"
         ],
         "type": "object"
       },
