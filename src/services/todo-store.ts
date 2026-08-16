@@ -207,6 +207,9 @@ export interface Todo {
   /** Friction-signature opaque key for deduplicating recurring friction filings. OPTIONAL for
    *  backward compat; pre-migration rows read null. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL for backward compat; pre-migration rows read null. */
+  filingProvenance?: string | null;
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
@@ -324,6 +327,9 @@ export interface CreateTodoInput {
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
   /** Friction-signature opaque key for deduplicating recurring friction filings. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL. */
+  filingProvenance?: string | null;
   tier?: LeafTier;
   /** EPIC-only base-repair exemption: when 1, skips the epic-base-red hold (G2) for this
    *  epic's leaves, allowing each leaf's gate to judge net-new-vs-base (crit-8 lazy baseline).
@@ -644,6 +650,7 @@ interface TodoRow {
   bucketType: string | null;
   triageTag: string | null;
   frictionSignature: string | null;
+  filingProvenance: string | null;
   promotedTo: string | null;
   consumedAt: string | null;
   tier: string | null;
@@ -800,6 +807,8 @@ export function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
   addColumnIfMissing(db, 'todos', 'frictionSignature', 'frictionSignature TEXT');
+  // Auto-filing provenance: indicates this todo was auto-filed by a named system (e.g. 'auto:df3-gap-filer').
+  addColumnIfMissing(db, 'todos', 'filingProvenance', 'filingProvenance TEXT');
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
@@ -1388,7 +1397,7 @@ const nowIso = () => new Date().toISOString();
  *     "leave caller/existing value unchanged"; null = "clear")
  *
  * Mapping (MANUAL STATUS WRITES table):
- *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; keep status as-is/'planned'
+ *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; move terminal/in-flight to 'planned', else keep status as-is
  *   blocked            → hold:    heldAt=now, heldReason='manual';            keep status as-is/'planned'
  *   in_progress        → REJECT (throw) — a human inventing a claim is nonsensical
  *   planned|backlog|todo→ un-approve/park: approvedAt=null;                   status='planned'
@@ -1426,11 +1435,12 @@ function translateStatusWrite(
   switch (requested) {
     case 'ready':
       // "approve to run" — identical to the Planner's approve verb. Never store the
-      // derived 'ready'; never leave it on a TERMINAL status (an un-complete routes
+      // derived 'ready'; never leave it on a TERMINAL or IN-FLIGHT status (an un-complete routes
       // through 'ready' and must move the row off 'done'/'dropped' back to 'planned'
-      // so it re-derives claimable). Otherwise keep the existing pre-terminal status.
+      // so it re-derives claimable; a claimed row being approved must also clear its
+      // in-flight status). Otherwise keep the existing pre-terminal status.
       return {
-        storedStatus: (currentStatus === 'ready' || currentStatus === 'done' || currentStatus === 'dropped')
+        storedStatus: (currentStatus === 'ready' || currentStatus === 'in_progress' || currentStatus === 'done' || currentStatus === 'dropped')
           ? 'planned' : currentStatus,
         approvedAt: ts,
         ...(approvedBy != null ? { approvedBy } : {}),
@@ -1777,6 +1787,7 @@ function rowToTodo(row: TodoRow): Todo {
     bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     frictionSignature: row.frictionSignature ?? null,
+    filingProvenance: row.filingProvenance ?? null,
     promotedTo: row.promotedTo ?? null,
     consumedAt: row.consumedAt ?? null,
     landedAt: row.landedAt ?? null,
@@ -1957,6 +1968,10 @@ export function todoNotFoundMessage(project: string, id: string): string {
     }
   }
   return base;
+}
+
+export function zeroRowWriteMessage(verb: string, id: string, precondition: string, remedy: string): string {
+  return `${verb} wrote no row for ${id}: precondition failed — ${precondition}; ${remedy}`;
 }
 
 function resolveFullId(project: string, id: string): string {
@@ -2236,8 +2251,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, tier, baseRepair, nickname, exploreSpec, bugfixSpec)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, filingProvenance, tier, baseRepair, nickname, exploreSpec, bugfixSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2249,7 +2264,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null, input.bugfixSpec ? JSON.stringify(input.bugfixSpec) : null
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.filingProvenance ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null, input.bugfixSpec ? JSON.stringify(input.bugfixSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).
@@ -2459,7 +2474,7 @@ export function updateTodo(project: string, id: string, patch: UpdateTodoPatch):
         approvedAt, approvedBy, heldAt, heldReason,
         completedAt, completedBy, nowIso(), next.inheritedBlueprintFrom, JSON.stringify(next.inheritedFiles), JSON.stringify(next.declaredFiles), patch.retryCount ?? existing.retryCount, fullId
       );
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('update_todo', id, 'the row vanished between the getTodo read and the UPDATE (concurrent removeTodo/archive)', 're-read with get_todo(<id>); if gone, recreate it'));
 
       // CASCADE-DROP: dropping a container (mission or epic) abandons its still-open work —
       // drop every non-terminal transitive descendant so the lane goes fully terminal instead
@@ -2585,6 +2600,15 @@ export function claimTodo(project: string, id: string, claimedBy: string, leaseM
  *  The coordinator passes its own COORDINATOR_EPOCH at the caller layer; this is the
  *  fallback for any store path that claims without an explicit epoch argument. */
 export const PROCESS_CLAIM_EPOCH = crypto.randomUUID();
+
+/** Mutating exports whose zero-row result is legitimate contention/idempotency, not a lie. */
+export const ZERO_ROW_CONTENTION_VERBS = [
+  'claimTodo',        // res.changes === 1 ? … : null; another worker won the claim race.
+  'reclaimNow',       // the three CAS-lost return null arms.
+  'stampMissionNodeApprovedIfNull', // approvedAt IS NULL guard; already-approved ⇒ false.
+  'clearEpicLandedAt', // landedAt IS NOT NULL guard; already-cleared ⇒ false.
+  'releaseClaim',     // returns false when the row wasn't a live in_progress claim (lost race).
+] as const;
 
 /** Max lease-expiry retries before a todo is parked as 'blocked' for a human (design #2).
  *  Override with MERMAID_MAX_CLAIM_RETRIES. */
@@ -3112,6 +3136,8 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
     // re-open/split/drop. It is NOT auto-promoted back to 'ready' (the unblock
     // pass below skips rejected todos), so it never silently re-claims and
     // re-fails. Only accepted/pending/null completions move to 'done'.
+    const claimScoped = opts?.claimToken != null && !opts.requireInProgress;
+    const claimToken = claimScoped ? (opts!.claimToken as string) : undefined;
     if (accept === 'rejected') {
       // Not done → completedBy cleared (mirrors completedAt). cleanup-605d6fc0:
       // store the non-derived 'planned' (not the derived 'blocked' enum) + the
@@ -3120,20 +3146,24 @@ export function completeTodo(project: string, id: string, acceptanceStatus?: 'pe
       // claimReason checks DEP rejection but not a row's OWN acceptanceStatus, and
       // the old unblock-pass skip was deleted in S4. Tracked separately as a
       // claimability-predicate gap (rejected ⇒ not-claimable).
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         `UPDATE todos SET status='planned', completedAt=NULL, completedBy=NULL, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?`
-      ).run(accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(accept, ts, fullId, claimToken!) : stmt.run(accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     } else {
-      const res = db.prepare(
+      const casClause = claimScoped ? ' AND claimToken IS ?' : '';
+      const stmt = db.prepare(
         // 54362542/c544b9cb: clear a stale manual hold on terminal-accept — a done todo
         // must not carry heldAt/heldReason (it rendered a misleading 'held' chip on a
         // completed todo). Same write that clears the claim.
         `UPDATE todos SET status='done', completedAt=COALESCE(completedAt, ?), completedBy=?, acceptanceStatus=?,
-          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?`
-      ).run(ts, actor, accept, ts, fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+          ${CLAIM_CLEAR_SQL}, heldAt=NULL, heldReason=NULL, updatedAt=? WHERE id=?${casClause}`
+      );
+      const res = claimScoped ? stmt.run(ts, actor, accept, ts, fullId, claimToken!) : stmt.run(ts, actor, accept, ts, fullId);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('complete_todo', id, 'the todo is not claimed under this claimToken (claim/claimToken CAS)', 'reset_todo(<id>, status=\'ready\') and retry'));
     }
     // S4 (epic b2c858d4): the blocked→ready FAN-OUT is DELETED. Readiness is no longer
     // materialized — it is derived by claimability.isClaimable every tick, so there is nothing
@@ -3828,7 +3858,7 @@ export function resetTodo(
       let res;
       if (targetProject !== undefined) res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, targetProject, nowIso(), fullId);
       else res = stmt.run(storedStatus, approvedAt, approvedBy, heldAt, heldReason, nowIso(), fullId);
-      if (res.changes === 0) throw new Error(`todo update matched no row: ${id}`);
+      if (res.changes === 0) throw new Error(zeroRowWriteMessage('reset_todo', id, 'the row disappeared under the reset UPDATE', 're-read with get_todo(<id>)'));
       if (storedStatus === 'dropped' && isContainerKind({ kind: existing.kind })) {
         cascadeDropDescendants(db, fullId, nowIso());
         assertNoLiveDescendants(db, id, fullId);

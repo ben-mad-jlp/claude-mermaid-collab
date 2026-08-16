@@ -68,6 +68,7 @@ export type LandReasonClass =
   | 'presence-findings'
   | 'open-children'
   | 'not-ready'
+  | 'trunk-red'
   | 'other';
 
 /** `landReadiness` blocker codes (land-authority.ts) → class. `gate-failed` joins
@@ -87,6 +88,7 @@ const LAND_REASON_CLASSES: Record<string, LandReasonClass> = {
   'no-active-mission': 'not-ready',
   'foreign-mission': 'not-ready',
   'land-not-ready': 'not-ready',
+  'trunk-red': 'trunk-red',
   // Behind-trunk with no file overlap: the merge result is unmeasured — same class of
   // condition as a stale build base (repair-forge incident, 2026-08-14).
   'behind-trunk-fi-first': 'stale-base',
@@ -227,6 +229,10 @@ export interface LandEpicOutcome {
   dirtyPaths?: string[];
   /** True when a corrupted post-land tree was detected and repaired via reset --hard <landSha>. */
   treeRestored?: boolean;
+  /** Files attributed to the floor failure when the land was refused due to gate failure. */
+  attributedFiles?: string[];
+  /** Verdict for floor failure attribution: 'trunk-red' or 'gate-regression'. */
+  landAttribution?: 'trunk-red' | 'gate-regression';
 }
 
 export interface LandProof {
@@ -241,6 +247,19 @@ export interface LandProof {
  *  human-readable card message. */
 export function landRefusalCardText(o: { epicBranch: string; reason: string; detail?: string | null }): string {
   return `Land blocked — ${o.reason} (tip ${o.epicBranch}). Master is UNTOUCHED.\n${o.detail ?? ''}`;
+}
+
+/** Pure helper to extract attribution fields from a gate result.
+ *  Returns an object with attributedFiles and landAttribution when floorAttribution is present,
+ *  otherwise returns an empty object. */
+export function landAttributionFields(gate: EpicLandGateResult): { attributedFiles?: string[]; landAttribution?: 'trunk-red' | 'gate-regression' } {
+  if (!gate.floorAttribution) {
+    return {};
+  }
+  return {
+    attributedFiles: gate.floorAttribution.files,
+    landAttribution: gate.floorAttribution.verdict,
+  };
 }
 
 /** ONE PROOF: delegates entirely to the SAME `landReadiness()` the human click and the
@@ -1180,7 +1199,7 @@ async function runProofStage(
     });
     recordSupervisorAudit({ kind: 'reconcile', project, session: ctx.session, detail: JSON.stringify({ escalationId: ctx.escalationId, epicId, epicBranch, land: 'refused', reason: proof.reason, regressions: proof.gate.regressions.map(u => u.files).flat(), inherited: proof.gate.inherited.length }) });
     await recordFriction(targetProject, { layer: 'orchestration', retryReason: 'land-gate-failed', todoId: epicId, detail: proof.detail ?? proof.reason }).catch(() => {});
-    return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch };
+    return { ok: false, landed: false, reason: proof.reason, epicId, epicBranch, ...landAttributionFields(proof.gate) };
   }
   return { ok: true, proof };
 }

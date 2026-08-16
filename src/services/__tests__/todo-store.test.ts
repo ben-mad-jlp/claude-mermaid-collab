@@ -8,7 +8,7 @@ import {
   claimTodo, releaseExpiredClaims, reclaimClaim, reclaimOrphan, reclaimNow, releaseClaim, listReadyTodos, computeWaves, completeTodo, markRejectingIfOwned, bumpRetryCountIfOwned, decrementRetryCountIfOwned, refundBaseMovedRetryIfUnderCap, MAX_CLAIM_RETRIES,
   resetTodo, overrideAcceptTodo, createGate, listGatesBlocking, listGatedBy, completeGatesForDecision,
   deriveTodoViews, OrphanTodoError, ContainerHasOpenChildrenError, TerminalParentApproveError, resolveShortId, promoteBucketItemToEpic,
-  stampEpicLandedAt, isHollowLand, openDb, PROCESS_CLAIM_EPOCH,
+  stampEpicLandedAt, isHollowLand, openDb, PROCESS_CLAIM_EPOCH, zeroRowWriteMessage, ZERO_ROW_CONTENTION_VERBS,
 } from '../todo-store';
 import { createEscalation, getEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { trackingProjectRoot } from '../project-registry';
@@ -1261,6 +1261,30 @@ describe('steward verbs', () => {
     expect(r.retryCount).toBe(0);
   });
 
+  test("resetTodo('ready') on an in_progress todo: ONE call writes stored status AND stamps approval — no residual in_progress", async () => {
+    // Epic RELEASED so the parent-unreleased claimability rung doesn't gate the leaf.
+    const epic = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: '[EPIC] E', kind: 'epic', status: 'ready' });
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'leaf', parentId: epic.id, status: 'planned' });
+    await updateTodo(project, t.id, { status: 'ready' }); // approve so the claim can succeed
+
+    // Claim the todo — a genuine claim, never a hand-written row.
+    const claimed = await claimTodo(project, t.id, 'coordinator', 60_000);
+    expect(claimed).not.toBeNull();
+    expect(getTodo(project, t.id)!.status).toBe('in_progress');
+
+    // Reset to 'ready' exactly once.
+    await resetTodo(project, t.id, 'ready');
+
+    // Re-read and verify: stored status must be 'planned', not residual 'in_progress',
+    // and approval must be stamped so it's claimable again.
+    const row = getTodo(project, t.id)!;
+    const [view] = deriveTodoViews(project, [row]);
+    expect(view.storedStatus).toBe('planned');
+    expect(view.storedStatus).not.toBe('in_progress');
+    expect(row.approvedAt).not.toBeNull();
+    expect(view.isClaimable).toBe(true);
+  });
+
   test('resetTodo auto-resolves the todo\'s open escalations (re-promote supersedes stale red)', async () => {
     const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'rejected-leaf', status: 'blocked' });
     // A blocker raised against this todo (the 'paused on a human' red signal).
@@ -2379,5 +2403,64 @@ describe('short-id write resolution', () => {
     await updateTodo(project, t.id, { status: 'dropped' });
     const fetched = getTodo(project, t.id);
     expect(fetched!.status).toBe('dropped');
+  });
+});
+
+describe('zero-row write messages name the precondition and the remedy', () => {
+  let project: string;
+
+  beforeEach(() => {
+    project = mkdtempSync(join(tmpdir(), 'todo-store-'));
+    process.env.MERMAID_SUPERVISOR_DIR = project;
+    _closeSupervisorDb();
+  });
+
+  afterEach(() => {
+    _closeProject(project);
+    _closeSupervisorDb();
+    delete process.env.MERMAID_SUPERVISOR_DIR;
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  test('zeroRowWriteMessage renders verb, id, precondition and remedy', () => {
+    const msg = zeroRowWriteMessage('update_todo', 'abc123', 'test precondition', 'test remedy');
+    expect(msg).toContain('update_todo');
+    expect(msg).toContain('abc123');
+    expect(msg).toContain('test precondition');
+    expect(msg).toContain('test remedy');
+    expect(msg).toContain('precondition failed');
+  });
+
+  test('completeTodo with a stale claimToken (no requireInProgress) throws naming the claim precondition and reset_todo', async () => {
+    const t = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: 'x', status: 'ready' });
+    // Claim as agent-A
+    const a = await claimTodo(project, t.id, 'agent-A', 60000);
+    const tokenA = a!.claimToken!;
+    // Release the claim (agent-A loses it)
+    await releaseClaim(project, t.id);
+    // Claim as agent-B (new token)
+    const b = await claimTodo(project, t.id, 'agent-B', 60000);
+    // Try to complete with the stale tokenA (without requireInProgress flag)
+    await expect(completeTodo(project, t.id, 'accepted', undefined, { claimToken: tokenA }))
+      .rejects.toThrow();
+    // Verify the throw message contains the precondition and remedy
+    try {
+      await completeTodo(project, t.id, 'accepted', undefined, { claimToken: tokenA });
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toContain('precondition failed');
+      expect(msg).toContain('claim');
+      expect(msg).toContain('reset_todo');
+    }
+    // Verify no mutation: the row is still in_progress under agent-B
+    const after = getTodo(project, t.id)!;
+    expect(after.status).toBe('in_progress');
+    expect(after.claimToken).toBe(b!.claimToken);
+  });
+
+  test('ZERO_ROW_CONTENTION_VERBS names claimTodo, reclaimNow and releaseClaim', () => {
+    expect(ZERO_ROW_CONTENTION_VERBS).toContain('claimTodo');
+    expect(ZERO_ROW_CONTENTION_VERBS).toContain('reclaimNow');
+    expect(ZERO_ROW_CONTENTION_VERBS).toContain('releaseClaim');
   });
 });

@@ -9,7 +9,14 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useConductorEnabled, apiGet } from './useConductorEnabled';
-import { kickConductor } from '@/lib/conductorActivity';
+import {
+  kickConductor,
+  fetchAutoFixLevel,
+  setAutoFixLevel,
+  fetchExplorerLevel,
+  setExplorerLevel,
+  type LeverLevel,
+} from '@/lib/conductorActivity';
 
 type ConductorLevel = 'off' | 'on';
 const LEVELS: ConductorLevel[] = ['off', 'on'];
@@ -40,6 +47,96 @@ function relTime(fromMs: number, nowMs: number): string {
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
 }
+
+/**
+ * One off/on OPERATOR LEVER stop, in the ladder's own idiom: a stroked 24-viewBox icon +
+ * the current level, one click to flip, disabled while the write is in flight, and the
+ * failure surfaced INLINE (never a modal, never a silent flip).
+ *
+ * Shared by AutoFix (holds the repair forge) and Explorer (holds explore dispatch): both
+ * are per-project off/on switches with an identical contract, default 'on'.
+ */
+interface LeverStopProps {
+  /** data-testid prefix: `<testId>-toggle`, `<testId>-level`, `<testId>-error`. */
+  testId: string;
+  label: string;
+  project: string;
+  fetchLevel: (project: string) => Promise<{ ok: boolean; level: LeverLevel; error?: string }>;
+  postLevel: (project: string, level: LeverLevel) => Promise<{ ok: boolean; level?: LeverLevel; error?: string }>;
+  /** Word used in the generic failure line when the server sends no message. */
+  failLabel: string;
+  titleOn: string;
+  titleOff: string;
+  /** SVG children, drawn inside the shared stroked 24-viewBox frame. */
+  icon: React.ReactNode;
+}
+
+const LeverStop: React.FC<LeverStopProps> = ({
+  testId, label, project, fetchLevel, postLevel, failLabel, titleOn, titleOff, icon,
+}) => {
+  const [level, setLevel] = useState<LeverLevel | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Read the CURRENT level on mount (and whenever the project changes).
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    void fetchLevel(project).then((r) => {
+      if (cancelled) return;
+      setLevel(r.level);
+      if (!r.ok) setError(r.error ?? `${failLabel} read failed`);
+    });
+    return () => { cancelled = true; };
+  }, [project, fetchLevel, failLabel]);
+
+  const handleClick = useCallback(async () => {
+    if (busy || !project || level === null) return;
+    const next: LeverLevel = level === 'on' ? 'off' : 'on';
+    setBusy(true);
+    setError(null);
+    const r = await postLevel(project, next);
+    // Adopt the SERVER's value, not the requested one — a refused write (transient path)
+    // must not read back as a successful flip.
+    if (r.ok) setLevel(r.level ?? next);
+    else setError(r.error ?? `${failLabel} failed`);
+    setBusy(false);
+  }, [busy, project, level, postLevel, failLabel]);
+
+  return (
+    <>
+      <button
+        type="button"
+        data-testid={`${testId}-toggle`}
+        data-lever-level={level ?? 'unknown'}
+        data-lever-busy={String(busy)}
+        disabled={busy || level === null}
+        aria-label={`${label} ${level ?? 'loading'} — click to toggle`}
+        onClick={() => { void handleClick(); }}
+        title={error ? error : level === 'off' ? titleOff : titleOn}
+        className={`px-1.5 py-0.5 flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 border-l border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 ${
+          error ? 'text-danger-500' : level === 'off' ? 'text-gray-400 dark:text-gray-500' : 'text-success-600 dark:text-success-500'
+        } ${busy ? 'animate-pulse' : ''}`}
+      >
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          {icon}
+        </svg>
+        <span data-testid={`${testId}-level`}>{label} {level ?? '…'}</span>
+      </button>
+      {/* Failure surfaces INLINE (no modal) so a refused/failed write can never read as a
+          silent success on the switch itself. */}
+      {error && (
+        <span
+          data-testid={`${testId}-error`}
+          role="status"
+          className="shrink-0 px-1.5 py-0.5 whitespace-nowrap border-l border-gray-300 dark:border-gray-600 text-danger-500"
+        >
+          {error}
+        </span>
+      )}
+    </>
+  );
+};
 
 export interface ConductorLadderProps {
   project: string;
@@ -175,6 +272,43 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
         </svg>
       </button>
+      {/* AUTOFIX — holds the daemon's repair-forge pass (the only pass that spends nodes
+          unasked). Findings are still recorded; only the FORGE is held. */}
+      <LeverStop
+        testId="autofix"
+        label="AutoFix"
+        project={project}
+        fetchLevel={fetchAutoFixLevel}
+        postLevel={setAutoFixLevel}
+        failLabel="autofix"
+        titleOn="AutoFix on — the daemon batches bugfix requests and forges a repair mission for approval. Click to hold it."
+        titleOff="AutoFix off — the daemon will NOT forge repair missions from batched bugfix requests. Findings are still recorded. Click to turn on."
+        icon={
+          <>
+            <path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3z" />
+            <path d="M14.7 6.3 18 3l3 3-3.3 3.3" />
+          </>
+        }
+      />
+      {/* EXPLORER — holds explore-leaf DISPATCH. Explores are still FILED and still
+          PROMOTED into the 'Explore runs' epic while it is off (nothing is lost); they
+          simply queue, and the claim-suppression report names `explorer-off` for each. */}
+      <LeverStop
+        testId="explorer"
+        label="Explorer"
+        project={project}
+        fetchLevel={fetchExplorerLevel}
+        postLevel={setExplorerLevel}
+        failLabel="explorer"
+        titleOn="Explorer on — filed explore leaves are claimed and run as usual. Click to hold dispatch."
+        titleOff="Explorer off — explore leaves are still filed and promoted, but NOT claimed (they queue; the claim-suppression report names explorer-off). Click to drain the queue."
+        icon={
+          <>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </>
+        }
+      />
       {/* Last-pass readout: proves the conductor is actually running (not just switched on). */}
       {enabled && (
         <span

@@ -28,6 +28,7 @@ import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, typ
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
+import { runVerifyOwedArm } from './conductor-verify-owed-arm.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
 import { runUnlandedEpicLandArm, type UnlandedEpicArmResult } from './conductor-unlanded-epic-arm.js';
@@ -44,10 +45,12 @@ import { listApproachAttempts, ladderExhausted, type ApproachAttempt } from './c
 import { summariseEpicOutcomes } from './epic-churn.js';
 import { listLeafRuns } from './ledger-stats.js';
 import { isRolledBackReplanGap, isFileableServeGap } from './mission-status-predicates.js';
-import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, countConsecutiveEmptyConducts, latestProductivePassFp, listConductorPasses, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
+import { openPassRow, appendPassProgress, finalizePassRow, countConsecutiveFailedPasses, countConsecutiveEmptyConducts, latestProductivePassFp, listConductorPasses, latestArmWatermark, CONDUCTOR_PASS_SUMMARY_MAX_CHARS, type ConductorPassJournalRow, type ConductorFiledRef } from './conductor-pass-journal.js';
 import { consumeConductorKick } from './conductor-kick.js';
 import { getWebSocketHandler } from './ws-handler-manager.js';
 import { runConductorKillRateArm, shouldRunConductorKillRateArm } from './conductor-kill-rate.js';
+import { buildVerifyAdmissionKey, buildLandAdmissionKey, admitsVerifyArm, admitsLandArm, type VerifyAdmissionFacts, type LandAdmissionFacts } from './conductor-arm-admission.js';
+import { classifyConductorPassOutcome } from './conductor-pass-outcome-class.js';
 
 /** The conductor node DIRECTS the work-graph — it never hand-edits source. Read/Grep/Glob/Bash to
  *  ground; the mermaid MCP tools to serve criteria (create_epic/add_leaves), record VERIFY verdicts
@@ -343,6 +346,8 @@ export interface ConductorPassDeps {
   closeArm?: typeof runTestOnlyCloseArm;
   /** Injectable verify-panel auto-fire arm (test spy). Defaults to runVerifyPanelArm. */
   verifyPanelArm?: typeof runVerifyPanelArm;
+  /** Injectable verify-owed backstop observer arm (test spy). Defaults to runVerifyOwedArm. */
+  verifyOwedArm?: typeof runVerifyOwedArm;
   /** Injectable card-triage arm (test spy). Defaults to runCardTriageArm. */
   cardTriageArm?: typeof runCardTriageArm;
   /** Injectable deterministic land arm (test spy). Defaults to runConductorLandArm. */
@@ -393,6 +398,9 @@ export interface ConductorPassResult {
   emptyConducts?: number;
   /** True when an operator KICK forced this pass through the fingerprint debounce. */
   forced?: boolean;
+  /** Number of conductor nodes spawned this pass (0 for debounced/early returns, 1 for a pass
+   *  that ran the node). */
+  nodesSpent?: number;
 }
 
 /** The SETTLED conductor-pass reasons that mean the mission is stuck on a HUMAN — the pass
@@ -519,7 +527,7 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       status: conductorStatusLine(result.reason, result),
       timeoutKills: result.timeoutKills,
     });
-    seal(project, journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran });
+    seal(project, journalRowId, { missionId: result.missionId ?? null, outcome: result.reason, ran: result.ran, nodesSpent: result.nodesSpent ?? null });
     return result;
   } catch (err) {
     // Error stamp: records that the pass failed (rethrow so callers keep seeing the failure).
@@ -529,19 +537,19 @@ export async function runConductorPass(project: string, deps: ConductorPassDeps 
       tickAt: Date.now(),
       status: conductorStatusLine('pass-error'),
     });
-    seal(project, journalRowId, { missionId: null, outcome: 'pass-error', ran: false });
+    seal(project, journalRowId, { missionId: null, outcome: 'pass-error', ran: false, nodesSpent: null });
     throw err;
   }
 }
 
 async function runConductorPassInner(project: string, deps: ConductorPassDeps = {}, journalRowId: string | null = null): Promise<ConductorPassResult> {
-  if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled' };
+  if (!getConductorEnabled(project)) return { ran: false, reason: 'conductor-disabled', nodesSpent: 0 };
   // The conductor DIRECTS the daemon — it grounds gaps, files serving epics, and promotes leaves to
   // READY for the daemon to build & land. With the daemon OFF the build pass never runs (the tick
   // skips it at `lvl === 'off'`), so those leaves sit unclaimed and the mission stalls at 'building'
   // while the conductor keeps spending expensive nodes on a pipeline that can't move. Conductor is a
   // DEPENDENT of the daemon, not an independent switch: no daemon ⇒ no conductor spend.
-  if (getOrchestratorLevel(project) === 'off') return { ran: false, reason: 'daemon-off' };
+  if (getOrchestratorLevel(project) === 'off') return { ran: false, reason: 'daemon-off', nodesSpent: 0 };
 
   try {
     const promoted = promoteQueuedMissions(project);
@@ -572,12 +580,12 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   const actionable = listMissions(project, { withFacts: false }).filter((m) =>
     m.mission.active && m.mission.awaitingApprovalSince == null && m.mission.status != null &&
     !['unapproved', 'abandoned', 'converged', 'closed'].includes(m.mission.status));
-  if (actionable.length === 0) return { ran: false, reason: 'no-actionable-mission' };
+  if (actionable.length === 0) return { ran: false, reason: 'no-actionable-mission', nodesSpent: 0 };
   // If >1 survive (should not happen — one active mission per project is the invariant), drive the
   // first in listMissions order. The pin, its total order, and its advisory are all retired.
   const selected = actionable[0];
   const selectedRow = getMission(project, selected.mission.todoId);
-  if (!selectedRow) return { ran: false, reason: 'no-actionable-mission' };
+  if (!selectedRow) return { ran: false, reason: 'no-actionable-mission', nodesSpent: 0 };
   const target: { summary: ReturnType<typeof listMissions>[number]; row: NonNullable<ReturnType<typeof getMission>> } =
     { summary: selected, row: selectedRow };
   const missionId = target.row.todoId;
@@ -642,7 +650,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
       filed: filedRefs,
       declined: declinedFor(r.reason, r.serveCapDeferred),
     });
-    return { ...r, rechecksDrained };
+    return { ...r, rechecksDrained, nodesSpent: r.nodesSpent ?? 0 };
   };
 
   // OVER-BUDGET FINAL ACT (mission a6ab522b). The authoritative derived status says this
@@ -1069,11 +1077,143 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   }
 
+  // ARM CLOSURES. Hoist the verify and land arms into closures so they can be called
+  // conditionally at the debounce gate based on per-arm admission. Both closures capture the
+  // ambient scope (project, missionId, session, etc.) and maintain their original fail-open
+  // try/catch discipline.
+  const runVerifyArm = async (): Promise<VerifyPanelArmResult> => {
+    let verifyPanel: VerifyPanelArmResult = { paneled: [], held: [], skipped: [] };
+    try {
+      verifyPanel = await (deps.verifyPanelArm ?? runVerifyPanelArm)(project, missionId, session, {});
+    } catch {
+      verifyPanel = { paneled: [], held: [], skipped: [] };
+    }
+    return verifyPanel;
+  };
+
+  const runLandArm = async (): Promise<LandArmResult> => {
+    let landArm: LandArmResult = { landed: [], skipped: [] };
+    try {
+      landArm = await (deps.landArm ?? runConductorLandArm)(project, missionId, session, {});
+    } catch {
+      landArm = { landed: [], skipped: [] };
+    }
+    return landArm;
+  };
+
   // A prior SUCCESSFUL pass on this exact state (incl. land cards) ⇒ debounce (unchanged behaviour).
   // A signature equal to the SELF key the conductor stamped after its OWN last productive pass is
   // also a debounce: the only delta since then is cards the pass (or its INFRA arm) minted, which is
-  // a self-echo, not a wake-up.
-  if (!forced && !hasRolledBackGap && (lastKey === fp || selfKey === fp)) return done({ ran: false, reason: 'debounced', missionId, forced });
+  // a self-echo, not a wake-up. Per-arm admission allows a verify or land arm to run even when
+  // the global signature is unchanged, if the arm's own admission key has advanced.
+  const debounced = !forced && !hasRolledBackGap && (lastKey === fp || selfKey === fp);
+  if (debounced) {
+    // Build per-arm admission facts to decide which arms can proceed independently.
+    let verifyKey = '';
+    let landKey = '';
+    try {
+      // Verify arm admits when its land-sha watermark has advanced past its verdict.
+      const verifyFacts: VerifyAdmissionFacts = {
+        criteria: criteriaWithActions.map((c) => ({
+          id: c.id,
+          verifiedAt: c.verifiedAt,
+          verifiedAtSha: c.verifiedAtSha,
+          lastReopenSha: c.lastReopenSha,
+        })),
+        rechecks: pendingRechecks.map((r) => ({
+          criterionId: r.criterionId,
+          landedSha: r.landedSha,
+          enqueuedAt: r.enqueuedAt,
+        })),
+      };
+      verifyKey = buildVerifyAdmissionKey(verifyFacts);
+    } catch {
+      // fail-open: a key-building fault degrades to '' (no admission)
+    }
+    try {
+      // Land arm admits when land-ready cards or armed criteria have changed.
+      const landFacts: LandAdmissionFacts = {
+        landCardIds,
+        armedCriterionIds: unlandedEpicArmResult.criterionIds,
+      };
+      landKey = buildLandAdmissionKey(landFacts);
+    } catch {
+      // fail-open: a key-building fault degrades to '' (no admission)
+    }
+
+    const verifyWatermark = latestArmWatermark(project, missionId, 'verify-panel');
+    const landWatermark = latestArmWatermark(project, missionId, 'land');
+    const verifyAdmits = admitsVerifyArm(verifyKey, verifyWatermark);
+    const landAdmits = admitsLandArm(landKey, landWatermark);
+
+    if (!verifyAdmits && !landAdmits) {
+      // Neither arm admits: debounce as usual (no nodes spent).
+      note(journalRowId, { nodesSpent: 0, outcomeClass: classifyConductorPassOutcome('debounced', { actionableArm: false }) });
+      return done({ ran: false, reason: 'debounced', missionId, forced, nodesSpent: 0 });
+    }
+
+    // At least one arm admits: run them and return their outcomes.
+    note(journalRowId, { outcomeClass: classifyConductorPassOutcome('debounced', { actionableArm: true }) });
+    let actionableArm = false;
+    const accumWatermark: Record<string, string> = {};
+
+    if (verifyAdmits) {
+      try {
+        const verifyPanel = await runVerifyArm();
+        accumWatermark['verify-panel'] = verifyKey;
+        note(journalRowId, { armWatermark: JSON.stringify(accumWatermark) });
+        const carriedVerifyIds = verifyPanel.carried ?? [];
+        note(journalRowId, {
+          carried: { verify: carriedVerifyIds, serve: carriedServeIds, count: carriedVerifyIds.length + carriedServeIds.length },
+        });
+        if (verifyPanel.paneled.length > 0 || verifyPanel.held.length > 0) {
+          return done({
+            ran: true,
+            reason: 'verify-paneled',
+            missionId,
+            escalationsRaised,
+            serveCapDeferred,
+            closeOutsMinted,
+            infraResets: arm.reset.length,
+            infraCards: arm.cardsRaised,
+            verifyPaneled: verifyPanel.paneled.length,
+            verifyHeld: verifyPanel.held.length,
+          });
+        }
+        actionableArm = true;
+      } catch {
+        // fail-open: a verify arm fault degrades to a no-op pass
+      }
+    }
+
+    if (landAdmits) {
+      try {
+        const landArm = await runLandArm();
+        accumWatermark['land'] = landKey;
+        note(journalRowId, { armWatermark: JSON.stringify(accumWatermark) });
+        if (landArm.landed.length > 0) {
+          return done({
+            ran: true,
+            reason: 'landed',
+            missionId,
+            escalationsRaised,
+            serveCapDeferred,
+            closeOutsMinted,
+            infraResets: arm.reset.length,
+            infraCards: arm.cardsRaised,
+          });
+        }
+        actionableArm = true;
+      } catch {
+        // fail-open: a land arm fault degrades to a no-op pass
+      }
+    }
+
+    // Both admitted arms ran but acted on nothing: debounce with nodesSpent=0.
+    if (!actionableArm) {
+      return done({ ran: false, reason: 'debounced', missionId, forced, nodesSpent: 0 });
+    }
+  }
   // The fail-retry counter is derived from the journal's contiguous run of node-failed passes on
   // this exact serveFp (excluding this pass's own in-flight row), not from a hand-rolled
   // `${serveFp}|fail:N` string parse on the mission column. Bounded, not a permanent wedge — and
@@ -1082,7 +1222,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // re-arm (a new card is new information), still bounded by CONDUCTOR_SERVE_RETRY_CAP per distinct
   // card set.
   const priorFails = countConsecutiveFailedPasses(project, missionId, serveFp, journalRowId);
-  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId, forced });
+  if (priorFails >= CONDUCTOR_SERVE_RETRY_CAP) return done({ ran: false, reason: 'debounced', missionId, forced, nodesSpent: 0 });
 
   // Distinct bounded loop-breaker for CONSECUTIVE node timeouts on this unchanged serve-state
   // (see CONDUCTOR_TIMEOUT_RECUR_CAP). A serve-state that structurally can't be processed
@@ -1102,7 +1242,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
           `likely needs a smaller/cheaper serve-state or human investigation.`,
       });
     } catch { /* fail-open — the cap itself must not throw */ }
-    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, timeoutKills: timeoutRecurrence, forced });
+    return done({ ran: false, reason: 'conductor-timeouts-capped', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, timeoutKills: timeoutRecurrence, forced, nodesSpent: 0 });
   }
 
   // No servable gap and no land card to drive: nothing for the node to do. A capped
@@ -1111,23 +1251,23 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // 'criteria-escalated' when the only remaining work is escalated, else fall through to the
   // building-wait (daemon working) no-op.
   if (!hasGap && landCardIds.length === 0) {
-    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+    if (escalated.length > 0) return done({ ran: false, reason: 'criteria-escalated', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, nodesSpent: 0 });
     // 'building' normally means "the daemon is on it — leave it". An open mission-scoped hard card
     // (e.g. a just-carded INFRA leaf) is the exception: reaching this line already proves the
     // signature differs from both stored keys, and step 4 of the conductor prompt makes the node the
     // authority for exactly that stuck work. Wakes at most once per distinct card set — the
     // productive pass stamps the self key over it.
-    if (status === 'building' && hardCardIds.length === 0) return done({ ran: false, reason: 'building-wait', missionId });
+    if (status === 'building' && hardCardIds.length === 0) return done({ ran: false, reason: 'building-wait', missionId, nodesSpent: 0 });
     // A mission whose only non-met criteria are 'blocked' (waiting on a prerequisite sibling,
     // not asking the node for a decision) derives no discover/verify/escalate/building shape
     // above and would otherwise fall through to an expensive, needless node invocation.
     const blockedOnly = actions.some((a) => a.action === 'blocked');
-    if (blockedOnly && hardCardIds.length === 0) return done({ ran: false, reason: 'criteria-blocked', missionId });
+    if (blockedOnly && hardCardIds.length === 0) return done({ ran: false, reason: 'criteria-blocked', missionId, nodesSpent: 0 });
     // A mission whose only non-met criteria are 'awaiting-observation' (waiting on an elapsed
     // observation window) also needs no node — the clock will satisfy them without action.
     const awaitingObservationOnly = actions.every((a) => a.action === 'awaiting-observation' || a.action === 'dropped' || a.action === 'met');
     if (awaitingObservationOnly && actions.some((a) => a.action === 'awaiting-observation') && hardCardIds.length === 0) {
-      return done({ ran: false, reason: 'awaiting-observation-wait', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted });
+      return done({ ran: false, reason: 'awaiting-observation-wait', missionId, escalationsRaised, serveCapDeferred, closeOutsMinted, nodesSpent: 0 });
     }
   }
 
@@ -1195,6 +1335,15 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     });
   } catch {
     wakeBlock = undefined;
+  }
+
+  // VERIFY OWED BACKSTOP ARM. Pure observer: scans criteria for verify-owed staleness and
+  // raises (or bumps) the shared backstop card. Never short-circuits the pass — the arm
+  // only raises a card, it never returns a pass result itself.
+  try {
+    await (deps.verifyOwedArm ?? runVerifyOwedArm)(project, missionId, session, {});
+  } catch {
+    // fail-open: an arm fault must not affect the rest of the pass.
   }
 
   // VERIFY PANEL ARM. Auto-fire the three-lens panel for every high-stakes criterion
@@ -1427,5 +1576,5 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
     stampConductorRun(project, missionId, serveFp);
     note(journalRowId, { failCounted: true });
   }
-  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised, timeoutKills, forced });
+  return done({ ran: true, reason: productive ? 'conducted' : 'node-failed', missionId, modelUsed: model, escalationsRaised, serveCapDeferred, closeOutsMinted, infraResets: arm.reset.length, infraCards: arm.cardsRaised, timeoutKills, forced, nodesSpent: 1 });
 }

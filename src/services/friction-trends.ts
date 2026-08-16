@@ -1,4 +1,5 @@
 import { listFriction, type FrictionLayer, type FrictionNote } from './friction-store';
+import type { FrictionDefectClass } from './friction-defect-class';
 
 /**
  * friction_trends — recurrence rollup over the friction store (read-only).
@@ -23,6 +24,8 @@ export interface FrictionReasonGroup {
   sessions: string[];
   /** Most-recent createdAt across this reason's notes (ISO). */
   lastAt: string;
+  /** Defect class from the newest non-null note; null if all notes are unclassified. */
+  defectClass: FrictionDefectClass | null;
 }
 
 /** All friction for one layer, with its reasons ranked by count. */
@@ -30,6 +33,15 @@ export interface FrictionLayerGroup {
   layer: FrictionLayer;
   count: number;
   reasons: FrictionReasonGroup[];
+}
+
+/** A recurring reason in the cross-layer view. */
+export interface RecurringFrictionReason {
+  layer: FrictionLayer;
+  retryReason: string;
+  count: number;
+  lastAt: string;
+  defectClass: FrictionDefectClass | null;
 }
 
 export interface FrictionTrends {
@@ -40,25 +52,35 @@ export interface FrictionTrends {
   byLayer: FrictionLayerGroup[];
   /** Cross-layer view of reasons seen more than once, most-recurring first —
    *  the "what keeps going wrong" shortlist. */
-  recurring: Array<{ layer: FrictionLayer; retryReason: string; count: number }>;
+  recurring: RecurringFrictionReason[];
 }
 
 /** Pure rollup: group notes by layer → retryReason with counts. Input is assumed
  *  newest-first (as listFriction returns); `lastAt` is the max createdAt seen. */
 export function summarizeFrictionTrends(notes: FrictionNote[]): FrictionTrends {
   const byLayerMap = new Map<FrictionLayer, Map<string, FrictionReasonGroup>>();
+  const defectClassMap = new Map<FrictionReasonGroup, string>();
 
   for (const note of notes) {
     let reasons = byLayerMap.get(note.layer);
     if (!reasons) { reasons = new Map(); byLayerMap.set(note.layer, reasons); }
     let group = reasons.get(note.retryReason);
     if (!group) {
-      group = { retryReason: note.retryReason, count: 0, sessions: [], lastAt: note.createdAt };
+      group = { retryReason: note.retryReason, count: 0, sessions: [], lastAt: note.createdAt, defectClass: null };
       reasons.set(note.retryReason, group);
     }
     group.count++;
     if (note.session && !group.sessions.includes(note.session)) group.sessions.push(note.session);
     if (note.createdAt > group.lastAt) group.lastAt = note.createdAt;
+
+    // Track the newest non-null defectClass for this group
+    if (note.defectClass != null) {
+      const currentClassCreatedAt = defectClassMap.get(group);
+      if (currentClassCreatedAt === undefined || note.createdAt > currentClassCreatedAt) {
+        group.defectClass = note.defectClass;
+        defectClassMap.set(group, note.createdAt);
+      }
+    }
   }
 
   const byLayer: FrictionLayerGroup[] = [];
@@ -70,7 +92,7 @@ export function summarizeFrictionTrends(notes: FrictionNote[]): FrictionTrends {
   byLayer.sort((a, b) => b.count - a.count);
 
   const recurring = byLayer
-    .flatMap((l) => l.reasons.filter((r) => r.count > 1).map((r) => ({ layer: l.layer, retryReason: r.retryReason, count: r.count })))
+    .flatMap((l) => l.reasons.filter((r) => r.count > 1).map((r) => ({ layer: l.layer, retryReason: r.retryReason, count: r.count, lastAt: r.lastAt, defectClass: r.defectClass })))
     .sort((a, b) => b.count - a.count);
 
   return { total: notes.length, considered: notes.length, byLayer, recurring };

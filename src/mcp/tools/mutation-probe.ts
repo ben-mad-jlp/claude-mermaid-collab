@@ -9,7 +9,7 @@ import { runMutationProbe } from '../../services/mutation-probe.js';
 
 export const mutationProbeToolDef = {
   name: 'mutation_probe',
-  description: 'Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result.',
+  description: 'Run the three-arm mutation probe (control/neutered/throw) in a disposable worktree to determine if a symbol is called and whether its execution is observed. Returns execution-signal verdict (never-called, called-observed, called-unobserved, or indeterminate) and full probe result. Verdict may be graded, vacuous, incident, or unknown when the arm results conflict.',
   inputSchema: {
     type: 'object',
     properties: {

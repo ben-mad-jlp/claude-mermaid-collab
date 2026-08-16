@@ -83,7 +83,23 @@ describe('createEscalation — expiresAt stamped from timeoutMs', () => {
     expect(reread?.expiresAt).toBe(escalation.createdAt + 10 * 60 * 1000);
   });
 
-  it('leaves expiresAt NULL when no timeoutMs is passed', () => {
+  it('leaves expiresAt NULL when no timeoutMs is passed on an internal-audience card', () => {
+    const project = freshProject();
+    const { escalation } = createEscalation({
+      project,
+      session: 's1',
+      kind: 'blocker',
+      audience: 'internal',
+      questionText: 'no promise',
+    });
+    expect(escalation.expiresAt).toBeNull();
+    expect(getEscalation(escalation.id)?.expiresAt).toBeNull();
+  });
+
+  // The human-audience case deliberately does NOT leave expiresAt NULL: the expiry floor
+  // stamps one so a card addressed to a person outlives the machine-cadence stale sweep.
+  // Before the floor, human-addressed cards were reaped in ~130s and could not be answered.
+  it('stamps an expiry floor when no timeoutMs is passed on a human-audience card', () => {
     const project = freshProject();
     const { escalation } = createEscalation({
       project,
@@ -92,8 +108,9 @@ describe('createEscalation — expiresAt stamped from timeoutMs', () => {
       audience: 'human',
       questionText: 'no promise',
     });
-    expect(escalation.expiresAt).toBeNull();
-    expect(getEscalation(escalation.id)?.expiresAt).toBeNull();
+    expect(escalation.expiresAt).not.toBeNull();
+    expect(escalation.expiresAt!).toBeGreaterThan(Date.now());
+    expect(getEscalation(escalation.id)?.expiresAt).toBe(escalation.expiresAt);
   });
 
   it('a keyed recurrence re-raise refreshes expiresAt from the latest raise', () => {

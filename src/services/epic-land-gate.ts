@@ -81,6 +81,9 @@ export interface EpicLandGateResult {
   /** How many test files the impacted floor ran (impacted mode only). */
   floorImpactedCount?: number;
   quarantinedOnlyFailures?: string[];
+  /** Attribution of floor failures to trunk-red vs gate-regression, with the files
+   *  responsible. Present when the floor failed; absent otherwise. */
+  floorAttribution?: { verdict: 'trunk-red' | 'gate-regression'; files: string[] };
 }
 
 /** Spec paths whose assertions guard shared, out-of-change-set symbols. Matched against the
@@ -124,6 +127,25 @@ export function partitionFloorAgainstBase(
     (base.has(normalizeFloorTestName(f)) ? inherited : regressed).push(f);
   }
   return { regressed, inherited };
+}
+
+/** Classify a floor failure as trunk-red (inherited at base) or gate-regression (net-new),
+ *  returning the verdict and the file list responsible for that verdict. */
+export function attributeFloorFailures(input: {
+  command: string; failing: string[]; regressed: string[]; inherited: string[];
+}): { verdict: 'trunk-red' | 'gate-regression'; files: string[] } {
+  // If every failure reproduces at the merge-base, it's trunk-red inherited
+  if (input.regressed.length === 0 && input.failing.length > 0) {
+    return {
+      verdict: 'trunk-red',
+      files: input.failing.map(normalizeFloorTestName).sort(),
+    };
+  }
+  // Otherwise it's gate-regression; include only the newly failing (regressed) files
+  return {
+    verdict: 'gate-regression',
+    files: input.regressed.map(normalizeFloorTestName),
+  };
 }
 
 /** Wrap a floor failure name as a gate unit so it can populate regressions/inherited. */
@@ -587,6 +609,9 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   // result as `inherited` so the land is reported inheritedRed rather than blocked.
   let floorInherited: LandGateUnit[] = [];
 
+  // Attribution of floor failures to trunk-red (inherited) vs gate-regression (net-new)
+  let floorAttribution: EpicLandGateResult['floorAttribution'];
+
   // --- regression floor (spine-aware) ---
   // Verdict-spine key for the EPIC TIP: byte-identical to what the base gate's write path
   // produces for the same tree — same `baseGateKey` (project + sha + the lane sequence
@@ -715,9 +740,12 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       // path with the failures recorded as inherited, so the land is reported inheritedRed
       // rather than blocked. Not a silent pass: land-authority surfaces inheritedRed.
       floorInherited = inheritedFloor.inherited.map((f) => floorUnit(floor.command, f, 'inherited'));
+      floorAttribution = attributeFloorFailures({ command: floor.command, failing: floor.failing, ...inheritedFloor });
     } else {
       // Floor failed with net-new failures — return immediately.
+      floorAttribution = attributeFloorFailures({ command: floor.command, failing: floor.failing, ...inheritedFloor });
       const reasons = [
+        `land gate ${floorAttribution.verdict}: ${floorAttribution.files.join(', ')}`,
         `REGRESSION FLOOR FAILED: ${floor.command}`,
         ...(inheritedFloor.regressed.length
           ? [`net-new failures (not failing at base ${String(baseSha).slice(0, 8)}):`, ...inheritedFloor.regressed]
@@ -745,6 +773,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
         specFiles,
         epicTipSha,
         baseSha,
+        ...(floorAttribution ? { floorAttribution } : {}),
       };
       recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
       return res;
@@ -777,6 +806,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       epicTipSha,
       baseSha,
       ...(floorQuarantinedOnlyFailures ? { quarantinedOnlyFailures: floorQuarantinedOnlyFailures } : {}),
+      ...(floorAttribution ? { floorAttribution } : {}),
     };
     foldSweepIntoResult(res, sweep);
     if (res.status !== 'error') {
@@ -803,6 +833,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       specFiles,
       epicTipSha,
       baseSha,
+      ...(floorAttribution ? { floorAttribution } : {}),
     };
     recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'pass', result: JSON.stringify(res) });
     return res;
@@ -836,6 +867,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       specFiles,
       epicTipSha,
       baseSha,
+      ...(floorAttribution ? { floorAttribution } : {}),
     };
   }
 
@@ -914,6 +946,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
         specFiles,
         epicTipSha,
         baseSha,
+        ...(floorAttribution ? { floorAttribution } : {}),
       };
     }
 
@@ -1024,6 +1057,7 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     epicTipSha,
     baseSha,
     ...(floorQuarantinedOnlyFailures ? { quarantinedOnlyFailures: floorQuarantinedOnlyFailures } : {}),
+    ...(floorAttribution ? { floorAttribution } : {}),
   };
 
   if (res.status === 'pass') {

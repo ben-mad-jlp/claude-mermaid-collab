@@ -33,6 +33,7 @@ import {
   listCriteria,
   getMissionRollup,
   assertMissionCreationAllowed,
+  assertAllMissionCriteriaCitable,
   setMissionForgeState,
   type MissionCriterion,
   type MissionRollup,
@@ -152,6 +153,8 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
     const hit = detectForwardAccrual(c);
     if (hit) throw new ForwardAccrualCriterionError(c, hit.matched);
   }
+
+  assertAllMissionCriteriaCitable(criteria);
 
   if (!input.intoMissionId) assertMissionCreationAllowed(project);
 

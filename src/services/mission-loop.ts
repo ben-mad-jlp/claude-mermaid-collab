@@ -42,9 +42,12 @@ import {
   noteStallObservation,
   clearStallObservation,
   IN_FLIGHT_COUNTER_KEYS,
+  isVerifyOwedPastThreshold,
+  verifyOwedConditionKey,
   type MissionStallFacts,
 } from './mission-stall-predicate.ts';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.ts';
+import { VERIFY_OWED_BACKSTOP_MS } from './harness-caps.ts';
 import { createEscalation, listOpenEscalations, resolveEscalation } from './supervisor-store.ts';
 
 export const MISSION_NUDGE_COOLDOWN_MS = 15 * 60 * 1000; // 15 min between nudges per mission
@@ -336,15 +339,49 @@ function runRedTrunkSilenceSweep(project: string, now: number): void {
 }
 
 /**
+ * Derive the condition key for a stall raise, using the same key that the dedup read uses.
+ * When verify-owed ids are present, use the verify-owed key; otherwise use the legacy
+ * mission-stalled key based on all blocked ids.
+ */
+function stallCardConditionKey(missionId: string, keyIds: string[], verifyOwedIds: string[]): string {
+  if (verifyOwedIds.length >= 1) {
+    return verifyOwedConditionKey(missionId, verifyOwedIds);
+  }
+  return missionStallConditionKey(missionId, keyIds);
+}
+
+/**
  * Collect the facts `evaluateMissionStall` needs for one mission, from signals already
  * available at the mission-loop call site (`m: MissionSummary`) plus one extra
  * `listCriteriaWithActions` call (the same scan `collectMissionStatusFacts` already does).
  */
 function collectMissionStallFacts(project: string, m: MissionSummary, now: number, allTodos?: import('./todo-store.ts').Todo[]): MissionStallFacts {
   const missionId = m.node.id;
-  const blockedCriterionIds = listCriteriaWithActions(project, missionId)
+  const criteria = listCriteriaWithActions(project, missionId);
+
+  // Partition criteria into three sets: escalate/blocked, verify-owed, and age-gated discover-stuck
+  const blockedCriterionIds = criteria
     .filter((c) => c.action === 'escalate')
     .map((c) => c.id);
+
+  const verifyOwedIds = criteria
+    .filter((c) => isVerifyOwedPastThreshold(c, now, VERIFY_OWED_BACKSTOP_MS))
+    .map((c) => c.id);
+
+  const discoverStuckIds = criteria
+    .filter((c) =>
+      c.action === 'discover' &&
+      c.servingEpicState === 'none' &&
+      !c.servingEpicLive &&
+      now - (c.updatedAt ?? 0) >= VERIFY_OWED_BACKSTOP_MS
+    )
+    .map((c) => c.id);
+
+  // Activation rule: stuck is only populated when there are verify-owed or discover-stuck ids
+  const stuck = (verifyOwedIds.length || discoverStuckIds.length)
+    ? [...new Set([...blockedCriterionIds, ...verifyOwedIds, ...discoverStuckIds])]
+    : undefined;
+
   const serveableGaps = m.rollup.gaps ?? 0;
   const awaitingVerify = m.rollup.awaitingVerify ?? 0;
   const epicsBuilding = m.epics.filter((e) => e.status === 'in_progress').length;
@@ -364,7 +401,8 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
     if (getStatus(project, session)?.recycleState === 'recovering') recycling = 1;
   } catch { /* fail closed to 0 */ }
 
-  const conditionKey = missionStallConditionKey(missionId, blockedCriterionIds);
+  const keyIds = stuck ?? blockedCriterionIds;
+  const conditionKey = stallCardConditionKey(missionId, keyIds, verifyOwedIds);
   let hasOpenCardForKey = false;
   try {
     hasOpenCardForKey = listOpenEscalations().some((e) => e.project === project && e.conditionKey === conditionKey);
@@ -385,6 +423,8 @@ function collectMissionStallFacts(project: string, m: MissionSummary, now: numbe
     baseRedCooldown: false,
     blockedCriterionIds,
     hasOpenCardForKey,
+    stuckCriterionIds: stuck,
+    verifyOwedCriterionIds: verifyOwedIds.length > 0 ? verifyOwedIds : undefined,
   };
 }
 
@@ -521,7 +561,10 @@ function evaluateStallAndMaybeRaise(
     const episodeKey = `${project} ${missionId}`;
     const facts = (deps.buildStallFacts
       ?? ((p: string, mm: MissionSummary, n: number) => collectMissionStallFacts(p, mm, n, deps.todosSnapshot)))(project, m, now);
-    const { stalled, conditionKey, blockedCriterionIds } = evaluateMissionStall(facts, missionId);
+    const { stalled, conditionKey, blockedCriterionIds, stuckCriterionIds } = evaluateMissionStall(facts, missionId);
+
+    const keyIds = stuckCriterionIds ?? blockedCriterionIds;
+    const verifyOwedIds = facts.verifyOwedCriterionIds ?? [];
 
     if (!stalled) {
       const openEntry = openStallByMission.get(episodeKey);
@@ -529,7 +572,7 @@ function evaluateStallAndMaybeRaise(
         const inFlight = IN_FLIGHT_COUNTER_KEYS.some((k) => (facts[k] as number) > 0);
         const criteriaDropped = facts.unmetCriteria < openEntry.unmetCriteria;
         const blockedChanged =
-          [...blockedCriterionIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
+          [...keyIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
         if (inFlight || criteriaDropped || blockedChanged) {
           clearStallObservation(project, missionId);
           (deps.resolveStallEscalation ?? resolveStallEscalation)(project, openEntry.conditionKey);
@@ -542,7 +585,8 @@ function evaluateStallAndMaybeRaise(
     const episode = noteMissionLoopReason(project, missionId, 'stalled', now);
     if (!episode) return true; // in-TTL/no-op clock read, but the predicate still says stalled
 
-    const count = noteStallObservation(project, missionId, conditionKey!);
+    const cardConditionKey = stallCardConditionKey(missionId, keyIds, verifyOwedIds);
+    const count = noteStallObservation(project, missionId, cardConditionKey);
     if (count < 2) return true;
 
     (deps.createEscalation ?? createEscalation)({
@@ -552,8 +596,10 @@ function evaluateStallAndMaybeRaise(
       todoId: missionId,
       operatorGated: true,
       audience: 'human',
-      conditionKey: conditionKey!,
-      conditionTuple: ['mission-stalled', missionId, ...blockedCriterionIds],
+      conditionKey: cardConditionKey,
+      conditionTuple: verifyOwedIds.length > 0
+        ? ['verify-owed', missionId, ...verifyOwedIds]
+        : ['mission-stalled', missionId, ...keyIds],
       questionText: buildStallCardText({
         missionId,
         missionTitle: m.node.title,
@@ -561,7 +607,7 @@ function evaluateStallAndMaybeRaise(
         stalledForMs: now - episode.since,
       }),
     });
-    openStallByMission.set(episodeKey, { conditionKey: conditionKey!, unmetCriteria: facts.unmetCriteria, blockedCriterionIds });
+    openStallByMission.set(episodeKey, { conditionKey: cardConditionKey, unmetCriteria: facts.unmetCriteria, blockedCriterionIds: keyIds });
     result.stalled.push(missionId);
     return true;
   } catch {

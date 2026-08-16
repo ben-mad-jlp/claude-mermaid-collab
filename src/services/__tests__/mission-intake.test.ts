@@ -60,6 +60,7 @@ function notes(layer: FrictionLayer, reason: string, count: number, sessionCount
       layer,
       retryReason: reason,
       detail: null,
+      defectClass: 'defect' as const,
       createdAt: new Date(2026, 6, 19, 0, 0, count - i).toISOString(),
     });
   }

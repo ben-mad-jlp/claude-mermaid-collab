@@ -26,8 +26,11 @@ describe('advertised-tools reorder invariance', () => {
     const original = buildAdvertisedTools(GROUP_REGISTRY as any);
     // Create a new groups object with swapped EPIC but copy all other groups from GROUP_REGISTRY
     const swappedGroups = {} as any;
-    // Manually copy all groups from GROUP_REGISTRY through the Proxy
-    const groupNames = ['SESSION', 'DIAGRAM', 'DOCUMENT', 'DESIGN', 'SYSTEM', 'BROWSER', 'DESKTOP', 'SUPERVISOR', 'EPIC', 'DECISION', 'MISSION', 'WORKGRAPH', 'SPREADSHEET', 'SNIPPET', 'EMBED', 'IMAGE', 'ARTIFACT_INBOX', 'ARTIFACT_SEND'] as const;
+    // Manually copy all groups from GROUP_REGISTRY through the Proxy.
+    // This list must name EVERY key in _groupRegistry: buildAdvertisedTools throws on a
+    // group it cannot resolve, so omitting one fails with 'group "X" not found in groups
+    // registry' — which reads like a registry bug and is actually a stale list here.
+    const groupNames = ['SESSION', 'DIAGRAM', 'DOCUMENT', 'DESIGN', 'SYSTEM', 'BROWSER', 'DESKTOP', 'SUPERVISOR', 'EPIC', 'CAMPAIGN', 'DECISION', 'MISSION', 'WORKGRAPH', 'SPREADSHEET', 'SNIPPET', 'EMBED', 'IMAGE', 'ARTIFACT_INBOX', 'ARTIFACT_SEND'] as const;
     for (const name of groupNames) {
       swappedGroups[name] = GROUP_REGISTRY[name];
     }
