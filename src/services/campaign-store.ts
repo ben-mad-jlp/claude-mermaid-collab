@@ -54,6 +54,49 @@ export interface CompletionLensInput {
   reasoning?: string | null;
 }
 
+/** Closed union of mission proposal rulings. */
+export type ProposalRuling = 'approved' | 'rejected';
+
+/** A recorded mission proposal in response to a campaign's front: the panel's initial judgment. */
+export interface MissionProposalRecord {
+  id: number;
+  campaignId: string;
+  proposedGoal: string;
+  ruling: ProposalRuling;
+  ruledAtSha: string;
+  rationale: string | null;
+  ruledAt: number;
+  missionId: string | null;
+}
+
+/** A per-lens objection to a mission proposal. */
+export interface ProposalObjectionRecord {
+  id: number;
+  proposalId: number;
+  lens: string;
+  objection: string;
+  reasoning: string | null;
+  recordedAt: number;
+}
+
+/** Input shape for a per-lens objection supplied to recordMissionProposal. */
+export interface ProposalObjectionInput {
+  lens: string;
+  objection: string;
+  reasoning?: string | null;
+}
+
+/** Input shape for recording a mission proposal with optional per-lens objections. */
+export interface MissionProposalInput {
+  campaignId: string;
+  proposedGoal: string;
+  ruling: ProposalRuling;
+  ruledAtSha: string;
+  rationale?: string | null;
+  objections?: ProposalObjectionInput[];
+  missionId?: string | null;
+}
+
 /** A recorded campaign completion verdict: provenance for a campaign's completion ruling. */
 export interface CampaignCompletionRecord {
   id: number;
@@ -178,6 +221,28 @@ const COMPLETION_LENS_TABLE_DDL = `
   recordedAt INTEGER NOT NULL
 `;
 
+/** Factored DDL for campaign_mission_proposal table (used in CAMPAIGN_SCHEMA and migration). */
+const MISSION_PROPOSAL_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
+  proposedGoal TEXT NOT NULL,
+  ruling TEXT NOT NULL CHECK (ruling IN ('approved','rejected')),
+  ruledAtSha TEXT NOT NULL,
+  rationale TEXT,
+  missionId TEXT,
+  ruledAt INTEGER NOT NULL
+`;
+
+/** Factored DDL for campaign_mission_proposal_objection table (used in CAMPAIGN_SCHEMA and migration). */
+const MISSION_PROPOSAL_OBJECTION_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  proposalId INTEGER NOT NULL REFERENCES campaign_mission_proposal(id) ON DELETE CASCADE,
+  lens TEXT NOT NULL,
+  objection TEXT NOT NULL,
+  reasoning TEXT,
+  recordedAt INTEGER NOT NULL
+`;
+
 const CAMPAIGN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
@@ -194,6 +259,10 @@ CREATE TABLE IF NOT EXISTS campaign_completion_verdict (${COMPLETION_VERDICT_TAB
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_verdict_campaign ON campaign_completion_verdict(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_completion_lens (${COMPLETION_LENS_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_completion ON campaign_completion_lens(completionId);
+CREATE TABLE IF NOT EXISTS campaign_mission_proposal (${MISSION_PROPOSAL_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_campaign ON campaign_mission_proposal(campaignId);
+CREATE TABLE IF NOT EXISTS campaign_mission_proposal_objection (${MISSION_PROPOSAL_OBJECTION_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_objection_proposal ON campaign_mission_proposal_objection(proposalId);
 `;
 
 /**
@@ -327,6 +396,20 @@ function addCompletionExaminedColumns(db: Database): void {
   }
 }
 
+/**
+ * Idempotent migration to create mission_proposal and mission_proposal_objection tables.
+ * Idempotent: re-execs the same DDL statements from the constants so a pre-existing
+ * campaign DB gains the tables via IF NOT EXISTS semantics.
+ */
+function ensureMissionProposalTables(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS campaign_mission_proposal (${MISSION_PROPOSAL_TABLE_DDL});
+    CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_campaign ON campaign_mission_proposal(campaignId);
+    CREATE TABLE IF NOT EXISTS campaign_mission_proposal_objection (${MISSION_PROPOSAL_OBJECTION_TABLE_DDL});
+    CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_objection_proposal ON campaign_mission_proposal_objection(proposalId);
+  `);
+}
+
 export function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -352,6 +435,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add artifactsRead and commandsRun columns to campaign_completion_verdict if missing.
   addCompletionExaminedColumns(db);
+
+  // Idempotent migration: create mission_proposal and mission_proposal_objection tables if missing.
+  ensureMissionProposalTables(db);
 
   prepared.add(project);
   return db;
@@ -468,6 +554,38 @@ function assertCompletionInput(input: CampaignCompletionInput): void {
     throw new Error(
       `completion verdict for campaign ${input.campaignId} records no examined evidence: artifactsRead and commandsRun are both empty`
     );
+  }
+}
+
+/** Validate a mission proposal input: fail loud, no defaults. campaignId, proposedGoal, ruling, and ruledAtSha are required.
+ *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall.
+ *  Also validates that if objections are provided, each has non-blank string lens and objection. */
+function assertMissionProposalInput(input: MissionProposalInput): void {
+  if (!input.campaignId || !input.campaignId.trim()) {
+    throw new Error('mission proposal campaignId is required');
+  }
+  if (!input.proposedGoal || !input.proposedGoal.trim()) {
+    throw new Error('mission proposal proposedGoal is required');
+  }
+  if (!input.ruledAtSha || !input.ruledAtSha.trim()) {
+    throw new Error('mission proposal ruledAtSha is required');
+  }
+  if (!input.ruling || !['approved', 'rejected'].includes(input.ruling)) {
+    throw new Error(`invalid mission proposal ruling: ${input.ruling}`);
+  }
+
+  // Validate objections if provided.
+  const objections = input.objections ?? [];
+  if (!Array.isArray(objections)) {
+    throw new Error('mission proposal objections must be an array');
+  }
+  for (const obj of objections) {
+    if (!obj.lens || !obj.lens.trim()) {
+      throw new Error('mission proposal objection lens is required');
+    }
+    if (!obj.objection || !obj.objection.trim()) {
+      throw new Error('mission proposal objection text is required');
+    }
   }
 }
 
@@ -832,6 +950,114 @@ export function listCompletionLenses(project: string, completionId: number): Com
     completionId: row.completionId,
     lens: row.lens,
     verdict: row.verdict as CompletionVerdict,
+    reasoning: row.reasoning,
+    recordedAt: row.recordedAt,
+  }));
+}
+
+/**
+ * Record a mission proposal in response to a campaign's front with optional per-lens objections.
+ * Validates the input and throws on error before any INSERT. Returns the recorded proposal record
+ * with its resolved integer id. Transactional: all objection rows are inserted within the same
+ * transaction as the parent proposal row, so a refusal or objection insert failure leaves zero rows.
+ */
+export function recordMissionProposal(project: string, input: MissionProposalInput): MissionProposalRecord {
+  assertMissionProposalInput(input);
+
+  const db = openCampaignDb(project);
+  const ts = nowMs();
+
+  db.exec('BEGIN');
+  try {
+    // Insert the parent mission proposal record.
+    db.prepare(
+      'INSERT INTO campaign_mission_proposal (campaignId, proposedGoal, ruling, ruledAtSha, rationale, missionId, ruledAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      input.campaignId,
+      input.proposedGoal,
+      input.ruling,
+      input.ruledAtSha,
+      input.rationale ?? null,
+      input.missionId ?? null,
+      ts,
+    );
+
+    // Get the id of the inserted proposal record while still in the transaction.
+    const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+    const proposalId = lastInsertRowid.id;
+
+    // Insert objection rows if provided.
+    const objections = input.objections ?? [];
+    if (objections.length > 0) {
+      const objectionInsertStmt = db.prepare(
+        'INSERT INTO campaign_mission_proposal_objection (proposalId, lens, objection, reasoning, recordedAt) VALUES (?, ?, ?, ?, ?)'
+      );
+      for (const obj of objections) {
+        objectionInsertStmt.run(
+          proposalId,
+          obj.lens,
+          obj.objection,
+          obj.reasoning ?? null,
+          ts,
+        );
+      }
+    }
+
+    db.exec('COMMIT');
+
+    return {
+      id: proposalId,
+      campaignId: input.campaignId,
+      proposedGoal: input.proposedGoal,
+      ruling: input.ruling,
+      ruledAtSha: input.ruledAtSha,
+      rationale: input.rationale ?? null,
+      ruledAt: ts,
+      missionId: input.missionId ?? null,
+    };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * List all recorded mission proposals for a campaign, ordered by ruledAt then id.
+ * Returns an empty array if the campaign id is unknown.
+ */
+export function listMissionProposals(project: string, campaignId: string): MissionProposalRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign_mission_proposal WHERE campaignId = ? ORDER BY ruledAt, id')
+    .all(campaignId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    campaignId: row.campaignId,
+    proposedGoal: row.proposedGoal,
+    ruling: row.ruling as ProposalRuling,
+    ruledAtSha: row.ruledAtSha,
+    rationale: row.rationale,
+    ruledAt: row.ruledAt,
+    missionId: row.missionId,
+  }));
+}
+
+/**
+ * List all per-lens objections for a proposal record, ordered by recordedAt then id.
+ * Returns an empty array if the proposal id is unknown.
+ */
+export function listProposalObjections(project: string, proposalId: number): ProposalObjectionRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM campaign_mission_proposal_objection WHERE proposalId = ? ORDER BY recordedAt, id')
+    .all(proposalId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    proposalId: row.proposalId,
+    lens: row.lens,
+    objection: row.objection,
     reasoning: row.reasoning,
     recordedAt: row.recordedAt,
   }));
