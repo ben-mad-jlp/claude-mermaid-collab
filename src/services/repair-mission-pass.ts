@@ -16,7 +16,7 @@ import { isBucketItem, reopenConsumedFor, consumerDelivered } from './bucket-con
 import { listTodos, getTodo, type Todo } from './todo-store.js';
 import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, type MissionSummary } from './mission-store.js';
 import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
-import { createEscalation, type EscalationOption } from './supervisor-store.js';
+import { createEscalation, listOpenEscalations, type EscalationOption } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
 import { getConfig } from './config-service.js';
 
@@ -24,6 +24,9 @@ export const REPAIR_MISSION_APPROVAL_KIND = 'repair-mission-approval';
 
 /** Minimum spacing between repair-forge passes for a single project. */
 export const REPAIR_FORGE_INTERVAL_MS = 300_000; // 5 min
+
+/** Threshold for detecting a stale unapproved repair mission: 1 hour. */
+export const REPAIR_APPROVAL_STALE_MS = 3_600_000;
 
 const lastRepairForgeMs = new Map<string, number>();
 
@@ -46,6 +49,24 @@ export function _resetRepairForgeThrottle(project?: string): void {
   else lastRepairForgeMs.delete(project);
 }
 
+/**
+ * Pure detector: returns missions that are awaiting approval and have exceeded the stale threshold.
+ * Filters out terminal missions. No DB access; all inputs are injected.
+ */
+export function missionsAwaitingApprovalPastThreshold(
+  missions: MissionSummary[],
+  opts: { thresholdMs?: number; now?: number } = {},
+): MissionSummary[] {
+  const thresholdMs = opts.thresholdMs ?? REPAIR_APPROVAL_STALE_MS;
+  const now = opts.now ?? Date.now();
+
+  return missions.filter((m) => {
+    if (isMissionTerminal(m.mission)) return false;
+    if (m.mission.awaitingApprovalSince == null) return false;
+    return now - m.mission.awaitingApprovalSince > thresholdMs;
+  });
+}
+
 export interface RepairForgeDeps {
   /** Read todos for a project. Default: listTodos. */
   listTodos?: (project: string) => Todo[];
@@ -57,12 +78,21 @@ export interface RepairForgeDeps {
   isBucketItem?: (project: string, todoId: string) => boolean;
   /** List missions in a project. Default: listMissions. */
   listMissions?: (project: string, allTodos?: Todo[]) => MissionSummary[];
-  /** Forge a mission from input spec. Default: forgeMission. */
-  forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string }>;
+  /** Forge a mission from input spec. Default: forgeMission.
+   *  The resolved value carries the forge's accounting (optional for test fakes):
+   *  - missionId: the created mission id (required)
+   *  - criteria?: array of created criteria (optional, used for result counts)
+   *  - consumedBucketItems?: { consumed: string[] } (optional, used for consumption accounting)
+   */
+  forge?: (project: string, input: ForgeMissionInput) => Promise<{ missionId: string; criteria?: unknown[]; consumedBucketItems?: { consumed: string[] } }>;
   /** Create an escalation card. Default: createEscalation. Must be injectable for tests (throws on tmp paths). */
   createEscalation?: (input: Parameters<typeof createEscalation>[0]) => ReturnType<typeof createEscalation>;
   /** Record auto-action audit events. Default: recordAutoAction. */
   recordAutoAction?: (input: Parameters<typeof recordAutoAction>[0]) => void;
+  /** Abandon a mission (rollback on card creation failure). Default: setMissionAbandoned. */
+  abandonMission?: typeof setMissionAbandoned;
+  /** List open escalations for dedup. Default: listOpenEscalations({ project }). */
+  listOpenEscalations?: (project: string) => ReturnType<typeof listOpenEscalations>;
   /** Batch size threshold. Default: REPAIR_BATCH_K or REPAIR_FORGE_THRESHOLD env. */
   threshold?: number;
   /** Age trigger in milliseconds. Default: REPAIR_AGE_MS. */
@@ -73,7 +103,8 @@ export interface RepairForgeDeps {
 
 export interface RepairForgeResult {
   forged: { missionId: string; consumed: string[]; criteriaCount: number; budgetUsd: number } | null;
-  reason: 'forged' | 'repair-mission-open' | 'no-batch';
+  reason: 'forged' | 'repair-mission-open' | 'no-batch' | 'forge-rolled-back';
+  staleApprovalCards: number;
 }
 
 /**
@@ -91,6 +122,8 @@ export async function runRepairForgePass(
   const forgeFn = deps.forge ?? ((p: string, i: ForgeMissionInput) => forgeMission(p, i));
   const createEscalationFn = deps.createEscalation ?? createEscalation;
   const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
+  const abandonMissionFn = deps.abandonMission ?? setMissionAbandoned;
+  const listOpenEscalationsFn = deps.listOpenEscalations ?? ((p: string) => listOpenEscalations({ project: p }));
   const threshold = deps.threshold ?? (Number(getConfig('REPAIR_FORGE_THRESHOLD', '') || 0) || REPAIR_BATCH_K);
   const ageMs = deps.ageMs ?? REPAIR_AGE_MS;
   const now = deps.now ?? Date.now();
@@ -112,6 +145,51 @@ export async function runRepairForgePass(
   // STEP 1: CAP FIRST — check for an already-open repair mission (mutation-probe target).
   // If any mission is non-terminal AND auto-forged, refuse.
   const missions = listMissionsFn(project, allTodos);
+
+  // STEP 1.5: Stale-approval backstop — detect and card unapproved missions exceeding
+  // the stale threshold. Runs BEFORE the repair-mission-open cap return so a stale
+  // unapproved mission still gets its reminder card. Fail-open: a throw here must not
+  // change the pass outcome.
+  let staleApprovalCards = 0;
+  try {
+    const staleMissions = missionsAwaitingApprovalPastThreshold(missions, { thresholdMs: REPAIR_APPROVAL_STALE_MS, now });
+    const openEscalations = listOpenEscalationsFn(project);
+
+    for (const staleMission of staleMissions) {
+      const missionId = staleMission.node.id;
+      // Check if an open escalation already names this mission (by conditionKey or todoId)
+      const alreadyCarded = openEscalations.some(
+        (esc) => esc.conditionKey === `repair-forge:${missionId}` || esc.todoId === missionId,
+      );
+      if (alreadyCarded) continue;
+
+      // Raise a reminder card for this stale mission
+      const awaitingTimeMs = now - (staleMission.mission.awaitingApprovalSince ?? now);
+      const awaitingHours = Math.round(awaitingTimeMs / (3600 * 1000));
+      try {
+        createEscalationFn({
+          project,
+          session: REPAIR_FORGE_SESSION,
+          kind: REPAIR_MISSION_APPROVAL_KIND,
+          audience: 'human',
+          operatorGated: true,
+          todoId: missionId,
+          conditionKey: `repair-forge:${missionId}`,
+          questionText: `Repair mission awaiting approval for ${awaitingHours}h: ${staleMission.node.title ?? 'Untitled'}.`,
+          options: [
+            { id: 'approve', label: 'Approve & activate', detail: 'Ratify the mission and drive it.' },
+            { id: 'dismiss', label: 'Dismiss', detail: 'Close the mission without acting on it.' },
+          ],
+        });
+        staleApprovalCards++;
+      } catch (err) {
+        // Card creation failure is non-fatal; log and continue to next mission
+      }
+    }
+  } catch (err) {
+    // Stale-approval backstop failure is non-fatal; never change the pass outcome
+  }
+
   const openMission = missions.find(
     (m) => !isMissionTerminal(m.mission) && isAutoForgedRepairMission({ ownerSession: m.ownerSession }),
   );
@@ -122,7 +200,7 @@ export async function runRepairForgePass(
       outcome: 'capped',
       reason: `repair-mission-open: mission ${openMission.node.id} is still open`,
     });
-    return { forged: null, reason: 'repair-mission-open' };
+    return { forged: null, reason: 'repair-mission-open', staleApprovalCards };
   }
 
   // STEP 2: Resolve the bugfix bucket from the snapshot (ensureBucket does its own
@@ -149,7 +227,7 @@ export async function runRepairForgePass(
   // STEP 3: Select a batch using deterministic batch selection.
   const batch = selectRepairBatch(requests, { k: threshold, ageMs, now });
   if (!batch) {
-    return { forged: null, reason: 'no-batch' };
+    return { forged: null, reason: 'no-batch', staleApprovalCards: 0 };
   }
 
   // Determine the trigger (size or age) for naming on the card and audit record.
@@ -183,21 +261,52 @@ export async function runRepairForgePass(
   const forgeResult = await forgeFn(project, forgeInput);
   const missionId = forgeResult.missionId;
 
+  // Extract the actual counts from the forge result, with fallbacks to spec.
+  // This handles both real forgeMission (which returns full accounting) and test fakes
+  // that return only { missionId }.
+  const consumed = forgeResult.consumedBucketItems?.consumed ?? spec.consumesTodoIds;
+  const criteriaCount = forgeResult.criteria?.length ?? spec.criteria.length;
+
   // STEP 5: Issue exactly ONE approval card for the whole mission.
-  createEscalationFn({
-    project,
-    session: REPAIR_FORGE_SESSION,
-    kind: REPAIR_MISSION_APPROVAL_KIND,
-    audience: 'human',
-    operatorGated: true,
-    todoId: missionId,
-    conditionKey: `repair-forge:${missionId}`,
-    questionText: `Approve auto-forged repair mission: ${batch.length} bugfix${batch.length === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.${triggerSuffix}`,
-    options: [
-      { id: 'approve', label: 'Approve & activate', detail: 'Ratify the mission and drive it.' },
-      { id: 'dismiss', label: 'Dismiss', detail: 'Close the mission without acting on it.' },
-    ],
-  });
+  // Wrap in try/catch to rollback the mission if card creation fails.
+  try {
+    createEscalationFn({
+      project,
+      session: REPAIR_FORGE_SESSION,
+      kind: REPAIR_MISSION_APPROVAL_KIND,
+      audience: 'human',
+      operatorGated: true,
+      todoId: missionId,
+      conditionKey: `repair-forge:${missionId}`,
+      questionText: `Approve auto-forged repair mission: ${criteriaCount} bugfix${criteriaCount === 1 ? '' : 'es'}, ${spec.budgetUsd} USD budget.${triggerSuffix}`,
+      options: [
+        { id: 'approve', label: 'Approve & activate', detail: 'Ratify the mission and drive it.' },
+        { id: 'dismiss', label: 'Dismiss', detail: 'Close the mission without acting on it.' },
+      ],
+    });
+  } catch (err) {
+    // Card creation failed; roll back the mission and return early.
+    // Rollback must also be fail-open (a rollback failure cannot mask the original throw).
+    try {
+      await abandonMissionFn(project, missionId, now);
+    } catch (rollbackErr) {
+      safeAudit({
+        project,
+        action: 'mission-forge',
+        outcome: 'refused',
+        reason: `forge-rolled-back; mission ${missionId}; abandon-failed: ${String(rollbackErr).slice(0, 100)}`,
+      });
+      return { forged: null, reason: 'forge-rolled-back', staleApprovalCards };
+    }
+
+    safeAudit({
+      project,
+      action: 'mission-forge',
+      outcome: 'refused',
+      reason: `forge-rolled-back; mission ${missionId}; card-creation-error: ${String(err).slice(0, 100)}`,
+    });
+    return { forged: null, reason: 'forge-rolled-back', staleApprovalCards };
+  }
 
   // Emit performed audit row with trigger, batch size, and budget details.
   safeAudit({
@@ -207,19 +316,20 @@ export async function runRepairForgePass(
     reason: `trigger=${trigger}; batch=${batch.length}; budget=${spec.budgetUsd}`,
     detail: {
       missionId,
-      consumed: spec.consumesTodoIds,
-      criteriaCount: spec.criteria.length,
+      consumed,
+      criteriaCount,
     },
   });
 
   return {
     forged: {
       missionId,
-      consumed: spec.consumesTodoIds,
-      criteriaCount: spec.criteria.length,
+      consumed,
+      criteriaCount,
       budgetUsd: spec.budgetUsd,
     },
     reason: 'forged',
+    staleApprovalCards,
   };
 }
 

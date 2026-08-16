@@ -75,7 +75,7 @@ export interface FrictionTriageDeps {
   createTodo?: (project: string, input: Parameters<typeof createTodo>[1]) => Promise<Todo>;
   ensureBucket?: (project: string, type: 'inbox' | 'bugfix') => Promise<string>;
   isActioned?: (project: string, layer: FrictionLayer, reason: string) => boolean;
-  markActioned?: (project: string, layer: FrictionLayer, reason: string, todoId: string) => Promise<void>;
+  markActioned?: (project: string, layer: FrictionLayer, reason: string, todoId: string, meta?: { filedAt?: string; newestNoteAt?: string }) => Promise<void>;
   threshold?: number;
   cap?: number;
 }
@@ -96,6 +96,13 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
 
   const candidates = trendsFn(project).recurring
     .filter((r) => r.count >= threshold)
+    .filter((r) => {
+      if (r.defectClass === 'success-signal') {
+        console.info(`[friction-triage] ${project}: skipping success-signal reason "${r.retryReason}" (layer: ${r.layer})`);
+        return false;
+      }
+      return true;
+    })
     .filter((r) => !isActioned(project, r.layer, r.retryReason))
     .sort((a, b) => b.count - a.count);
 
@@ -107,6 +114,7 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
   }
 
   let filedCount = 0;
+  const nowIso = () => new Date().toISOString();
   for (const r of batch) {
     try {
       const route = LAYER_ROUTE[r.layer];
@@ -114,6 +122,7 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
       // Priority: 1 (high) when count ≥ double threshold, 2 (medium) otherwise.
       const priority: 1 | 2 = r.count >= threshold * 2 ? 1 : 2;
       const triageTag = r.layer;
+      const filedAt = nowIso();
       const filed = await createTodoFn(project, {
         ownerSession: '__steward_friction_triage__',
         parentId: epicId,
@@ -127,8 +136,9 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
         status: 'planned',
         priority,
         triageTag,
+        filingProvenance: 'auto:df3-gap-filer',
       });
-      await markActioned(project, r.layer, r.retryReason, filed.id);
+      await markActioned(project, r.layer, r.retryReason, filed.id, { filedAt, newestNoteAt: r.lastAt });
       filedCount++;
     } catch (err) {
       // Per-reason fail-open: one bad file never aborts the rest of the batch.
@@ -136,4 +146,75 @@ export async function runFrictionTriagePass(project: string, deps: FrictionTriag
     }
   }
   return { filed: filedCount };
+}
+
+// ---------------------------------------------------------------------------
+// Sweep: close auto-filed gap todos whose reason recorded no note after filing
+// ---------------------------------------------------------------------------
+
+export interface SweepStaleGapsDeps {
+  listProvenance?: (project: string) => ReturnType<typeof import('./friction-store').listTriageActionedProvenance>;
+  listFriction?: (project: string, filter: import('./friction-store').FrictionFilter) => import('./friction-store').FrictionNote[];
+  getTodo?: (project: string, id: string) => Todo | null;
+  updateTodo?: (project: string, id: string, patch: Parameters<typeof import('./todo-store').updateTodo>[2]) => Promise<Todo>;
+}
+
+export interface SweepStaleGapsResult {
+  swept: number;
+}
+
+export async function sweepStaleAutoFiledGaps(project: string, deps: SweepStaleGapsDeps = {}): Promise<SweepStaleGapsResult> {
+  const { listTriageActionedProvenance } = await import('./friction-store');
+  const { listFriction } = await import('./friction-store');
+  const { getTodo, updateTodo } = await import('./todo-store');
+
+  const listProvenanceFn = deps.listProvenance ?? ((p: string) => listTriageActionedProvenance(p));
+  const listFrictionFn = deps.listFriction ?? ((p: string, f) => listFriction(p, f));
+  const getTodoFn = deps.getTodo ?? getTodo;
+  const updateTodoFn = deps.updateTodo ?? updateTodo;
+
+  const provenance = listProvenanceFn(project);
+  let sweptCount = 0;
+
+  for (const entry of provenance) {
+    try {
+      // Skip legacy markers (no newestNoteAt) — never close on missing evidence
+      if (!entry.newestNoteAt) continue;
+
+      // Query for any note with createdAt > newestNoteAt (strictly greater)
+      const notes = listFrictionFn(project, {
+        retryReason: entry.retryReason,
+        layer: entry.layer,
+        since: entry.newestNoteAt,
+      });
+
+      // Check if any note is strictly newer than the anchor
+      const hasRecurrence = notes.some((n) => n.createdAt > entry.newestNoteAt!);
+      if (hasRecurrence) {
+        // Leave the todo open if the reason recurred
+        continue;
+      }
+
+      // No recurrence after newestNoteAt — attempt to close the todo
+      const todo = getTodoFn(project, entry.todoId);
+      if (!todo) {
+        // Todo is missing; skip idempotently
+        continue;
+      }
+
+      // Skip if already done or dropped (idempotent)
+      if (todo.status === 'done' || todo.status === 'dropped') {
+        continue;
+      }
+
+      // Close the todo
+      await updateTodoFn(project, entry.todoId, { status: 'done' });
+      sweptCount++;
+    } catch (err) {
+      // Per-entry fail-open: one bad sweep never aborts the rest
+      console.warn(`[friction-sweep] ${project}: failed to sweep ${entry.todoId}:`, err instanceof Error ? err.message : err);
+    }
+  }
+
+  return { swept: sweptCount };
 }

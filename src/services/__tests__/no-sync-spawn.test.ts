@@ -40,6 +40,25 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       '`git rev-parse HEAD` — a sub-second local-ref read, and the whole pass is throttled ' +
       'to once per MISSION_LOOP_INTERVAL_MS (2.5 min) per project, so it never rides the tick.',
   },
+  'services/campaign-reconcile.ts': {
+    count: 2,
+    reason:
+      'Probe verdict provenance: one execFileSync import + one `git rev-parse HEAD` — the ' +
+      'same sub-second local-ref read allowlisted for mission-loop.ts. It runs only when a ' +
+      'campaign reconcile records a verdict, is wrapped in try/catch returning "unknown", ' +
+      'and is injectable via deps.commitSha so tests never spawn at all.',
+  },
+  'services/campaign-pass.ts': {
+    count: 3,
+    reason:
+      'Probe verdict provenance, same call as campaign-reconcile.ts: `git rev-parse HEAD` to ' +
+      'pin the commit a verdict was recorded against. Three occurrences rather than two ' +
+      'because the require-style import names the identifier twice. Sub-second local-ref ' +
+      'read, wrapped in try/catch returning "unknown", and the pass is throttled per project ' +
+      'so it never rides the tick. NOTE: this is the third copy of the same three-line ' +
+      'helper (mission-loop.ts, campaign-reconcile.ts, here) — worth extracting to one ' +
+      'injectable commitSha() rather than allowlisting a fourth.',
+  },
   'services/impacted-tests.ts': {
     count: 2,
     reason:

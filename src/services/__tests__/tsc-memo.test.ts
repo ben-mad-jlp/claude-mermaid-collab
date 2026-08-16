@@ -24,6 +24,7 @@ import { recordTscVerdict, getTscVerdict, _closeLedgerDb } from '../worker-ledge
 import { stewardTscClean } from '../steward-proof';
 import { runLandTypecheckFloor } from '../land-typecheck-floor';
 import { runBaseGate, type GateSpawn } from '../leaf-gate';
+import { classifyTscOutput } from '../tsc-infra-degraded';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
@@ -218,6 +219,63 @@ describe('fail-open plumbing', () => {
     expect(await stewardTscClean(dir, runner)).toBe(true); // inapplicable, never a failure
     expect(await stewardTscClean(dir, runner)).toBe(true);
     expect(state.runs).toBe(2); // installing the toolchain takes effect immediately
+  });
+});
+
+describe('infra-degraded fails are never recorded', () => {
+  it('a fail whose diagnostics are only TS2307/TS7016/TS7006 stores NO verdict and re-measures', async () => {
+    const dir = repo();
+    // Output with only dependency-resolution codes (TS2307) — classifies as 'infra-degraded'
+    const infraOutput = 'src/index.ts(5,3): error TS2307: Cannot find module\'./missing\'.\n';
+    expect(classifyTscOutput(infraOutput)).toBe('infra-degraded');
+
+    const { state, runner } = countingRunner({ code: 1, output: infraOutput });
+    const cmd = 'tsc-cmd-infra-degraded-fail';
+    const key = (await resolveTscKey(dir, cmd)).key;
+    expect(key).not.toBe(''); // clean tree, should resolve
+
+    // First call: runner returns infra-degraded fail
+    const r1 = await memoizedTsc(dir, cmd, { runner });
+    expect(r1.code).toBe(1); // fail returned to caller
+    expect(r1.output).toBe(infraOutput); // output preserved
+    expect(state.runs).toBe(1);
+
+    // Verdict should NOT be stored (getTscVerdict is null)
+    expect(getTscVerdict(key)).toBeNull();
+
+    // Second call: should re-measure since verdict was not stored
+    const r2 = await memoizedTsc(dir, cmd, { runner });
+    expect(r2.source).toBe('run');
+    expect(state.runs).toBe(2);
+  });
+
+  it('a genuine error TS2322 fail still stores status fail', async () => {
+    const dir = repo();
+    // Output with a genuine type error (TS2322) — classifies as 'real'
+    const genuineOutput = 'src/index.ts(10,5): error TS2322: Type \'string\' is not assignable to type \'number\'.\n';
+    expect(classifyTscOutput(genuineOutput)).toBe('real');
+
+    const { state, runner } = countingRunner({ code: 1, output: genuineOutput });
+    const cmd = 'tsc-cmd-genuine-fail';
+    const key = (await resolveTscKey(dir, cmd)).key;
+    expect(key).not.toBe(''); // clean tree, should resolve
+
+    // First call: runner returns genuine fail
+    const r1 = await memoizedTsc(dir, cmd, { runner });
+    expect(r1.code).toBe(1);
+    expect(state.runs).toBe(1);
+
+    // Verdict SHOULD be stored as a fail
+    const row = getTscVerdict(key);
+    expect(row).not.toBeNull();
+    expect(row?.status).toBe('fail');
+    expect(row?.exitCode).toBe(1);
+
+    // Second call within TTL: should serve from memo
+    const r2 = await memoizedTsc(dir, cmd, { runner });
+    expect(r2.source).toBe('memo');
+    expect(r2.code).toBe(1);
+    expect(state.runs).toBe(1); // no new run
   });
 });
 

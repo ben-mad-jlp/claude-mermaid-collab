@@ -207,6 +207,9 @@ export interface Todo {
   /** Friction-signature opaque key for deduplicating recurring friction filings. OPTIONAL for
    *  backward compat; pre-migration rows read null. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL for backward compat; pre-migration rows read null. */
+  filingProvenance?: string | null;
   /** R5 bucket promotion link: when a bucket item is promoted to a real epic, this
    *  field holds the promoted epic's id; null otherwise. OPTIONAL for backward compat. */
   promotedTo?: string | null;
@@ -324,6 +327,9 @@ export interface CreateTodoInput {
   triageTag?: 'domain' | 'orchestration' | 'operational' | null;
   /** Friction-signature opaque key for deduplicating recurring friction filings. */
   frictionSignature?: string | null;
+  /** Auto-filing provenance (e.g. 'auto:df3-gap-filer'): indicates this todo was auto-filed
+   *  by the named system. OPTIONAL. */
+  filingProvenance?: string | null;
   tier?: LeafTier;
   /** EPIC-only base-repair exemption: when 1, skips the epic-base-red hold (G2) for this
    *  epic's leaves, allowing each leaf's gate to judge net-new-vs-base (crit-8 lazy baseline).
@@ -644,6 +650,7 @@ interface TodoRow {
   bucketType: string | null;
   triageTag: string | null;
   frictionSignature: string | null;
+  filingProvenance: string | null;
   promotedTo: string | null;
   consumedAt: string | null;
   tier: string | null;
@@ -800,6 +807,8 @@ export function openDb(project: string): Database {
   addColumnIfMissing(db, 'todos', 'bucketType', 'bucketType TEXT');
   addColumnIfMissing(db, 'todos', 'triageTag', 'triageTag TEXT');
   addColumnIfMissing(db, 'todos', 'frictionSignature', 'frictionSignature TEXT');
+  // Auto-filing provenance: indicates this todo was auto-filed by a named system (e.g. 'auto:df3-gap-filer').
+  addColumnIfMissing(db, 'todos', 'filingProvenance', 'filingProvenance TEXT');
   // R5 bucket promotion: when a bucket item is promoted to a real epic, this tracks
   // the epic's id. Nullable; non-null only on promoted items.
   addColumnIfMissing(db, 'todos', 'promotedTo', 'promotedTo TEXT');
@@ -1388,7 +1397,7 @@ const nowIso = () => new Date().toISOString();
  *     "leave caller/existing value unchanged"; null = "clear")
  *
  * Mapping (MANUAL STATUS WRITES table):
- *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; keep status as-is/'planned'
+ *   ready              → approve: approvedAt=now (+approvedBy), heldAt=null; move terminal/in-flight to 'planned', else keep status as-is
  *   blocked            → hold:    heldAt=now, heldReason='manual';            keep status as-is/'planned'
  *   in_progress        → REJECT (throw) — a human inventing a claim is nonsensical
  *   planned|backlog|todo→ un-approve/park: approvedAt=null;                   status='planned'
@@ -1426,11 +1435,12 @@ function translateStatusWrite(
   switch (requested) {
     case 'ready':
       // "approve to run" — identical to the Planner's approve verb. Never store the
-      // derived 'ready'; never leave it on a TERMINAL status (an un-complete routes
+      // derived 'ready'; never leave it on a TERMINAL or IN-FLIGHT status (an un-complete routes
       // through 'ready' and must move the row off 'done'/'dropped' back to 'planned'
-      // so it re-derives claimable). Otherwise keep the existing pre-terminal status.
+      // so it re-derives claimable; a claimed row being approved must also clear its
+      // in-flight status). Otherwise keep the existing pre-terminal status.
       return {
-        storedStatus: (currentStatus === 'ready' || currentStatus === 'done' || currentStatus === 'dropped')
+        storedStatus: (currentStatus === 'ready' || currentStatus === 'in_progress' || currentStatus === 'done' || currentStatus === 'dropped')
           ? 'planned' : currentStatus,
         approvedAt: ts,
         ...(approvedBy != null ? { approvedBy } : {}),
@@ -1777,6 +1787,7 @@ function rowToTodo(row: TodoRow): Todo {
     bucketType: (row.bucketType as BucketType | null) ?? null,
     triageTag: (row.triageTag as 'domain' | 'orchestration' | 'operational' | null) ?? null,
     frictionSignature: row.frictionSignature ?? null,
+    filingProvenance: row.filingProvenance ?? null,
     promotedTo: row.promotedTo ?? null,
     consumedAt: row.consumedAt ?? null,
     landedAt: row.landedAt ?? null,
@@ -2240,8 +2251,8 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       `INSERT INTO todos (id, ownerSession, assigneeSession, assigneeKind, title, description, status, priority,
         dueDate, parentId, dependsOn, ord, link, createdAt, updatedAt, completedAt, asanaGid,
         sessionName, executedBySession, blueprintId, type, kind, targetProject, acceptanceStatus, claimedBy, claimToken, claimedAt, claimLeaseMs, retryCount, completedBy, objectRef, servesCriterionId, servesCriterionIds, decisionRef, claimProbe,
-        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, tier, baseRepair, nickname, exploreSpec, bugfixSpec)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        approvedAt, approvedBy, heldAt, heldReason, inheritedBlueprintFrom, inheritedFiles, declaredFiles, isBucket, bucketType, triageTag, frictionSignature, filingProvenance, tier, baseRepair, nickname, exploreSpec, bugfixSpec)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(
       // A todo added in a session defaults to being assigned to that session
       // (its ownerSession). Pass an explicit assigneeSession to assign elsewhere.
@@ -2253,7 +2264,7 @@ export async function createTodo(project: string, input: CreateTodoInput): Promi
       // trackingProjectRoot(project) (bug 490ad490). Every branch is normalized through
       // trackingProjectRoot so a worktree path can't leak in; it's never written NULL.
       input.sessionName ?? null, input.executedBySession ?? null, input.blueprintId ?? null, input.type ?? null, kindOfInput(input), targetProject, null, null, null, null, null, 0, null, input.objectRef ?? null, createEdges.single, createEdges.idsJson, input.decisionRef ?? null, input.claimProbe ?? null,
-      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null, input.bugfixSpec ? JSON.stringify(input.bugfixSpec) : null
+      approvedAt, approvedBy, heldAt, heldReason, input.inheritedBlueprintFrom ?? null, JSON.stringify(input.inheritedFiles ?? []), JSON.stringify(input.declaredFiles ?? []), isBucket, bucketType, input.triageTag ?? null, input.frictionSignature ?? null, input.filingProvenance ?? null, input.tier ?? null, input.baseRepair ?? 0, nickname, input.exploreSpec ? JSON.stringify(input.exploreSpec) : null, input.bugfixSpec ? JSON.stringify(input.bugfixSpec) : null
     );
     // EVENT-DRIVEN (S3): a directly-created APPROVED todo is an 'approved' input edge
     // → kick the orchestrator now (best-effort latency; the interval scan is the net).

@@ -39,6 +39,7 @@ import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine.js
 import { loadManifestSource } from '../config/project-manifest.js';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
+import { probeDepTrees, requiredDepRoots } from './dep-tree-guard.js';
 
 const defaultRunGit: GitRunner = async (cwd, args) => {
   const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -187,7 +188,8 @@ export function makeEpicBaseProbe(io?: Partial<EpicBaseProbeIo>): EpicBaseProbe 
       const runGate = injectedRunGate ?? ((cwd: string, cfg: LeafGateConfig, impacted?: ImpactedBaseGateOpts) =>
         runBaseGate(cwd, cfg, defaultGateSpawn, sha ? { project: targetProject, baseSha: sha } : undefined,
           { probe: (c) => detectPoisonedCheckout(c, defaultRunGit), restore: (c, paths) => restorePathsToHead(c, paths, defaultRunGit) },
-          impacted));
+          impacted,
+          { probe: (c, c2) => probeDepTrees(requiredDepRoots(c, c2)) }));
       const cached = getEpicBaseGate(epicId, sha);
       if (cached && shouldHonourCachedBaseGate(cached, now?.()) === 'honour') {
         return cached.status === 'pass' ? 'pass' : cached.status === 'fail' ? 'fail' : 'error';

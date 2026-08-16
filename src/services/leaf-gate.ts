@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { isQuarantined } from './quarantine.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
+import { classifyTscOutput } from './tsc-infra-degraded';
 import type { LeafReviewVerdict } from './leaf-executor';
 import type { Todo } from './todo-store';
 import { createEscalation } from './supervisor-store';
@@ -24,6 +25,7 @@ import { activeQuarantine, runQuarantineCeremonies } from './flaky-quarantine';
 import { isDepOptimizerCorruption } from './dep-optimizer-corruption.js';
 import type { PoisonedCheckout } from './checkout-poison-guard.js';
 import { quarantineCoversFailure } from './quarantine-match';
+import type { DepTreeProbe } from './dep-tree-guard.js';
 
 /** One resolved test lane: a path scope, a command, and the cwd the command runs in. */
 export interface GateTestLane {
@@ -137,6 +139,10 @@ export interface LeafGateResult {
    *  step actually cleaned (empty when no restore dep or restore failed). Reporting only —
    *  never affects status semantics. */
   poisonedCheckout?: { paths: string[]; restored: string[] };
+  /** Base-gate only: set when the dependency-tree precondition probe (dep-tree-guard.ts)
+   *  found a lane root with no node_modules. Rides an `status:'error'` result only —
+   *  reporting only, never affects pass/fail/error semantics. */
+  depTreeDegraded?: { missing: string[] };
   /** Leaf-gate only: true when the diff contains ONLY spec (test) files and a lane failed.
    *  A leaf that ships no production change must not be accepted on a red test. */
   hollow?: boolean;
@@ -147,6 +153,11 @@ export interface LeafGateResult {
    *  further impacted run (isFullSuiteAnchorVerdict). Reporting/marker only — never affects
    *  pass/fail/error semantics. */
   impactedBase?: { anchor: string; ran: number; candidates: number };
+  /** Base-gate only: set when a typecheck lane exited non-zero but every diagnostic it
+   *  emitted was a dependency-resolution/cascade code (classifyTscOutput ⇒ 'infra-degraded')
+   *  — node_modules missing/half-linked, not a base fact. Rides an `status:'error'` result
+   *  only; consumers use it to RELEASE rather than park. */
+  infraDegraded?: boolean;
 }
 
 // --- lane validation and normalization ───────────────────────────────────
@@ -1055,6 +1066,7 @@ export async function runBaseGate(
     restore?: (cwd: string, paths: string[]) => Promise<{ restored: string[]; failed: string[] }>;
   },
   impacted?: ImpactedBaseGateOpts,
+  depTree?: { probe: (cwd: string, cfg: LeafGateConfig) => Promise<DepTreeProbe> },
 ): Promise<LeafGateResult> {
   if (!cfg) return { status: 'pass', output: '', reasons: [], declared: false };
 
@@ -1082,6 +1094,17 @@ export async function runBaseGate(
           poisonedCheckout: { paths: initial.paths, restored: [] },
         };
       }
+    }
+  }
+
+  if (depTree) {
+    const dt = await depTree.probe(cwd, cfg);
+    if (!dt.ok) {
+      return {
+        status: 'error', output: '', declared: true,
+        reasons: [`dependency-tree-missing: ${dt.missing.join(', ')}`, ...dt.detail],
+        depTreeDegraded: { missing: dt.missing },
+      };
     }
   }
 
@@ -1154,6 +1177,16 @@ export async function runBaseGate(
         output: r.output,
         reasons: [`gate could not run: ${lane.command}`],
         declared: true,
+      };
+    }
+    if (r.code !== 0 && lane.kind === 'typecheck' && classifyTscOutput(r.output) === 'infra-degraded') {
+      return {
+        status: 'error', command: lane.command, output: r.output, declared: true,
+        infraDegraded: true,
+        reasons: [
+          'infra-degraded: typecheck reported only dependency-resolution diagnostics (TS2307/TS7016/TS2503/TS7006) — node_modules missing, not a base fact',
+          lastLines(r.output, 20),
+        ],
       };
     }
     let fingerprints = lane.kind === 'typecheck'
