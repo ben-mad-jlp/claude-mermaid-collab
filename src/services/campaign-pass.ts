@@ -39,7 +39,7 @@ export interface CampaignPassResult {
   forged: Array<{ signature: string; missionId: string; probeIds: string[] }>;
   /** Probes that were skipped because they already hold an open linked mission. */
   skipped: string[];
-  /** Probe ids that were re-executed this pass (verdict changed from 'not-run' to recorded). */
+  /** Probe ids that were re-measured this pass (every probe in the front was executed). */
   executed: string[];
 }
 
@@ -301,8 +301,8 @@ export function probeCriterionText(probe: CampaignProbe): string {
  * Run the campaign pass: group failing probes by signature and forge missions.
  *
  * Order of operations:
- * 0. Execute every 'not-run' probe and record its verdict.
- * 1. Get the campaign front (probes with verdict === 'fail').
+ * 0. Derive the campaign front (probes with verdict !== 'pass' whose deps passed) and re-measure every one of them.
+ * 1. Get the campaign front again and filter to failing probes.
  * 2. For each, skip if it already has an open linked mission.
  * 3. Group the remainder by failureSignature.
  * 4. Per group, forge one mission with criteria = group.probes.map(probeCriterionText).
@@ -323,7 +323,6 @@ export async function runCampaignPass(
   try {
     const frontFn = deps.campaignFront ?? campaignFront;
     const verdictsFn = deps.listProbeVerdicts ?? listProbeVerdicts;
-    const listProbesFn = deps.listProbes ?? listProbes;
     const recordVerdictFn = deps.recordProbeVerdict ?? recordProbeVerdict;
     const execProbeFn = deps.execProbe ?? ((probe: CampaignProbe) => defaultExecProbe(project, probe));
     const commitShaFn = deps.commitSha ?? (() => defaultCommitSha(project));
@@ -333,14 +332,13 @@ export async function runCampaignPass(
       return mission != null && !isMissionTerminal(mission);
     });
 
-    // 0. Re-execute every 'not-run' probe and record its verdict.
+    // 0. Derive the front and re-measure every front probe (not-run or fail).
     const executed: string[] = [];
     try {
-      const allProbes = listProbesFn(project, campaignId);
-      const notRunProbes = allProbes.filter((p) => p.verdict === 'not-run');
+      const front = frontFn(project, campaignId);
       const sha = commitShaFn();
 
-      for (const probe of notRunProbes) {
+      for (const probe of front) {
         try {
           const result = await execProbeFn(probe);
           recordVerdictFn(project, {
@@ -352,16 +350,16 @@ export async function runCampaignPass(
           });
           executed.push(probe.id);
         } catch {
-          // Fail-open per-probe: one throwing exec/record leaves the probe at 'not-run'
+          // Fail-open per-probe: one throwing exec/record leaves the probe unchanged
           // and doesn't prevent others from executing.
         }
       }
     } catch {
-      // Fail-open for the entire re-execution stage: a throwing listProbes or other
+      // Fail-open for the entire re-execution stage: a throwing frontFn or other
       // stage-level error means no probes are re-executed, but the pass continues.
     }
 
-    // 1. Get the campaign front and filter to failing probes.
+    // 1. Get the campaign front again and filter to failing probes.
     const front = frontFn(project, campaignId);
     const failing = front.filter((p) => p.verdict === 'fail');
 
