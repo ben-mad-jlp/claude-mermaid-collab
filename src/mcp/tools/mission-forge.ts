@@ -35,6 +35,7 @@ import {
   assertMissionCreationAllowed,
   assertAllMissionCriteriaCitable,
   setMissionForgeState,
+  deleteMission,
   type MissionCriterion,
   type MissionRollup,
   type MissionRow,
@@ -48,7 +49,7 @@ import {
 import { writeMissionDigest, readMissionDigest, formatConsumedFindingsSection } from '../../services/mission-digest.js';
 import { getFindingByTodoId } from '../../services/finding-store.js';
 import { stripLabel } from '../../services/todo-kind.js';
-import { deriveTodoViews, updateTodo, type Todo } from '../../services/todo-store.js';
+import { deriveTodoViews, updateTodo, removeTodo, type Todo } from '../../services/todo-store.js';
 import { consumeBucketItems } from '../../services/bucket-consumption.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../../agent/node-invoker.js';
 import { recordSpend } from '../../services/spend-ledger.js';
@@ -98,6 +99,11 @@ export interface ForgeMissionInput {
   consumesTodoIds?: string[];
 }
 
+export interface ForgeMissionDeps {
+  /** Override the criterion addition function for testing. Defaults to the live addCriterion. */
+  addCriterion?: typeof addCriterion;
+}
+
 export interface ForgeMissionResult {
   node: ReturnType<typeof deriveTodoViews>[number];
   missionId: string;
@@ -134,7 +140,11 @@ export async function createForgeShell(project: string, input: ForgeShellInput):
 
 /** Validate + atomically instantiate a mission and its full constitution. Throws on invalid input
  *  BEFORE creating anything (no half-forged mission). */
-export async function forgeMission(project: string, input: ForgeMissionInput): Promise<ForgeMissionResult> {
+export async function forgeMission(
+  project: string,
+  input: ForgeMissionInput,
+  deps: ForgeMissionDeps = {},
+): Promise<ForgeMissionResult> {
   const { session } = input;
   if (!project || !session || !input.title) {
     throw new Error('forge_mission: project, session, and title are required');
@@ -185,69 +195,90 @@ export async function forgeMission(project: string, input: ForgeMissionInput): P
   if (!activate || projectHasActiveMission(project, missionId)) {
     enqueueMission(project, missionId);
   }
-  for (const c of criteria) addCriterion(project, missionId, c);
 
-  // 2. Locked constraints → constraint records LINKED to the mission (payload C delivery). Approved
-  //    (active → injects now) when the mission is approved; left PROPOSED until approve_mission when
-  //    it is unapproved (the doc→node path — an LLM-inferred constitution waits for a human nod).
-  const constraintRecs: DecisionRecord[] = [];
-  for (const c of constraints) {
-    const rec = createDecisionRecord(project, {
-      kind: 'constraint',
-      title: c.rule.trim(),
-      rationale: c.rationale ?? null,
-      linkedTodos: [missionId],
-      authorSession: session,
-    });
-    const final = approved ? (approveDecisionRecord(project, rec.id, session) ?? rec) : rec;
-    constraintRecs.push(final);
+  try {
+    const addCriterionFn = deps.addCriterion ?? addCriterion;
+    for (const c of criteria) addCriterionFn(project, missionId, c);
+
+    // 2. Locked constraints → constraint records LINKED to the mission (payload C delivery). Approved
+    //    (active → injects now) when the mission is approved; left PROPOSED until approve_mission when
+    //    it is unapproved (the doc→node path — an LLM-inferred constitution waits for a human nod).
+    const constraintRecs: DecisionRecord[] = [];
+    for (const c of constraints) {
+      const rec = createDecisionRecord(project, {
+        kind: 'constraint',
+        title: c.rule.trim(),
+        rationale: c.rationale ?? null,
+        linkedTodos: [missionId],
+        authorSession: session,
+      });
+      const final = approved ? (approveDecisionRecord(project, rec.id, session) ?? rec) : rec;
+      constraintRecs.push(final);
+    }
+
+    // 3. Rejected alternatives → decision records (auto-active) with `alternatives` (payload D).
+    const decisionRecs: DecisionRecord[] = [];
+    for (const r of rejected) {
+      decisionRecs.push(createDecisionRecord(project, {
+        kind: 'decision',
+        title: r.title.trim(),
+        rationale: r.rationale ?? null,
+        alternatives: r.alternatives,
+        linkedTodos: [missionId],
+        authorSession: session,
+      }));
+    }
+
+    // 4. Orientation digest → .collab/mission-digests/<missionId>.md (payload A). Curated text,
+    //    written verbatim. Compose with findings section from consumed bucket items.
+    const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
+
+    let digestWritten = false;
+    const findings = [];
+    for (const id of consumedBucketItems.consumed) {
+      const f = await getFindingByTodoId(project, id);
+      if (f) findings.push(f);
+    }
+    const baseDigest = input.digest?.trim()
+      || (!input.digest && input.intoMissionId ? readMissionDigest(project, missionId) ?? '' : '');
+    const findingsSection = formatConsumedFindingsSection(findings);
+    const composed = [baseDigest, findingsSection].filter((s) => s && s.length > 0).join('\n\n');
+    if (composed) {
+      writeMissionDigest(project, missionId, composed);
+      digestWritten = true;
+    }
+
+    if (input.intoMissionId) setMissionForgeState(project, missionId, null);
+
+    return {
+      node: deriveTodoViews(project, [node as Todo])[0],
+      missionId,
+      criteria: listCriteria(project, missionId),
+      constraints: constraintRecs,
+      decisions: decisionRecs,
+      digestWritten,
+      rollup: getMissionRollup(project, missionId),
+      ratificationMessage: approved ? `forged APPROVED (self-ratified by ${session})` : 'awaiting approval',
+      consumedBucketItems,
+    };
+  } catch (err) {
+    // Compensate for a fresh mission created at line 170-181: delete the mission row
+    // and the todo node. Do NOT compensate if intoMissionId was supplied (the mission
+    // existed before this call and must survive).
+    if (!input.intoMissionId) {
+      try {
+        deleteMission(project, missionId);
+      } catch {
+        // Swallow: mission row may not exist if the throw happened before line 176.
+      }
+      try {
+        await removeTodo(project, missionId);
+      } catch {
+        // Swallow: todo node may not exist in exceptional cases.
+      }
+    }
+    throw err;
   }
-
-  // 3. Rejected alternatives → decision records (auto-active) with `alternatives` (payload D).
-  const decisionRecs: DecisionRecord[] = [];
-  for (const r of rejected) {
-    decisionRecs.push(createDecisionRecord(project, {
-      kind: 'decision',
-      title: r.title.trim(),
-      rationale: r.rationale ?? null,
-      alternatives: r.alternatives,
-      linkedTodos: [missionId],
-      authorSession: session,
-    }));
-  }
-
-  // 4. Orientation digest → .collab/mission-digests/<missionId>.md (payload A). Curated text,
-  //    written verbatim. Compose with findings section from consumed bucket items.
-  const consumedBucketItems = await consumeBucketItems(project, input.consumesTodoIds ?? [], { id: missionId, kind: 'mission' });
-
-  let digestWritten = false;
-  const findings = [];
-  for (const id of consumedBucketItems.consumed) {
-    const f = await getFindingByTodoId(project, id);
-    if (f) findings.push(f);
-  }
-  const baseDigest = input.digest?.trim()
-    || (!input.digest && input.intoMissionId ? readMissionDigest(project, missionId) ?? '' : '');
-  const findingsSection = formatConsumedFindingsSection(findings);
-  const composed = [baseDigest, findingsSection].filter((s) => s && s.length > 0).join('\n\n');
-  if (composed) {
-    writeMissionDigest(project, missionId, composed);
-    digestWritten = true;
-  }
-
-  if (input.intoMissionId) setMissionForgeState(project, missionId, null);
-
-  return {
-    node: deriveTodoViews(project, [node as Todo])[0],
-    missionId,
-    criteria: listCriteria(project, missionId),
-    constraints: constraintRecs,
-    decisions: decisionRecs,
-    digestWritten,
-    rollup: getMissionRollup(project, missionId),
-    ratificationMessage: approved ? `forged APPROVED (self-ratified by ${session})` : 'awaiting approval',
-    consumedBucketItems,
-  };
 }
 
 export interface MissionConstitutionHealth {
