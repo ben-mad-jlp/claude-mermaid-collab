@@ -179,7 +179,10 @@ describe('land-gate-floor-always', () => {
     expect(result.status).toBe('fail');
     expect(result.floor?.status).toBe('fail');
     expect(result.floor?.failing).toContain('src/services/regression.test.ts');
-    expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
+    // Match anywhere in reasons, not at [0]: the gate now prepends a `land gate <verdict>:
+    // <files>` line so land-authority can report an attributed verdict. Pinning the index
+    // makes every future prepend read as a floor regression.
+    expect(result.reasons.some((r) => r.includes('REGRESSION FLOOR FAILED'))).toBe(true);
   });
 
   it('floor fails on an empty diff → gate still fails on the floor', async () => {
@@ -219,6 +222,6 @@ describe('land-gate-floor-always', () => {
 
     expect(result.status).toBe('fail');
     expect(result.floor?.status).toBe('fail');
-    expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
+    expect(result.reasons.some((r) => r.includes('REGRESSION FLOOR FAILED'))).toBe(true);
   });
 });

@@ -834,7 +834,7 @@ describe('epic-land-gate', () => {
       expect(result.status).toBe('fail');
       expect(result.floor?.status).toBe('fail');
       expect(result.floor?.failing).toContain('src/services/foo.test.ts');
-      expect(result.reasons[0]).toContain('REGRESSION FLOOR FAILED');
+      expect(result.reasons.some((r) => r.includes('REGRESSION FLOOR FAILED'))).toBe(true);
     });
 
     it('floor green → land proceeds', async () => {
