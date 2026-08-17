@@ -271,7 +271,6 @@ CREATE TABLE IF NOT EXISTS campaign_completion_verdict (${COMPLETION_VERDICT_TAB
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_verdict_campaign ON campaign_completion_verdict(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_completion_lens (${COMPLETION_LENS_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_completion ON campaign_completion_lens(completionId);
-CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_round ON campaign_completion_lens(completionId, round);
 CREATE TABLE IF NOT EXISTS campaign_mission_proposal (${MISSION_PROPOSAL_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_campaign ON campaign_mission_proposal(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_mission_proposal_objection (${MISSION_PROPOSAL_OBJECTION_TABLE_DDL});
@@ -492,6 +491,13 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add round and changedVerdict columns to campaign_completion_lens if missing.
   addCompletionLensRoundColumns(db);
+
+  // The (completionId, round) index is created HERE, not in CAMPAIGN_SCHEMA, because it names a
+  // column that only the migration above guarantees. CREATE TABLE IF NOT EXISTS leaves a
+  // pre-existing table alone, so on any database predating the round column the schema exec
+  // threw "no such column: round" and EVERY campaign verb for that project failed. An index
+  // must never be declared ahead of the migration that provides its columns.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_round ON campaign_completion_lens(completionId, round);');
 
   // Idempotent migration: create mission_proposal and mission_proposal_objection tables if missing.
   ensureMissionProposalTables(db);
