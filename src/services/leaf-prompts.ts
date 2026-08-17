@@ -240,7 +240,7 @@ const BACKEND_TEST_COMMAND_LINES: readonly string[] = [
  *  the namesScopeGuardCheck regex in criteria-citability.ts: the rendered sentence MUST contain
  *  both a git diff invocation with a pathspec argument AND a checkable result token. */
 export function scopeGuardCriterion(path: string): string {
-  return `Implementation untouched — \`git diff HEAD --stat -- ${path}\` is empty (0 files changed)`;
+  return `Implementation untouched. \`git diff HEAD --stat -- ${path}\` is empty (0 files changed)`;
 }
 
 /** Deletion/removal leaves assert an ABSENCE — but bare prose ("X no longer exists", "Y is
