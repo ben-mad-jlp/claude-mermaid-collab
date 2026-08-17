@@ -15,10 +15,52 @@ import type { BridgeCampaign, BridgeCampaignLens } from '@/types/campaign';
 export interface CampaignPanelProps {
   project: string;
   onOpenEntity?: (kind: string, id: string) => void;
+  nowMs?: number;
 }
+
+/**
+ * Probe evidence older than this threshold is marked as stale.
+ * (A probe whose evidence predates a day of trunk movement is no longer a live measurement.)
+ */
+export const PROBE_EVIDENCE_STALE_MS = 24 * 60 * 60 * 1000;
 
 /** Frozen empty array to avoid re-render on every store write. */
 const EMPTY: BridgeCampaign[] = [];
+
+/**
+ * Format a probe's last evidence timestamp into a relative-age label.
+ * Returns the age label, whether it is considered stale (>= 24 hours old),
+ * and whether the probe has never run.
+ */
+export function formatProbeAge(
+  lastEvidenceAt: number | null,
+  nowMs: number
+): { label: string; stale: boolean; neverRan: boolean } {
+  if (lastEvidenceAt === null) {
+    return { label: 'never ran', stale: false, neverRan: true };
+  }
+
+  const ageMs = Math.max(0, nowMs - lastEvidenceAt);
+  const stale = ageMs >= PROBE_EVIDENCE_STALE_MS;
+
+  // Relative time formatting: same buckets as ConductorLadder.tsx:40-49
+  const s = Math.round(ageMs / 1000);
+  if (s < 5) {
+    return { label: 'just now', stale, neverRan: false };
+  }
+  if (s < 60) {
+    return { label: `${s}s ago`, stale, neverRan: false };
+  }
+  const m = Math.round(s / 60);
+  if (m < 60) {
+    return { label: `${m}m ago`, stale, neverRan: false };
+  }
+  const h = Math.round(m / 60);
+  if (h < 24) {
+    return { label: `${h}h ago`, stale, neverRan: false };
+  }
+  return { label: `${Math.round(h / 24)}d ago`, stale, neverRan: false };
+}
 
 /**
  * Check if a lens array represents a non-unanimous judgment.
@@ -35,8 +77,9 @@ export function panelHasDissent(lenses: BridgeCampaignLens[]): boolean {
   return lenses.some((l) => l.verdict !== firstVerdict);
 }
 
-export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEntity }) => {
+export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEntity, nowMs }) => {
   const campaigns = useSupervisorStore((s) => s.campaignsByProject[project]) ?? EMPTY;
+  const now = nowMs ?? Date.now();
 
   const isEmpty = useMemo(() => campaigns.length === 0, [campaigns.length]);
 
@@ -75,27 +118,52 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
           {/* Probe rows */}
           {c.probes.length > 0 && (
             <div className="space-y-0.5 pl-2">
-              {c.probes.map((probe) => (
-                <div
-                  key={probe.id}
-                  className="flex items-center gap-2 text-2xs text-gray-600 dark:text-gray-400 font-mono"
-                >
-                  <span className="shrink-0 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-                    {probe.id.slice(0, 8)}
-                  </span>
-                  <span className="shrink-0">{probe.kind}</span>
-                  <span className="shrink-0 text-gray-500 dark:text-gray-500">
-                    {probe.environment}
-                  </span>
-                  <span className="shrink-0">{probe.verdict}</span>
-                </div>
-              ))}
+              {c.probes.map((probe) => {
+                const age = formatProbeAge(probe.lastEvidenceAt, now);
+                return (
+                  <div
+                    key={probe.id}
+                    className="flex items-center gap-2 text-2xs text-gray-600 dark:text-gray-400 font-mono"
+                    data-probe-evidence={age.neverRan ? 'never' : undefined}
+                  >
+                    <span className="shrink-0 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                      {probe.id.slice(0, 8)}
+                    </span>
+                    <span className="shrink-0">{probe.kind}</span>
+                    <span className="shrink-0 text-gray-500 dark:text-gray-500">
+                      {probe.environment}
+                    </span>
+                    <span className="shrink-0">{probe.verdict}</span>
+                    <span
+                      data-testid="probe-age"
+                      className={age.stale ? 'text-amber-600 dark:text-amber-500' : ''}
+                    >
+                      {age.label}
+                      {age.stale && (
+                        <span
+                          data-testid="probe-stale"
+                          className="ml-1 font-semibold text-amber-600 dark:text-amber-500"
+                        >
+                          ⚠
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          {/* Ruling verdict if present */}
-          {c.ruling && (
-            <div className="px-2 space-y-2">
+          {/* Ruling verdict — two mutually exclusive branches */}
+          {c.ruling === null ? (
+            <div
+              data-testid="campaign-unruled"
+              className="px-2 text-3xs text-gray-500 dark:text-gray-500"
+            >
+              Unruled — no judgment recorded
+            </div>
+          ) : (
+            <div data-testid="campaign-ruling" className="px-2 space-y-2">
               {/* Ruling header */}
               <div className="space-y-1">
                 <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
