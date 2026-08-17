@@ -74,6 +74,7 @@ import {
   type InheritedSlice,
 } from '../leaf-executor';
 import { sliceCoversFiles } from '../split-decision';
+import { leafScratchFor } from '../leaf-scratch';
 import {
   recordEpicBaseGate, getEpicBaseGate, BASE_GATE_FAIL_TTL_MS,
   recordNode, recordLeafBlueprint, getLeafBlueprint, editContractField, editLeafRequirement,
@@ -5429,5 +5430,56 @@ describe('checkSecurityViolations passes scratchDir to detectOutsideWorktreeWrit
       (e) => e.kind === 'outside-worktree-write' || e.kind === 'privilege-escalation' || e.kind === 'working-root-escape',
     );
     expect(securityEscalations).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('WORKING-ROOT-ESCAPE call site', () => {
+  it('a verifying command run in the leaf\'s own scratch dir records NO working-root-escape node', async () => {
+    // The executor passes leafScratchFor(worktreeCwd) as scratchDir to detectWorkingRootEscape.
+    // This test verifies that a verifying command (bun test) run in that scratch directory
+    // is treated as exempt and does not trigger the guard.
+    //
+    // The worktree is /tmp/wt/1, so the exempt scratch dir is leafScratchFor('/tmp/wt/1').
+    // A command with that cwd should NOT be recorded as a working-root-escape.
+
+    const { deps, spies } = makeDeps({
+      changeSet: [],
+      reviewVerdicts: ['VERDICT: PASS'],
+      implementCommands: [
+        { cmd: 'bun test src/services/__tests__/foo.test.ts', cwd: leafScratchFor('/tmp/wt/1'), exitCode: 0 },
+      ],
+    });
+
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+
+    // The guard is ADVISORY, so the outcome depends on changeSet (empty here).
+    // But the important assertion is that the guard row does not exist.
+    const guardRow = spies.nodeRows.find((r) => r.nodeKind === 'working-root-escape');
+    expect(guardRow).toBeUndefined();
+  });
+
+  it('the same verifying command run in the main checkout DOES record a working-root-escape node', async () => {
+    // Same command as above, but with cwd outside the scratch dir (the main checkout).
+    // This SHOULD trigger the guard because the command mutates/verifies outside the worktree.
+
+    const { deps, spies } = makeDeps({
+      changeSet: [],
+      reviewVerdicts: ['VERDICT: PASS'],
+      implementCommands: [
+        { cmd: 'bun test src/services/__tests__/foo.test.ts', cwd: '/tmp/main-checkout', exitCode: 0 },
+      ],
+    });
+    deps.mainCheckoutRoot = '/tmp/main-checkout';
+
+    const leaf = makeLeaf({ description: 'Implement ONLY this file: src/foo.ts' });
+    const res = await runLeaf('proj', leaf, deps);
+
+    // The guard should have recorded a working-root-escape node.
+    const guardRow = spies.nodeRows.find((r) => r.nodeKind === 'working-root-escape');
+    expect(guardRow).toBeDefined();
+    expect(guardRow!.outputText).toContain('/tmp/wt/1');
+    expect(guardRow!.outputText).toContain('bun test');
   });
 });
