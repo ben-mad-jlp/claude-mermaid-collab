@@ -222,6 +222,9 @@ export function buildDeliberationPrompt(
   lens: CampaignLens,
   ownRound1Examination: LensExamination,
   otherRound1Examinations: LensExamination[],
+  campaign: CampaignRow,
+  probes: CampaignProbe[],
+  verdictsByProbe: Map<string, ProbeVerdictRecord[]>,
 ): { system: string; user: string } {
   const system = `You are a campaign completion judge re-examining your initial verdict in deliberation with other lenses.
 
@@ -255,12 +258,41 @@ Rules:
     })
     .join('\n\n');
 
-  const user = `${yourVerdictSection}
+  // The GOAL leads the deliberation prompt. Without it a lens sees only peer verdicts and can
+  // do nothing but defer to the majority — which is the anchoring failure the independent
+  // first round exists to prevent, reintroduced one round later. Deliberation must remain a
+  // judgement about the goal, informed by peers; never a judgement about the peers.
+  const goalSection = campaign.goal
+    ? `Campaign Goal:\n${campaign.goal}`
+    : `Campaign Goal: (none — a goalless campaign cannot be ruled done)`;
+
+  // The EVIDENCE travels with the goal. A lens that can see only peer verdicts is judging the
+  // panel, not the campaign — same failure as dropping the goal, one step subtler.
+  const probeDetails = probes
+    .map((probe) => {
+      const verdicts = verdictsByProbe.get(probe.id) || [];
+      const verdictLines = verdicts
+        .map((v) => `  - ${v.verdict} (${v.environment} @ ${v.commitSha}): ${v.evidence || '(no evidence)'}`)
+        .join('\n');
+      return `Probe: ${probe.id}
+  Kind: ${probe.kind}
+  Command: ${probe.command || '(no command)'}
+  Environment: ${probe.environment}
+  Recorded Verdicts:
+${verdictLines}`;
+    })
+    .join('\n\n');
+
+  const user = `${goalSection}
+
+${probeDetails}
+
+${yourVerdictSection}
 
 Other Lenses in Deliberation:
 ${otherLensesSection}
 
-Considering these other perspectives, provide your verdict for this deliberation round.`;
+Considering the goal above and these other perspectives, provide your verdict for this deliberation round.`;
 
   return { system, user };
 }
@@ -544,7 +576,7 @@ export async function judgeCampaignCompletion(
   const round2Prompts = CAMPAIGN_LENSES.map((lens, lensIndex) => {
     const ownRound1 = round1Examinations[lensIndex];
     const otherRound1 = round1Examinations.filter((_, i) => i !== lensIndex);
-    return buildDeliberationPrompt(lens, ownRound1, otherRound1);
+    return buildDeliberationPrompt(lens, ownRound1, otherRound1, campaign, probes, verdictsByProbe);
   });
 
   // Call the judge once per lens for deliberation in parallel.
