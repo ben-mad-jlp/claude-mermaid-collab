@@ -102,6 +102,11 @@ export type GateSpawn = (cwd: string, command: string) => Promise<{ ran: boolean
  *  substring). Empty map ⇒ a fully-green base. */
 export type LaneBaselineMap = Record<string, string[]>;
 
+export interface LeafGateLaneRecord {
+  executedCommand: string;
+  verdict: LeafReviewVerdict;
+}
+
 export interface LeafGateResult {
   /** 'pass' = every declared command ran and exited 0 (or none were declared).
    *  'fail'  = a command RAN and reported failure  → a FINDING (the leaf's work is bad).
@@ -129,6 +134,9 @@ export interface LeafGateResult {
    *  only when at least one lane was baseline-only; does NOT affect pass/fail/error
    *  semantics for lanes whose baseline is empty (the default). */
   baselineOnly?: string[];
+  /** Leaf-gate only: per-lane records carrying the executed command and its outcome
+   *  verdict. Reporting only — never affects pass/fail/error semantics. */
+  laneRecords?: LeafGateLaneRecord[];
   /** Base-gate only, resolveBaseGreen fresh-run path: the sorted union of fail-lane
    *  fingerprints when a 'fail' result was downgraded to 'pass' because every one is
    *  present in the project's active quarantine (flaky-quarantine.ts activeQuarantine).
@@ -815,6 +823,7 @@ export async function runLeafGate(
   if (!cfg) return { status: 'pass', output: '', reasons: ['gate: none declared'], declared: false };
 
   const baselineOnly: string[] = [];
+  const laneRecords: LeafGateLaneRecord[] = [];
 
   if (cfg.typecheck) {
     const r = await spawn(cwd, cfg.typecheck);
@@ -926,6 +935,8 @@ export async function runLeafGate(
 
       for (const command of commands) {
         const r = await spawn(laneCwd, command);
+        const verdict: LeafReviewVerdict = !r.ran ? 'error' : r.code === 0 ? 'pass' : 'fail';
+        laneRecords.push({ executedCommand: command, verdict });
         if (!r.ran) {
           return {
             status: 'error',
@@ -933,6 +944,7 @@ export async function runLeafGate(
             output: r.output,
             reasons: [`gate could not run: ${command}`],
             declared: true,
+            laneRecords: laneRecords.length ? laneRecords : undefined,
           };
         }
         if (r.code !== 0) failures.push({ command, output: r.output });
@@ -968,6 +980,7 @@ export async function runLeafGate(
             ],
             declared: true,
             hollow: true,
+            laneRecords: laneRecords.length ? laneRecords : undefined,
           };
         }
         return {
@@ -976,6 +989,7 @@ export async function runLeafGate(
           output,
           reasons: [`${laneFailures.length} failing spec file(s)`, ...netNew.slice(0, 20)],
           declared: true,
+          laneRecords: laneRecords.length ? laneRecords : undefined,
         };
       }
     }
@@ -1054,7 +1068,7 @@ export async function runLeafGate(
     }
   }
 
-  return { status: 'pass', output: '', reasons: [], declared: true, baselineOnly: baselineOnly.length ? baselineOnly : undefined };
+  return { status: 'pass', output: '', reasons: [], declared: true, baselineOnly: baselineOnly.length ? baselineOnly : undefined, laneRecords: laneRecords.length ? laneRecords : undefined };
 }
 
 /** The string handed to the `implement` fix node. Deliberately parallel to a review's
