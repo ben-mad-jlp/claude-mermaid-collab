@@ -10,6 +10,7 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { isQuarantined } from './quarantine.js';
+import { normalizeBareRunnerCommand } from './scoped-backend-gate-command.js';
 import type { ProjectManifest, ManifestSource } from '../config/project-manifest';
 import { lastLines, extractFailingTests, synthesizeLaneFailureIdentity, SPEC_FILE_RE, netNewFailures } from './gate-runner';
 import { classifyTscOutput } from './tsc-infra-degraded';
@@ -222,7 +223,7 @@ function normalizeLanes(
 
     lanes.push({
       match: compiledMatch,
-      command: command.trim(),
+      command: normalizeBareRunnerCommand(command.trim(), match),
       cwd: cwdTrimmed,
       mode,
     });
