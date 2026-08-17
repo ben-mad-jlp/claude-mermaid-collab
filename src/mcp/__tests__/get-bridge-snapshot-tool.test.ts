@@ -32,7 +32,7 @@ describe('get_bridge_snapshot MCP tool', () => {
     expect(raw).not.toBeNull();
     const snapshot = JSON.parse(raw!);
     const keys = Object.keys(snapshot).sort();
-    expect(keys).toEqual(['coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort());
+    expect(keys).toEqual(['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort());
   });
 
   test('throws without project', async () => {

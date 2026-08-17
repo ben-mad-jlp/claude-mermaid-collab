@@ -203,6 +203,10 @@ describe('bridge-snapshot readonly verification', () => {
       './todo-store.js',
       './mission-store.js',
       './spec-coverage.js',
+      // Campaign state rides the SAME snapshot rather than a second fetch (mission 84325b98's
+      // hard constraint). campaign-snapshot.ts reaches for no git, child_process or fs, so it
+      // does not weaken what this guard exists to forbid.
+      './campaign-snapshot.js',
     ]);
 
     const allowedImports = new Set([
@@ -216,6 +220,8 @@ describe('bridge-snapshot readonly verification', () => {
       'MissionSummary',
       'specCoverage',
       'CoverageRollup',
+      'listCampaignsForSnapshot',
+      'BridgeCampaign',
     ]);
 
     for (const match of importMatches) {
