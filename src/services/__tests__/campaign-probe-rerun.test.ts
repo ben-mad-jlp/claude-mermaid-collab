@@ -17,6 +17,7 @@ import { _closeDb } from '../supervisor-store';
 import { resetProbesForLand } from '../campaign-probe-rerun';
 import { runCampaignPass, _resetCampaignPassDbCache, type CampaignPassDeps } from '../campaign-pass';
 import { upsertMission } from '../mission-store';
+import type { JudgmentLLM } from '../judgment-llm';
 
 let project: string;
 
@@ -179,10 +180,17 @@ describe('campaign-probe-rerun', () => {
       return { missionId: missionTodo.id } as any;
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       execProbe: mockExecProbe,
       commitSha: () => 'sha-test',
       forgeMission: mockForgeMission,
+      llm: approvingLlm,
     };
 
     // Run the campaign pass.
@@ -254,10 +262,17 @@ describe('campaign-probe-rerun', () => {
       return { missionId: missionTodo.id } as any;
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       execProbe: mockExecProbe,
       commitSha: () => 'sha-test',
       forgeMission: mockForgeMission,
+      llm: approvingLlm,
     };
 
     // Run the campaign pass.

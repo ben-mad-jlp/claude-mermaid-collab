@@ -23,6 +23,10 @@ import {
 import { forgeMission, type ForgeMissionInput, type ForgeMissionResult } from '../mcp/tools/mission-forge.ts';
 import { getMission, isMissionTerminal } from './mission-store.ts';
 import { runRigReset } from './campaign-rig-reset.ts';
+import { ruleMissionProposal } from './campaign-mission-proposal.ts';
+import { makeJudgmentLLM } from './judgment-llm.ts';
+import { resolveTriageRoute } from './config-service.ts';
+import type { JudgmentLLM } from './judgment-llm.ts';
 
 /** A probe's linked mission, or null if no link exists. */
 export interface ProbeMissionLink {
@@ -66,6 +70,10 @@ export interface CampaignPassDeps {
   isMissionOpen?: (project: string, missionId: string) => boolean;
   /** Current time in milliseconds. Defaults to Date.now. */
   now?: () => number;
+  /** Rule a mission proposal via a panel of lenses. Defaults to the live ruleMissionProposal implementation. */
+  ruleMissionProposal?: typeof ruleMissionProposal;
+  /** The LLM client for the proposal panel. Built lazily via makeJudgmentLLM if not provided. */
+  llm?: JudgmentLLM;
 }
 
 const CAMPAIGN_PROBE_MISSION_DDL = `
@@ -399,6 +407,9 @@ export async function runCampaignPass(
       const mission = getMission(proj, missionId);
       return mission != null && !isMissionTerminal(mission);
     });
+    const ruleProposalFn = deps.ruleMissionProposal ?? ruleMissionProposal;
+    let llmInstance = deps.llm;
+    const getLlm = (): JudgmentLLM => (llmInstance ??= makeJudgmentLLM(resolveTriageRoute({ project })));
 
     // 0. Derive the front and re-measure every front probe (not-run or fail).
     const executed: string[] = [];
@@ -511,6 +522,28 @@ export async function runCampaignPass(
       try {
         const title = `Probe failures: ${group.signature || '(empty)'}`.slice(0, 200);
         const criteria = group.probes.map(probeCriterionText);
+        const proposedGoal = [title, ...criteria].join('\n');
+
+        // Check the proposal gate before forging.
+        const { record } = await ruleProposalFn(project, {
+          campaignId,
+          proposedGoal,
+          llm: getLlm(),
+          judge: 'campaign-proposal-panel',
+          ruledAtSha: commitShaFn(),
+        });
+
+        // If the proposal was rejected, release all claims in this group and skip the forge.
+        if (record.ruling !== 'approved') {
+          for (const probe of group.probes) {
+            try {
+              releaseProbeClaim(project, probe.id);
+            } catch {
+              // Fail-open per-probe: one release failure doesn't prevent others.
+            }
+          }
+          continue;
+        }
 
         const missionInput: ForgeMissionInput = {
           session,
