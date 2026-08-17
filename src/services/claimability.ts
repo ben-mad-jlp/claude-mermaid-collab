@@ -362,6 +362,13 @@ export function findBlockedSplits(todos: Todo[]): BlockedSplit[] {
     // (9b32bdbc) written against isEpicTitle/isMissionTitle, which the kind migration
     // deleted. Text-merged clean; only tsc caught it.
     if (isEpic(p) || isMission(p)) continue;
+    // A parent whose targetProject is not an absolute path cannot belong to any real
+    // project, so it must never gate one. Test fixtures that write into the live store
+    // use bare names like 'proj-test'; 3275 such rows once held 36 ready leaves at zero
+    // claimable for hours with no card naming the cause. Checked as a string test rather
+    // than a registry lookup on purpose — this runs over every todo on every daemon tick,
+    // and per-todo I/O here is the shape of two previous saturation incidents.
+    if (p.targetProject != null && !p.targetProject.startsWith('/')) continue;
     const open = (byParent.get(p.id) ?? []).filter(isOpen);
     if (open.length === 0) continue;
     const unapproved = open.filter((c) => c.approvedAt == null);
