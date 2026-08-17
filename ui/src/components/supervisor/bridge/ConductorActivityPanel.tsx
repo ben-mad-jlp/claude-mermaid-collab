@@ -15,6 +15,7 @@ import { getWebSocketClient } from '@/lib/websocket';
 import {
   fetchConductorJournalWithNicknames,
   groupConductorPasses,
+  isPassInflight,
   ConductorPassGroup,
   ConductorPassRow,
 } from '@/lib/conductorActivity';
@@ -234,7 +235,7 @@ export const ConductorActivityPanel: React.FC<{
                       kicked
                     </span>
                   )}
-                  {group.representative.endedAt === null && (
+                  {isPassInflight(group.representative, Date.now()) && (
                     <span data-testid="conductor-pass-live" className="text-3xs px-1 rounded bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
                       live
                     </span>
