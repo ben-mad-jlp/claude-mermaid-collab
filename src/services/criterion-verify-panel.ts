@@ -3,6 +3,7 @@
  *  then joined by strict-majority vote. Verdicts are deterministic, LLM-free. */
 
 import { coerceArrayArg } from '../mcp/arg-coercion.js';
+import { isTransientNodeFault } from '../agent/node-invoker.js';
 
 export interface AssertionFact {
   name: string;
@@ -29,12 +30,16 @@ export interface PanelVerdict {
   lens: VerifyLens;
   met: boolean;
   reason: string;
+  /** Set when the lens produced no usable vote because its node hit provider infra. */
+  indeterminate?: boolean;
 }
 
 export interface PanelJoin {
   met: boolean;
   split?: boolean;
   dissent?: string;
+  /** Set when every supplied verdict was indeterminate. */
+  indeterminate?: boolean;
 }
 
 /** Strip markdown formatting characters that can obscure VERDICT lines.
@@ -103,6 +108,40 @@ export function parseLensVerdict(text: string | undefined): 'met' | 'not-met' | 
   const m = stripSentinelFmt(text).match(/^\s*VERDICT:\s*(PASS|FAIL)\b/im);
   if (!m) return 'error';
   return m[1].toUpperCase() === 'PASS' ? 'met' : 'not-met';
+}
+
+/** Detect provider infra failures (rate limit, quota, overload, timeout, start failure).
+ *  Complements RATE_LIMIT_RE at node-invoker.ts:423 to catch subscription-cap sentences. */
+export const PANEL_INFRA_TEXT_RE = /you[''']ve reached your .{0,40}limit|quota|rate.?limit|429|overloaded/i;
+
+/** Classify a lens outcome into a usable vote category.
+ *  Pure function: no I/O, no clock, no module state. */
+export function classifyLensOutcome(input: {
+  ok: boolean;
+  exitCode?: number;
+  timedOut?: boolean;
+  rateLimited?: boolean;
+  startFailure?: unknown;
+  text?: string;
+  parsed: 'met' | 'not-met' | 'error';
+}): 'met' | 'not-met' | 'infra' {
+  // Check for transient node faults first.
+  if (isTransientNodeFault({ rateLimited: input.rateLimited, startFailure: input.startFailure, timedOut: input.timedOut } as any)) {
+    return 'infra';
+  }
+
+  // If the node failed (non-zero exit or !ok) AND parsed as error, it's an infra fault.
+  if ((!input.ok || (input.exitCode != null && input.exitCode !== 0)) && input.parsed === 'error') {
+    return 'infra';
+  }
+
+  // If the text matches infra patterns, it's indeterminate (even if ok:true).
+  if (input.text && PANEL_INFRA_TEXT_RE.test(input.text)) {
+    return 'infra';
+  }
+
+  // Otherwise, use the parsed verdict.
+  return input.parsed === 'met' ? 'met' : 'not-met';
 }
 
 /** Build the shared evidence block, identical across all three lenses.
@@ -185,7 +224,9 @@ Do not wrap the VERDICT line in backticks, quotes, or a code fence.`;
  *  function and nothing else, so the same verdict array grades identically everywhere.
  *  (The runner used to AND an extra unanimity requirement on top of this result, so a
  *  2-of-3 array graded met:false through the runner but met:true through the tool.)
+ *  Indeterminate verdicts (infra faults) are filtered before the majority vote.
  *  Empty input ⇒ fail-closed { met: false, split: true }.
+ *  All indeterminate ⇒ { met: false, split: true, indeterminate: true, dissent: '…(infra)' }.
  *  Majority met ⇒ { met: true } (any dissenting lens stays visible in the verdicts array).
  *  Majority not met ⇒ { met: false, split: true, dissent: "<lens1>: <reason1>; <lens2>: <reason2>" }. */
 export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
@@ -193,14 +234,21 @@ export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
     return { met: false, split: true, dissent: 'no verdicts received' };
   }
 
-  const metCount = verdicts.filter(v => v.met).length;
-  const isMet = metCount * 2 > verdicts.length;
+  // Filter out indeterminate (infra fault) verdicts before majority computation.
+  const effective = verdicts.filter(v => v.indeterminate !== true);
+
+  if (effective.length === 0) {
+    return { met: false, split: true, indeterminate: true, dissent: 'all lenses indeterminate (infra)' };
+  }
+
+  const metCount = effective.filter(v => v.met).length;
+  const isMet = metCount * 2 > effective.length;
 
   if (isMet) {
     return { met: true };
   }
 
-  const dissentParts = verdicts
+  const dissentParts = effective
     .filter(v => !v.met)
     .map(v => `${v.lens}: ${v.reason}`);
   const dissent = dissentParts.join('; ');
