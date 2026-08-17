@@ -102,6 +102,12 @@ export interface ForgeMissionInput {
 export interface ForgeMissionDeps {
   /** Override the criterion addition function for testing. Defaults to the live addCriterion. */
   addCriterion?: typeof addCriterion;
+  /** Override the mission-row delete used in failure compensation. Defaults to the live deleteMission.
+   *  Used ONLY inside the catch-block compensation. */
+  deleteMission?: typeof deleteMission;
+  /** Override the todo-removal used in failure compensation. Defaults to the live removeTodo.
+   *  Used ONLY inside the catch-block compensation. */
+  removeTodo?: typeof removeTodo;
 }
 
 export interface ForgeMissionResult {
@@ -266,15 +272,34 @@ export async function forgeMission(
     // and the todo node. Do NOT compensate if intoMissionId was supplied (the mission
     // existed before this call and must survive).
     if (!input.intoMissionId) {
+      const deleteMissionFn = deps.deleteMission ?? deleteMission;
+      const removeTodoFn = deps.removeTodo ?? removeTodo;
+      const failures: string[] = [];
+      // Order matters: remove the todo node FIRST, then the mission row. The forbidden
+      // half-state is a mission row deleted while its todo node survives (an orphaned
+      // node pointing at a vanished mission). Deleting the row last means a todo-removal
+      // failure leaves both artifacts present — recoverable and attributable — instead.
+      let todoRemoved = true;
       try {
-        deleteMission(project, missionId);
-      } catch {
-        // Swallow: mission row may not exist if the throw happened before line 176.
+        await removeTodoFn(project, missionId);
+      } catch (removeErr) {
+        todoRemoved = false;
+        const msg = removeErr instanceof Error ? removeErr.message : String(removeErr);
+        failures.push(`could not remove todo node: ${msg}`);
       }
-      try {
-        await removeTodo(project, missionId);
-      } catch {
-        // Swallow: todo node may not exist in exceptional cases.
+      if (todoRemoved) {
+        try {
+          deleteMissionFn(project, missionId);
+        } catch (deleteErr) {
+          const msg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+          failures.push(`could not delete mission row: ${msg}`);
+        }
+      }
+      if (failures.length > 0) {
+        const origMsg = err instanceof Error ? err.message : String(err);
+        const loudMsg = `forge_mission: rollback INCOMPLETE for mission ${missionId} — ${failures.join('; ')}; original error: ${origMsg}`;
+        console.warn(loudMsg);
+        throw new Error(loudMsg, { cause: err });
       }
     }
     throw err;
