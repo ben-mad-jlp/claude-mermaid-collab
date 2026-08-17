@@ -1394,6 +1394,15 @@ export interface LandStageDeps {
   runPostLandGuard: typeof runPostLandGuard;
 }
 
+/**
+ * Pure predicate: true IFF the land result provides merge evidence.
+ * Requires both that landed === true AND masterSha is a non-empty string.
+ * No git calls, no clock, no DB — deterministic gating for landEpic success.
+ */
+export function hasMergeEvidence(land: { landed?: boolean; masterSha?: string } | null | undefined): boolean {
+  return land?.landed === true && typeof land.masterSha === 'string' && land.masterSha.trim().length > 0;
+}
+
 export const defaultLandStageDeps: LandStageDeps = {
   checkDirtyTree,
   runStewardPrecheck,
@@ -1659,6 +1668,14 @@ export async function landEpic(
       }
       const mergeOk = mergeResult as { ok: boolean; land?: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>> };
       const land = mergeOk.land!;
+
+      // Gate: merge must provide evidence (landed=true + non-empty masterSha).
+      // If runMerge returned ok but no merge commit, refuse before finalizing.
+      if (!hasMergeEvidence(land)) {
+        recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'no-merge-commit', masterSha: land.masterSha ?? null }) });
+        const outcome = { ok: false, landed: false, reason: 'no-merge-commit', epicId, epicBranch };
+        return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
+      }
 
       const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
       phase('finalizeLandRecord');
