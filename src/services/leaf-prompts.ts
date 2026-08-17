@@ -193,7 +193,8 @@ export const MANIFEST_SCHEMA_NOTES_LINES: readonly string[] = [
   'a property to PRESERVE (the positive form of "do not break/remove X") -> invariant; a behavior with',
   'no single symbol or test -> observable. There is NO way to express "X is absent", "no file does Y",',
   'or "run command Z" — restate any such criterion as a POSITIVE symbol-present / named-test /',
-  'threshold / invariant. Required per leafKind: feature & fix need >=1 symbol-present AND >=1',
+  'threshold / invariant. A scope limit ("do not touch X") goes in the manifest\'s outOfScope array,',
+  'not in requirements. Required per leafKind: feature & fix need >=1 symbol-present AND >=1',
   'named-test; refactor & infra need >=1 symbol-present; test needs >=1 named-test.',
 ];
 
@@ -234,6 +235,14 @@ const BACKEND_TEST_COMMAND_LINES: readonly string[] = [
   'running it again is pure duplicate cost.',
 ];
 
+/** Render the form-(d) SCOPE-GUARD criterion — the sentence that appears in
+ *  BLUEPRINT_DELETION_CRITERIA_RULES_LINES's form (d) example. Byte-for-byte compatible with
+ *  the namesScopeGuardCheck regex in criteria-citability.ts: the rendered sentence MUST contain
+ *  both a git diff invocation with a pathspec argument AND a checkable result token. */
+export function scopeGuardCriterion(path: string): string {
+  return `Implementation untouched — \`git diff HEAD --stat -- ${path}\` is empty (0 files changed)`;
+}
+
 /** Deletion/removal leaves assert an ABSENCE — but bare prose ("X no longer exists", "Y is
  *  untouched") is uncitable and is rejected by BOTH the blueprint-time citability gate
  *  (criteria-citability.ts's classifyCriterion, Rule 3 convictOnAbsence) and the terminal G3
@@ -256,8 +265,8 @@ const BLUEPRINT_DELETION_CRITERIA_RULES_LINES: readonly string[] = [
   '  (c) diff-contract v2 (diff-contract.ts) structural absence: a ThresholdRequirement with',
   '      source "grep-count", comparison "eq", value 0 — the typed, mechanically-decided form —',
   '      when this leaf authors a v2 contract.',
-  '  (d) SCOPE-GUARD negation: name the implementation PATH and a `git diff` check with an',
-  '      asserted empty/zero result — e.g. "Implementation untouched — `git diff HEAD --stat -- src/services/foo.ts` is empty (0 files changed)".',
+  `  (d) SCOPE-GUARD negation: name the implementation PATH and a \`git diff\` check with an`,
+  `      asserted empty/zero result — e.g. "${scopeGuardCriterion('src/services/foo.ts')}"`,
   'A bare absence with no exact pattern+scope ("X no longer defines Y", "Z is gone") is REJECTED —',
   'this is a narrow exception to the no-absence rule above, not a loophole for vague prose.',
 ];
@@ -416,8 +425,9 @@ export function buildNodePrompt(
         'ACCEPTANCE CRITERIA must be POSITIVE and CITABLE: each names a concrete change a reviewer can',
         'point a `file:line` at. NEVER write an absence or non-goal as an acceptance criterion ("no X',
         'changes", "X untouched/unchanged", "Y not modified") — a negative cannot be cited and will',
-        'strand the leaf at review. When the spec constrains scope with a "do not touch X", record it as',
-        'a NON-GOALS note in the prose, kept OUT of the acceptance-criteria list — not as a criterion.',
+        'strand the leaf at review. When the spec constrains scope with a "do not touch X", express it',
+        'EITHER as an entry in the manifest\'s typed outOfScope array OR as the form-(d) SCOPE-GUARD',
+        'criterion below — NEVER as a prose NON-GOALS note in the acceptance-criteria list.',
         '',
         ...BLUEPRINT_DELETION_CRITERIA_RULES_LINES,
         '',
