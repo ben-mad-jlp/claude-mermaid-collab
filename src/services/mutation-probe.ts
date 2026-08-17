@@ -135,6 +135,29 @@ export function classifyProbe(
   return { verdict: 'graded', execution: 'called-unobserved' };
 }
 
+/** Reconcile execution at probe result construction.
+ *  Pure function: reconciles the case where a probe has contradictory signals
+ *  (execution claims never-called but throw arm failed and marker was not seen).
+ *  This is a construction-site backstop: no caller can observe an unreconciled execution. */
+export function buildProbeResult(fields: MutationProbeResult): MutationProbeResult {
+  // Reconciliation rule: never-called + failing throw arm + no marker = indeterminate
+  if (
+    fields.execution === 'never-called' &&
+    fields.throwArm.passed === false &&
+    fields.markerSeen === false
+  ) {
+    return {
+      ...fields,
+      execution: 'indeterminate',
+      verdict: fields.verdict === 'graded' ? 'unknown' : fields.verdict,
+      reason: 'marker not seen but throw arm failed, contradicting invocation assumption',
+    };
+  }
+
+  // All other cases: return unchanged
+  return fields;
+}
+
 /** Options for runMutationProbe. */
 export interface MutationProbeOpts {
   project: string;
@@ -203,7 +226,7 @@ export async function runMutationProbe(
     testCommand = suites[0]?.command;
   }
   if (!testCommand) {
-    return {
+    return buildProbeResult({
       project,
       file,
       symbol,
@@ -215,7 +238,7 @@ export async function runMutationProbe(
       execution: 'indeterminate',
       verdict: 'incident',
       reason: 'no test command resolved from project manifest',
-    };
+    });
   }
 
   // Set up trial worktree
@@ -231,7 +254,7 @@ export async function runMutationProbe(
     try {
       execFileSync('git', ['-C', repo, 'worktree', 'add', '--detach', trial, 'HEAD'], { stdio: 'ignore' });
     } catch (e) {
-      return {
+      return buildProbeResult({
         project,
         file,
         symbol,
@@ -243,7 +266,7 @@ export async function runMutationProbe(
         execution: 'indeterminate',
         verdict: 'incident',
         reason: 'trial worktree setup failed',
-      };
+      });
     }
 
     // Symlink node_modules at repo root and immediate subdirs (ui/, desktop/)
@@ -275,7 +298,7 @@ export async function runMutationProbe(
             stdio: 'pipe',
           });
         } catch (e) {
-          return {
+          return buildProbeResult({
             project,
             file,
             symbol,
@@ -287,7 +310,7 @@ export async function runMutationProbe(
             execution: 'indeterminate',
             verdict: 'incident',
             reason: 'failed to apply uncommitted changes to trial worktree',
-          };
+          });
         }
       }
     } catch (e) {
@@ -313,7 +336,7 @@ export async function runMutationProbe(
     try {
       sourceContent = readFileSync(join(trial, file), 'utf8');
     } catch (e) {
-      return {
+      return buildProbeResult({
         project,
         file,
         symbol,
@@ -325,7 +348,7 @@ export async function runMutationProbe(
         execution: 'indeterminate',
         verdict: 'incident',
         reason: `failed to read file ${file} from trial worktree`,
-      };
+      });
     }
 
     // Marker path
@@ -337,7 +360,7 @@ export async function runMutationProbe(
     // If control failed, return early with vacuous/incident
     const preClassify = classifyProbe(controlResult, { ran: false, passed: false, exitCode: null }, { ran: false, passed: false, exitCode: null }, false);
     if (preClassify.verdict === 'vacuous') {
-      return {
+      return buildProbeResult({
         project,
         file,
         symbol,
@@ -349,14 +372,14 @@ export async function runMutationProbe(
         execution: preClassify.execution,
         verdict: preClassify.verdict,
         reason: preClassify.reason,
-      };
+      });
     }
 
     // Apply neutered mutation
     const neuteredRewrite = rewrite.neuter(sourceContent, symbol);
     if (!neuteredRewrite.applied) {
       const classification = classifyProbe(controlResult, { ran: false, passed: false, exitCode: null, error: neuteredRewrite.reason }, { ran: false, passed: false, exitCode: null }, false);
-      return {
+      return buildProbeResult({
         project,
         file,
         symbol,
@@ -368,7 +391,7 @@ export async function runMutationProbe(
         execution: classification.execution,
         verdict: classification.verdict,
         reason: classification.reason,
-      };
+      });
     }
 
     // Run neutered arm
@@ -379,7 +402,7 @@ export async function runMutationProbe(
     const throwRewrite = rewrite.throwProbe(sourceContent, symbol);
     if (!throwRewrite.applied) {
       const classification = classifyProbe(controlResult, neuteredResult, { ran: false, passed: false, exitCode: null, error: throwRewrite.reason }, false);
-      return {
+      return buildProbeResult({
         project,
         file,
         symbol,
@@ -391,7 +414,7 @@ export async function runMutationProbe(
         execution: classification.execution,
         verdict: classification.verdict,
         reason: classification.reason,
-      };
+      });
     }
 
     // Run throw arm
@@ -404,7 +427,7 @@ export async function runMutationProbe(
     // Classify final result
     const classification = classifyProbe(controlResult, neuteredResult, throwResult, markerSeen);
 
-    return {
+    return buildProbeResult({
       project,
       file,
       symbol,
@@ -416,7 +439,7 @@ export async function runMutationProbe(
       execution: classification.execution,
       verdict: classification.verdict,
       reason: classification.reason,
-    };
+    });
   } finally {
     teardown();
   }
