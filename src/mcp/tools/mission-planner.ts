@@ -22,6 +22,8 @@ import { createEpicWithLandLeaf, addLeavesToEpic } from '../workgraph-tools.js';
 import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds.js';
 import { isEpic } from '../../services/todo-kind.js';
 import { findUnlandedDoneServingEpics, type UnlandedEpicArmDeps } from '../../services/conductor-unlanded-epic-arm.js';
+import { collectSiblingDeclaredNewFiles, assertNoSiblingNewModuleCollision, SiblingNewModuleCollisionError, type SiblingNewModuleDeps, type SiblingNewFile } from '../../services/sibling-new-module-guard.js';
+export { SiblingNewModuleCollisionError };
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -270,6 +272,7 @@ export interface PlanCriterionDeps {
   resolveCriteria?: (project: string, missionId: string, criterionIds: string[]) => { id: string; text: string }[];
   resolveActions?: typeof listCriteriaWithActions;
   unlandedArmDeps?: UnlandedEpicArmDeps;
+  siblingNewModuleDeps?: SiblingNewModuleDeps;
 }
 export interface PlanCriterionResult {
   epicId: string;
@@ -491,6 +494,11 @@ export async function planMissionCriterion(
     spec = applyFoundationFirst(spec, {
       readFile: (p) => { try { return readFileSync(join(project, p), 'utf8'); } catch { return null; } },
     });
+
+    let siblingNewFiles: SiblingNewFile[] = [];
+    try { siblingNewFiles = collectSiblingDeclaredNewFiles(project, {}, deps.siblingNewModuleDeps); }
+    catch { siblingNewFiles = []; }          // fail OPEN, matching assertNoUnlandedDoneServingEpic:354-358
+    assertNoSiblingNewModuleCollision(spec, siblingNewFiles);   // OUTSIDE the try — must propagate
 
     // Second serve-integrity check before instantiation: a criterion may have been served by
     // another concurrent request during the (potentially long) planner node invocation.
