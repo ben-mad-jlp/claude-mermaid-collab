@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SessionTodo, TodoStatus } from '@/types/sessionTodo';
+import type { BridgeCampaign } from '@/types/campaign';
 import { kindOf } from '@/lib/todoKind';
 
 /**
@@ -671,6 +672,7 @@ interface SupervisorState {
   // inbox paints instantly on reopen.
   requirementsByProject: Record<string, Requirement[]>;
   coverageByProject: Record<string, CoverageRollup>;
+  campaignsByProject: Record<string, BridgeCampaign[]>;
   systemObjectsByProject: Record<string, SystemObjectNode[]>;
   bomByRoot: Record<string, BomLine[]>;
   loadRequirements: (serverId: string, project: string, opts?: { epicId?: string; status?: string }) => Promise<void>;
@@ -863,6 +865,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   auditByProject: {},
   requirementsByProject: hydrate<Record<string, Requirement[]>>(REQUIREMENTS_KEY, {}),
   coverageByProject: {},
+  campaignsByProject: {},
   systemObjectsByProject: {},
   bomByRoot: {},
 
@@ -1018,6 +1021,11 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       // Guard and write coverage
       if (res.body?.coverage) {
         nextState.coverageByProject = { ...state.coverageByProject, [project]: res.body.coverage };
+      }
+
+      // Guard and write campaigns
+      if (res.body?.campaigns) {
+        nextState.campaignsByProject = { ...state.campaignsByProject, [project]: res.body.campaigns as BridgeCampaign[] };
       }
 
       return nextState;
