@@ -34,6 +34,7 @@ import { _closeDb } from '../supervisor-store';
 import { listOpenEscalations } from '../supervisor-store';
 import { CAMPAIGN_FRONT_UNSATISFIED_KIND } from '../campaign-liveness-card';
 import { storePath } from '../store-paths';
+import type { JudgmentLLM } from '../judgment-llm';
 
 let project: string;
 
@@ -133,9 +134,16 @@ describe('campaign-end-to-end', () => {
       } as unknown as CampaignPassDeps['forgeMission'];
     }) as any;
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: forgeMissionStub,
       execProbe: async () => ({ verdict: 'fail' as const, evidence: identicalEvidence }),
+      llm: approvingLlm,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
