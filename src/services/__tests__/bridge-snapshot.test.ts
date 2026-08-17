@@ -11,6 +11,14 @@ import { buildBridgeSnapshot } from '../bridge-snapshot';
 import { createTodo, _closeProject } from '../todo-store';
 import { createEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { _closeLedgerDb } from '../worker-ledger';
+import { _closeAllCollabDbs } from '../collab-db';
+import {
+  _resetCampaignDbCache,
+  createCampaign,
+  listProbes,
+  recordProbeVerdict,
+  recordCampaignCompletion,
+} from '../campaign-store';
 
 let project: string;
 
@@ -26,16 +34,18 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetCampaignDbCache();
+  _closeAllCollabDbs();
   _closeProject(project);
   _closeLedgerDb();
   rmSync(project, { recursive: true, force: true });
 });
 
 describe('buildBridgeSnapshot', () => {
-  test('exposes exactly the six snapshot keys regardless of failures', async () => {
+  test('exposes exactly the seven snapshot keys regardless of failures', async () => {
     const result = await buildBridgeSnapshot(project);
     expect(Object.keys(result).sort()).toEqual(
-      ['coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
+      ['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
     );
   });
 
@@ -317,18 +327,105 @@ describe('buildBridgeSnapshot', () => {
         listMissions: boom,
         listOpenEscalations: boom,
         specCoverage: boom,
+        listCampaignsForSnapshot: boom,
         snapshotSummaryMessages: boom,
       },
     });
 
     expect(Object.keys(result).sort()).toEqual(
-      ['coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
+      ['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
     );
     expect(result.projects).toEqual([]);
     expect(result.todos).toEqual([]);
     expect(result.missions).toEqual([]);
     expect(result.openEscalations).toEqual([]);
     expect(result.coverage).toBeNull();
+    expect(result.campaigns).toEqual([]);
+    expect(result.summaries).toEqual([]);
+  });
+
+  test('a campaign with two probes and a two-lens completion round-trips onto the snapshot', async () => {
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      goal: 'Test Goal',
+      probes: [
+        { kind: 'command', environment: 'worktree', command: 'echo test1' },
+        { kind: 'command', environment: 'worktree', command: 'echo test2' },
+      ],
+    });
+
+    // Get the probes that were created with the campaign
+    const probes = listProbes(project, campaign.id);
+    expect(probes.length).toBe(2);
+
+    // Record a verdict on the first probe only
+    recordProbeVerdict(project, {
+      probeId: probes[0]!.id,
+      verdict: 'pass',
+      environment: 'worktree',
+      commitSha: 'abc123def456',
+      evidence: 'Test evidence',
+    });
+
+    // Record a completion with two lenses
+    recordCampaignCompletion(project, {
+      campaignId: campaign.id,
+      judge: 'test-judge',
+      verdict: 'done',
+      ruledAtSha: 'abc123def456',
+      rationale: 'All tests passed',
+      lenses: [
+        { lens: 'correctness', verdict: 'done', reasoning: 'Correct behavior' },
+        { lens: 'performance', verdict: 'done', reasoning: 'Good performance' },
+      ],
+      artifactsRead: ['file1.txt'],
+      commandsRun: ['test command'],
+      citedLenses: ['correctness', 'performance'],
+    });
+
+    const result = await buildBridgeSnapshot(project);
+    expect(result.campaigns.length).toBe(1);
+    expect(result.campaigns[0]!.title).toBe('Test Campaign');
+    expect(result.campaigns[0]!.probes.length).toBe(2);
+    expect(result.campaigns[0]!.probes[0]!.lastEvidenceAt).toBeGreaterThan(0);
+    expect(result.campaigns[0]!.probes[0]!.lastEvidence).toBe('Test evidence');
+    expect(result.campaigns[0]!.probes[1]!.lastEvidenceAt).toBeNull();
+    expect(result.campaigns[0]!.ruling).not.toBeNull();
+    expect(result.campaigns[0]!.ruling!.lenses.length).toBe(2);
+    expect(result.campaigns[0]!.ruling!.lenses[0]!.reasoning).toBe('Correct behavior');
+    expect(result.campaigns[0]!.ruling!.lenses[1]!.reasoning).toBe('Good performance');
+  });
+
+  test('a campaign with no completion yields a null ruling', async () => {
+    createCampaign(project, {
+      title: 'Unruled Campaign',
+      probes: [{ kind: 'command', environment: 'worktree' }],
+    });
+
+    const result = await buildBridgeSnapshot(project);
+    expect(result.campaigns.length).toBe(1);
+    expect(result.campaigns[0]!.ruling).toBeNull();
+  });
+
+  test('a throwing campaigns reader degrades campaigns to [] while the other six populate', async () => {
+    await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: 'Test todo',
+      kind: 'leaf',
+    });
+    const result = await buildBridgeSnapshot(project, {
+      deps: {
+        listCampaignsForSnapshot: () => {
+          throw new Error('boom');
+        },
+      },
+    });
+    expect(result.campaigns).toEqual([]);
+    expect(result.todos.length).toBeGreaterThan(0);
+    expect(result.projects).toEqual([]);
+    expect(result.missions).toEqual([]);
+    expect(result.coverage).not.toBeNull();
     expect(result.summaries).toEqual([]);
   });
 });
