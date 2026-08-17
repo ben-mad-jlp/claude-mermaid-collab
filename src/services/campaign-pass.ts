@@ -564,6 +564,9 @@ export async function runCampaignPass(
           } catch (err) {
             // Fail-open per-link: one link failure doesn't prevent others.
             // Log for debugging but continue.
+            console.warn(
+              `[campaign-pass] campaign ${campaignId} group "${group.signature}" probe ${probe.id} link to mission ${missionId} failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
 
@@ -575,6 +578,10 @@ export async function runCampaignPass(
       } catch (err) {
         // Fail-open per-group: one throwing forge leaves the other groups forged.
         // The group remains in the groups array but not in forged.
+        // Log the failure with the campaign id, signature, all probe ids, and error message.
+        console.warn(
+          `[campaign-pass] campaign ${campaignId} group "${group.signature}" forge failed for probes ${group.probes.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
+        );
         // Release the claims for this group's probes so they can be retried.
         for (const probe of group.probes) {
           try {
