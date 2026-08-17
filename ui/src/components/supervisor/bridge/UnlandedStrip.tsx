@@ -8,13 +8,30 @@ export interface UnlandedStripProps {
 }
 
 export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, onSelectPanel }) => {
-  const unlanded = unlandedEpics ?? [];
   const [collapsed, setCollapsed] = useState(false);
 
-  if (unlanded.length === 0) {
-    return null;
+  // Distinguish "not yet fetched" (undefined) from "confirmed zero" (empty array)
+  if (unlandedEpics === undefined) {
+    return (
+      <div data-testid="unlanded-strip-loading" className="px-3 py-2 bg-white dark:bg-gray-900">
+        <div className="space-y-1 rounded-md p-2 text-gray-600 dark:text-gray-400">
+          <div className="text-xs">Loading...</div>
+        </div>
+      </div>
+    );
   }
 
+  if (unlandedEpics.length === 0) {
+    return (
+      <div data-testid="unlanded-strip-clear" className="px-3 py-2 bg-white dark:bg-gray-900">
+        <div className="space-y-1 rounded-md p-2 text-gray-600 dark:text-gray-400">
+          <div className="text-xs">All epics landed</div>
+        </div>
+      </div>
+    );
+  }
+
+  const unlanded = unlandedEpics;
   const unlandedCommits = unlanded.reduce((n, e) => n + e.ahead, 0);
 
   return (
