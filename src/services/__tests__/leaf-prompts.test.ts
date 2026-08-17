@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'bun:test';
-import { buildNodePrompt, buildReviewPrompt, type BallotPromptRequirement } from '../leaf-prompts';
+import {
+  buildNodePrompt,
+  buildReviewPrompt,
+  scopeGuardCriterion,
+  buildBlueprintRefreshPrompt,
+  buildCriteriaRepairPrompt,
+  buildCriterionRewritePrompt,
+  buildBlueprintRepairPrompt,
+  type BallotPromptRequirement,
+} from '../leaf-prompts';
 import { EXPLORE_REPORT_SENTINEL } from '../leaf-parsing';
+import { classifyCriterion } from '../criteria-citability';
 import type { Todo } from '../todo-store';
 import type { ExploreSpec } from '../todo-store';
 
@@ -72,5 +82,36 @@ describe('backend test command guidance', () => {
     expect(prompt).toContain('scripts/test-backend.ts <file>');
     expect(prompt).toContain('npm run test:ci` / `npm test` is the UI (vitest) runner');
     expect(prompt).toContain('An unfiltered `bun run scripts/test-backend.ts` with no file');
+  });
+});
+
+describe('scope-limit routing in blueprint prompts', () => {
+  const leaf = { id: 'leaf-1', title: 'a leaf', description: 'do the thing' } as unknown as Todo;
+
+  it('scopeGuardCriterion renders a criterion that classifyCriterion accepts as a command-result', () => {
+    const criterion = scopeGuardCriterion('src/services/foo.ts');
+    const verdict = classifyCriterion(criterion, []);
+    expect(verdict.citable).toBe(true);
+    expect(verdict.kind).toBe('command-result');
+  });
+
+  it('buildNodePrompt blueprint routes scope limits to outOfScope or the scope guard', () => {
+    const prompt = buildNodePrompt('blueprint', leaf);
+    expect(prompt).toContain('outOfScope');
+    expect(prompt).toContain(scopeGuardCriterion('src/services/foo.ts'));
+    expect(prompt).not.toContain('NON-GOALS note in the prose');
+  });
+
+  it('all five blueprint-authoring prompts carry the same deletion-criteria block', () => {
+    const blueprintPrompt = buildNodePrompt('blueprint', leaf);
+    const refreshPrompt = buildBlueprintRefreshPrompt(leaf, '# Test', ['src/test.ts']);
+    const repairPrompt = buildCriteriaRepairPrompt(leaf, '# Test', { verdicts: [], offenders: [], reasons: [] });
+    const rewritePrompt = buildCriterionRewritePrompt(leaf, []);
+    const blueprintRepairPrompt = buildBlueprintRepairPrompt(leaf, '# Test', 'symbol-present');
+
+    const expectedLine = scopeGuardCriterion('src/services/foo.ts');
+    for (const prompt of [blueprintPrompt, refreshPrompt, repairPrompt, rewritePrompt, blueprintRepairPrompt]) {
+      expect(prompt).toContain(expectedLine);
+    }
   });
 });
