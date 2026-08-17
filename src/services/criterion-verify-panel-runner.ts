@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn } from './criterion-verify-panel.js';
+import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn, classifyLensOutcome } from './criterion-verify-panel.js';
 import { planPanelModels, assertDistinctPanel, PANEL_LENS_TIMEOUT_MS } from './criterion-verify-panel-plan.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
@@ -61,6 +61,7 @@ export async function runCriterionVerifyPanel(
   invocations: number;
   dissent?: string;
   outcome?: 'pass' | 'dissent' | 'infra-degraded';
+  retry?: boolean;
 }> {
   // 1. No-op guard: resolve criterion and check if verifiedAtSha is unchanged
   const todoId = missionIdOfCriterion(project, criterionId);
@@ -177,26 +178,52 @@ export async function runCriterionVerifyPanel(
     const parseSource = res.ok ? (res.text && res.text.trim() ? res.text : res.stdout) : undefined;
     const parsed = parseLensVerdict(parseSource);
 
-    const met = parsed === 'met';
-    const reason =
-      parsed === 'error'
-        ? res.ok
-          ? 'no VERDICT line found in response'
-          : `node failed: ${res.text || 'no output'}`
-        : parsed === 'not-met'
-          ? 'lens found evidence against the criterion'
-          : 'criterion met by this lens';
+    const outcome = classifyLensOutcome({
+      ok: res.ok,
+      exitCode: res.exitCode,
+      timedOut: res.timedOut,
+      rateLimited: res.rateLimited,
+      startFailure: res.startFailure,
+      text: res.text ?? res.stdout,
+      parsed,
+    });
 
-    verdicts.push({ lens, met, reason });
-    causes.push(parsed === 'error' ? 'infra' : parsed === 'not-met' ? 'genuine-not-met' : 'met');
+    if (outcome === 'infra') {
+      // Derive shape-only label from NodeResult
+      let label = 'non-zero-exit';
+      if (res.timedOut) {
+        label = 'timeout';
+      } else if (res.rateLimited || (res.text ?? res.stdout)?.match(/you[''']ve reached your .{0,40}limit|quota|rate.?limit|429|overloaded/i)) {
+        label = 'rate-limit';
+      }
+      verdicts.push({ lens, met: false, indeterminate: true, reason: `infra: lens node did not produce a verdict (${label})` });
+      causes.push('infra');
+    } else if (outcome === 'met') {
+      verdicts.push({ lens, met: true, reason: 'criterion met by this lens' });
+      causes.push('met');
+    } else {
+      verdicts.push({ lens, met: false, reason: 'lens found evidence against the criterion' });
+      causes.push('genuine-not-met');
+    }
   }
 
   // 5. Join verdicts — filter infra lenses and check majority coverage.
   // Infra lenses (timeouts, parse failures) cannot cast a vote, so the majority is computed
   // over the parseable subset only. If coverage is below majority, return infra-degraded hold.
   // Otherwise, join over parseable lenses only via the shared strict-majority rule.
-  const parseableVerdicts = verdicts.filter((_, i) => causes[i] !== 'infra');
+  const parseableVerdicts = verdicts.filter((v, i) => causes[i] !== 'infra' && !v.indeterminate);
   const requiredMajority = Math.floor(lenses.length / 2) + 1;
+
+  // Early return if all lenses are infra (parseable count is 0)
+  if (parseableVerdicts.length === 0) {
+    return {
+      met: false,
+      hold: true,
+      outcome: 'infra-degraded',
+      retry: true,
+      invocations: lenses.length,
+    };
+  }
 
   let met: boolean;
   let outcome: 'pass' | 'dissent' | 'infra-degraded';
@@ -230,7 +257,7 @@ export async function runCriterionVerifyPanel(
   // silent phantom-gap: the criterion flipped to unmet, lost its audit trail, AND lost the
   // land-reopen linkage. Now a HOLD persists WHY it held (the dissent) and RETAINS the prior
   // evidence + paths, so a shared-evidence-path reopen is diagnosable and re-verifiable.
-  const panelSummary = verdicts.map((v) => `${v.lens}:${v.met ? 'met' : 'not-met'}`).join(', ');
+  const panelSummary = verdicts.map((v) => `${v.lens}:${v.indeterminate ? 'indeterminate' : v.met ? 'met' : 'not-met'}`).join(', ');
   const priorEvidence = criterion.evidence
     ? `\n\nPRIOR evidence (retained — re-verify against ground truth if this reopen was a shared-evidence-path land, not a real change):\n${criterion.evidence}`
     : '';

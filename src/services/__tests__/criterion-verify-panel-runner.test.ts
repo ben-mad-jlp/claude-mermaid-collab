@@ -236,7 +236,7 @@ describe('runCriterionVerifyPanel', () => {
     }
   });
 
-  test('all-lenses-unparseable panel records outcome infra-degraded with the infra marker in evidence', async () => {
+  test('all-lenses-unparseable panel (no VERDICT, ok:true) records outcome dissent via genuine not-met verdicts', async () => {
     const { criterion } = await setupMissionWithCriterion();
 
     const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
@@ -264,11 +264,13 @@ describe('runCriterionVerifyPanel', () => {
       recordVerdict: mockRecord,
     });
 
-    expect(result.outcome).toBe('infra-degraded');
+    // Unparseable responses with ok:true and exitCode:0 are treated as genuine not-met verdicts,
+    // not infra failures. A full panel of genuine not-met yields dissent, not infra-degraded.
+    expect(result.outcome).toBe('dissent');
     expect(result.hold).toBe(true);
     expect(result.met).toBe(false);
     expect(extraSeen).toBeTruthy();
-    expect(extraSeen?.evidence).toContain('infra-degraded');
+    expect(extraSeen?.evidence).toContain('Dissent:');
   });
 
   test('all-lenses genuine FAIL panel records outcome dissent without the infra marker', async () => {
@@ -513,6 +515,155 @@ describe('runCriterionVerifyPanel', () => {
     expect(result.hold).toBe(true);
   });
 
+  test('a rate-limited lens is indeterminate — two PASS lenses still carry the panel', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const invokeCallCount = { count: 0 };
+    let recordedVerdicts: PanelVerdict[] | undefined;
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
+      invokeCallCount.count++;
+      // First two PASS, third is rate-limited (infra)
+      if (invokeCallCount.count < 3) {
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: PASS',
+          durationMs: 1000,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      }
+      // Rate-limited response
+      return {
+        ok: true,
+        exitCode: 0,
+        stdout: "You've reached your Fable 5 limit",
+        durationMs: 1000,
+        rateLimited: true,
+        authMode: 'subscription',
+      };
+    };
+
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      pv: PanelVerdict[],
+    ): Promise<string | null> => {
+      recordedVerdicts = pv;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    // 2 PASS lenses meet the required majority of 2
+    expect(result.met).toBe(true);
+    expect(result.outcome).toBe('pass');
+    expect(result.hold).toBeUndefined();
+    expect(recordedVerdicts).toHaveLength(3);
+    // The rate-limited lens should be indeterminate
+    const rateLimitedVerdict = recordedVerdicts?.[2];
+    expect(rateLimitedVerdict?.indeterminate).toBe(true);
+    expect(rateLimitedVerdict?.reason).toContain('infra: lens node did not produce a verdict');
+    // The reason should NOT contain raw provider text
+    expect(rateLimitedVerdict?.reason).not.toContain('Fable');
+  });
+
+  test('an all-infra panel records nothing and returns retry', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => ({
+      ok: false,
+      exitCode: 137,
+      stdout: '',
+      durationMs: 10 * 60 * 1000,
+      rateLimited: false,
+      authMode: 'subscription',
+      timedOut: true,
+    });
+
+    const recordCallCount = { count: 0 };
+    const mockRecord = async (): Promise<string | null> => {
+      recordCallCount.count++;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    // All lenses timed out, so no record should be called
+    expect(recordCallCount.count).toBe(0);
+    expect(result.met).toBe(false);
+    expect(result.hold).toBe(true);
+    expect(result.outcome).toBe('infra-degraded');
+    expect(result.retry).toBe(true);
+    expect(result.invocations).toBe(3);
+  });
+
+  test('infra lens text never reaches recorded evidence or panel reasons', async () => {
+    const { criterion } = await setupMissionWithCriterion();
+
+    const invokeCallCount = { count: 0 };
+    let recordedExtra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string } | undefined;
+
+    const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
+      invokeCallCount.count++;
+      // First PASS, second and third are rate-limited
+      if (invokeCallCount.count === 1) {
+        return {
+          ok: true,
+          exitCode: 0,
+          stdout: 'VERDICT: PASS',
+          durationMs: 1000,
+          rateLimited: false,
+          authMode: 'subscription',
+        };
+      }
+      // Rate-limited with subscription-cap text
+      return {
+        ok: true,
+        exitCode: 0,
+        stdout: "You've reached your Claude 3.5 Sonnet limit for today",
+        durationMs: 1000,
+        rateLimited: true,
+        authMode: 'subscription',
+        text: "You've reached your Claude 3.5 Sonnet limit for today",
+      };
+    };
+
+    const mockRecord = async (
+      _p: string,
+      _cid: string,
+      _pv: PanelVerdict[],
+      extra: { met: boolean; evidence: string; evidencePaths: string[]; verifiedAtSha?: string },
+    ): Promise<string | null> => {
+      recordedExtra = extra;
+      return null;
+    };
+
+    const result = await runCriterionVerifyPanel(project, criterion.id, {
+      invoke: mockInvoke,
+      recordVerdict: mockRecord,
+    });
+
+    // 1 PASS is below the required majority of 2 → infra-degraded hold
+    expect(result.outcome).toBe('infra-degraded');
+    expect(result.hold).toBe(true);
+    expect(recordedExtra).toBeTruthy();
+    if (recordedExtra) {
+      // The evidence must NOT contain the raw provider subscription-cap text
+      expect(recordedExtra.evidence).not.toContain("You've reached your");
+      expect(recordedExtra.evidence).not.toContain('Sonnet');
+      // The evidence SHOULD indicate infra-degraded
+      expect(recordedExtra.evidence).toContain('infra-degraded');
+    }
+  });
+
   it('a mixed panel cites only the genuine dissenting lens', async () => {
     const { criterion } = await setupMissionWithCriterion();
 
@@ -598,6 +749,7 @@ describe('runCriterionVerifyPanel', () => {
 
     for (const combination of combinations) {
       const invokeCallCount = { count: 0 };
+      const recordCallCount = { count: 0 };
 
       const mockInvoke = async (_spec: NodeSpec): Promise<NodeResult> => {
         const state = combination[invokeCallCount.count];
@@ -635,7 +787,10 @@ describe('runCriterionVerifyPanel', () => {
         };
       };
 
-      const mockRecord = async (): Promise<string | null> => null;
+      const mockRecord = async (): Promise<string | null> => {
+        recordCallCount.count++;
+        return null;
+      };
 
       const result = await runCriterionVerifyPanel(project, criterion.id, {
         invoke: mockInvoke,
@@ -648,6 +803,7 @@ describe('runCriterionVerifyPanel', () => {
       const parseableFail = parseable.filter((s) => s === 'fail').length;
       const expectedMet =
         parseable.length >= 2 && parseablePass * 2 > parseable.length;
+      const isAllInfra = combination.every((s) => s === 'infra');
 
       // Assert met matches oracle
       expect(result.met).toBe(expectedMet);
@@ -656,6 +812,15 @@ describe('runCriterionVerifyPanel', () => {
       if (parseable.length < 2) {
         expect(result.outcome).toBe('infra-degraded');
         expect(result.hold).toBe(true);
+      }
+
+      // All-infra case: record should not be called, and retry should be true
+      if (isAllInfra) {
+        expect(recordCallCount.count).toBe(0);
+        expect(result.retry).toBe(true);
+      } else {
+        // All other combinations should record
+        expect(recordCallCount.count).toBe(1);
       }
     }
   });
