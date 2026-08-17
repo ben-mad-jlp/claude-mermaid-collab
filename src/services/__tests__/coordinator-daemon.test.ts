@@ -501,6 +501,30 @@ describe('handleWorkerComplete — authoritative gate (5374e299)', () => {
     expect(gateCalls).toBe(0);
     expect(r.baseRed).toBeUndefined();
   });
+
+  test('completeTodo skipped (CAS precondition failed) → skipped:true + reset_todo refusal, no escalation', async () => {
+    const escalated: string[] = [];
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('skip1'), promoted: [], skipped: true }),
+      escalateRejected: async (_p, id) => { escalated.push(id); },
+      runGate: async () => ({ passed: false, reasons: ['x'] }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'skip1', 'rejected');
+    expect(r.skipped).toBe(true);
+    expect(r.refusal).toMatch(/reset_todo/);
+    expect(r.escalated).toBe(false);
+    expect(escalated).toEqual([]);
+  });
+
+  test('non-skipped accepted completion → skipped is falsy', async () => {
+    const deps = makeDeps({
+      completeTodo: async (_p, _id, _a) => ({ completed: makeTodo('noskip1'), promoted: [] }),
+      runGate: async () => ({ passed: true, reasons: [] }),
+    });
+    const r = await handleWorkerComplete(deps, 'proj', 'noskip1', 'accepted');
+    expect(r.skipped).toBeFalsy();
+    expect(r.refusal).toBeUndefined();
+  });
 });
 
 describe('handleWorkerComplete — sibling parity: base-attributed rejected park', () => {
