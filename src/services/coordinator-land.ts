@@ -1571,7 +1571,8 @@ export async function resetCampaignProbesForLandedPaths(
     const reset: string[] = [];
     const kept: string[] = [];
 
-    const campaigns = listCampaignsFn(project);
+    // Dropped campaigns take no side effects from a land — their probes stay as they were.
+    const campaigns = listCampaignsFn(project).filter((c) => c.droppedAt == null);
     for (const campaign of campaigns) {
       const result = await resetProbesForLandFn(project, campaign.id, landedPaths);
       reset.push(...result.reset);

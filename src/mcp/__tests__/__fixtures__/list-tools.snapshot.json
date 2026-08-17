@@ -6331,6 +6331,27 @@
       "name": "get_campaign"
     },
     {
+      "description": "Drop a campaign so no further pass runs for it: it stops spawning missions and takes no land side effects, but stays readable via list_campaigns/get_campaign with its droppedAt timestamp. Idempotent. This is the only way to retire a stale campaign — passes otherwise run for EVERY campaign of a project.",
+      "inputSchema": {
+        "properties": {
+          "campaignId": {
+            "description": "Campaign id to drop.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Tracking project.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "campaignId"
+        ],
+        "type": "object"
+      },
+      "name": "drop_campaign"
+    },
+    {
       "description": "Read-only effective CONTROL PLANE in one view — what knobs the daemon is ACTUALLY running with, so the steward doesn't have to read config.json by hand + cross-reference N pause tools. Returns `flags` (the resolved values the running process uses, via each owning module's accessor — workerIsolation (MERMAID_WORKER_ISOLATION), poolSizes per type (MERMAID_POOL_<TYPE>), maxColdStarts (MERMAID_MAX_COLD_STARTS), deadGraceMs (MERMAID_DEAD_GRACE), and the effective context-watchdog threshold) + `overrides` (every pause/level: steward pause+liveness, supervisor pauses, this project's orchestrator autonomy level). COMPACT with `pointers` to the tool that changes each field. Read-only.",
       "inputSchema": {
         "properties": {
