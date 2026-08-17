@@ -327,6 +327,18 @@ export function releaseProbeClaim(project: string, probeId: string): void {
 }
 
 /**
+ * Unlink a probe from its mission unconditionally by deleting the campaign_probe_mission row.
+ * Used to clear stale links to closed or terminal missions so the probe becomes re-claimable.
+ * No prefix predicate — deletes any mission link for the probe.
+ */
+export function unlinkProbeMission(project: string, probeId: string): void {
+  const db = openCampaignPassDb(project);
+  db.prepare(
+    `DELETE FROM campaign_probe_mission WHERE probeId = ?`,
+  ).run(probeId);
+}
+
+/**
  * List all open linked missions for a campaign.
  * Filters links to those whose mission is still open (not terminal).
  */
@@ -470,6 +482,9 @@ export async function runCampaignPass(
         if (link && isMissionOpenFn(project, link.missionId)) {
           skipped.push(probe.id);
         } else {
+          if (link != null) {
+            unlinkProbeMission(project, probe.id);
+          }
           toGroup.push(probe);
         }
       } catch {
