@@ -293,4 +293,25 @@ describe('PlanKanban', () => {
     const lane = screen.getByTestId('orphan-lane');
     expect(within(lane).queryByTestId('open-epic-graph')).toBeNull();
   });
+
+  it('renders every work-request lane when only one bucket epic exists', () => {
+    const todos = [
+      todo({ id: 'BUGFIX', kind: 'epic', bucketType: 'bugfix' }),
+      todo({ id: 'b1', status: 'ready', parentId: 'BUGFIX' }),
+    ];
+    render(<PlanKanban todos={todos} showCompleted={false} />);
+    expect(screen.getByTestId('work-request-view-explore')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-bugfix')).toBeInTheDocument();
+    expect(screen.getByTestId('work-request-view-feature')).toBeInTheDocument();
+  });
+
+  it('an empty work-request lane renders an empty state', () => {
+    const todos = [
+      todo({ id: 'BUGFIX', kind: 'epic', bucketType: 'bugfix' }),
+      todo({ id: 'b1', status: 'ready', parentId: 'BUGFIX' }),
+    ];
+    render(<PlanKanban todos={todos} showCompleted={false} />);
+    expect(screen.getByTestId('work-request-view-explore-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('work-request-view-bugfix-empty')).toBeNull();
+  });
 });
