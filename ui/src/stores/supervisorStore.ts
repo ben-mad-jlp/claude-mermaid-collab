@@ -299,6 +299,7 @@ const PROJECTS_KEY = 'supervisor-projects';
  *  v2 client at first paint (kindOf throws before any fetch), so v2 never reads it. */
 const LEGACY_TODOS_KEY = 'supervisor-todos-by-project';
 const TODOS_KEY = 'supervisor-todos-by-project.v2';
+export const TODOS_CACHE_MAX_BYTES = 2_000_000;
 const ESCALATIONS_KEY = 'supervisor-escalations';
 const RESOLVED_ESCALATIONS_KEY = 'supervisor-escalations-resolved';
 const SUPERVISED_KEY = 'supervisor-supervised';
@@ -437,6 +438,33 @@ function sanitizeTodosByProject(raw: unknown): Record<string, SessionTodo[]> {
 function hydrateTodosByProject(): Record<string, SessionTodo[]> {
   try { localStorage.removeItem(LEGACY_TODOS_KEY); } catch { /* storage unavailable */ }
   return sanitizeTodosByProject(hydrate<unknown>(TODOS_KEY, {}));
+}
+
+/** Persist the todos cache with a byte-size limit. Evicts the oldest (first-inserted)
+ *  project key when the serialized blob exceeds TODOS_CACHE_MAX_BYTES and there is
+ *  more than one key. localStorage.setItem errors are swallowed (cache only; server
+ *  is authoritative). Returns the (possibly evicted) map for use as state. */
+function persistTodosCache(todosByProject: Record<string, SessionTodo[]>): Record<string, SessionTodo[]> {
+  let map = todosByProject;
+  let serialized = JSON.stringify(map);
+  let byteLength = new TextEncoder().encode(serialized).length;
+
+  // Evict the oldest project key while over the cap and there are multiple keys
+  while (byteLength > TODOS_CACHE_MAX_BYTES && Object.keys(map).length > 1) {
+    const oldestKey = Object.keys(map)[0];
+    const { [oldestKey]: _drop, ...rest } = map;
+    map = rest;
+    serialized = JSON.stringify(map);
+    byteLength = new TextEncoder().encode(serialized).length;
+  }
+
+  try {
+    localStorage.setItem(TODOS_KEY, serialized);
+  } catch {
+    // QuotaExceededError and any other storage error: cache only, do not throw
+  }
+
+  return map;
 }
 
 // Z9: module-scope snooze resurface timers, keyed by `${project}::${session}`.
@@ -953,8 +981,8 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const res = await invoke(serverId, path, 'GET');
     if (!res?.ok) return; // keep prior (cached) state on failure
     set((state) => {
-      const todosByProject = { ...state.todosByProject, [project]: res.body?.todos ?? [] };
-      localStorage.setItem(TODOS_KEY, JSON.stringify(todosByProject));
+      const { [project]: _drop, ...rest } = state.todosByProject;
+      const todosByProject = persistTodosCache({ ...rest, [project]: res.body?.todos ?? [] });
       return { todosByProject };
     });
     // Fold the unlanded-epic readout into the same per-project refresh (no new
@@ -1003,8 +1031,8 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
 
       // Mirror loadProjectTodos: body.todos → todosByProject[project]
       if (res.body?.todos) {
-        const todosByProject = { ...state.todosByProject, [project]: res.body.todos };
-        localStorage.setItem(TODOS_KEY, JSON.stringify(todosByProject));
+        const { [project]: _drop, ...rest } = state.todosByProject;
+        const todosByProject = persistTodosCache({ ...rest, [project]: res.body.todos });
         nextState.todosByProject = todosByProject;
       }
 
