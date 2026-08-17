@@ -37,6 +37,9 @@ export type RigRunVerdict = RecordedVerdict | 'rig-fault';
 /** Closed union of campaign completion verdicts. */
 export type CompletionVerdict = 'done' | 'not-done';
 
+/** Round in a two-round lens deliberation: independent for round 1, deliberation for round 2. */
+export type CompletionLensRound = 'independent' | 'deliberation';
+
 /** A per-lens completion verdict: the judge's reasoning broken down by inspection lens. */
 export interface CompletionLensRecord {
   id: number;
@@ -44,6 +47,8 @@ export interface CompletionLensRecord {
   lens: string;
   verdict: CompletionVerdict;
   reasoning: string | null;
+  round: CompletionLensRound;
+  changedVerdict: boolean;
   recordedAt: number;
 }
 
@@ -52,6 +57,8 @@ export interface CompletionLensInput {
   lens: string;
   verdict: CompletionVerdict;
   reasoning?: string | null;
+  round?: CompletionLensRound;
+  changedVerdict?: boolean;
 }
 
 /** Closed union of mission proposal rulings. */
@@ -221,6 +228,8 @@ const COMPLETION_LENS_TABLE_DDL = `
   lens TEXT NOT NULL,
   verdict TEXT NOT NULL CHECK (verdict IN ('done','not-done')),
   reasoning TEXT,
+  round TEXT NOT NULL DEFAULT 'independent' CHECK (round IN ('independent','deliberation')),
+  changedVerdict INTEGER NOT NULL DEFAULT 0,
   recordedAt INTEGER NOT NULL
 `;
 
@@ -262,6 +271,7 @@ CREATE TABLE IF NOT EXISTS campaign_completion_verdict (${COMPLETION_VERDICT_TAB
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_verdict_campaign ON campaign_completion_verdict(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_completion_lens (${COMPLETION_LENS_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_completion ON campaign_completion_lens(completionId);
+CREATE INDEX IF NOT EXISTS idx_campaign_completion_lens_round ON campaign_completion_lens(completionId, round);
 CREATE TABLE IF NOT EXISTS campaign_mission_proposal (${MISSION_PROPOSAL_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_campaign ON campaign_mission_proposal(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_mission_proposal_objection (${MISSION_PROPOSAL_OBJECTION_TABLE_DDL});
@@ -430,6 +440,27 @@ function ensureMissionProposalTables(db: Database): void {
   `);
 }
 
+/**
+ * Idempotent migration to add round and changedVerdict columns to campaign_completion_lens table.
+ * Uses PRAGMA table_info to check if the columns exist; adds them if missing.
+ * Safe to call multiple times and on tables that already have the columns.
+ */
+function addCompletionLensRoundColumns(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign_completion_lens)")
+    .all() as Array<{ name: string }>;
+
+  const hasRound = tableInfo.some((col) => col.name === 'round');
+  const hasChangedVerdict = tableInfo.some((col) => col.name === 'changedVerdict');
+
+  if (!hasRound) {
+    db.prepare("ALTER TABLE campaign_completion_lens ADD COLUMN round TEXT NOT NULL DEFAULT 'independent'").run();
+  }
+  if (!hasChangedVerdict) {
+    db.prepare("ALTER TABLE campaign_completion_lens ADD COLUMN changedVerdict INTEGER NOT NULL DEFAULT 0").run();
+  }
+}
+
 export function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -458,6 +489,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add citedLenses column to campaign_completion_verdict if missing.
   addCompletionCitedLensesColumn(db);
+
+  // Idempotent migration: add round and changedVerdict columns to campaign_completion_lens if missing.
+  addCompletionLensRoundColumns(db);
 
   // Idempotent migration: create mission_proposal and mission_proposal_objection tables if missing.
   ensureMissionProposalTables(db);
@@ -892,7 +926,7 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
     const lenses = input.lenses ?? [];
     if (lenses.length > 0) {
       const lensInsertStmt = db.prepare(
-        'INSERT INTO campaign_completion_lens (completionId, lens, verdict, reasoning, recordedAt) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO campaign_completion_lens (completionId, lens, verdict, reasoning, round, changedVerdict, recordedAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       for (const lens of lenses) {
         lensInsertStmt.run(
@@ -900,6 +934,8 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
           lens.lens,
           lens.verdict,
           lens.reasoning ?? null,
+          lens.round ?? 'independent',
+          lens.changedVerdict ? 1 : 0,
           ts,
         );
       }
@@ -990,6 +1026,8 @@ export function listCompletionLenses(project: string, completionId: number): Com
     lens: row.lens,
     verdict: row.verdict as CompletionVerdict,
     reasoning: row.reasoning,
+    round: (row.round ?? 'independent') as CompletionLensRound,
+    changedVerdict: row.changedVerdict === 1,
     recordedAt: row.recordedAt,
   }));
 }
