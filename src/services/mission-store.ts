@@ -30,6 +30,7 @@ import { CRITERION_SERVE_CAP, REOPEN_CARD_THRESHOLD, CHILDLESS_SERVE_GRACE_MS } 
 import { fireConductorKick } from './orchestrator-kick.ts';
 import { isMissionStalled } from './mission-stall.ts';
 import { isLanded, isEpicStatusDone, landedVia, type LandedVia } from './epic-landedness.ts';
+import { holdOutcomeFor } from './conductor-hold-classification.ts';
 
 import { classifyCriterion, compliantShapeFor } from './criteria-citability.ts';
 import { criterionEdgesOf, todoServesCriterion } from './criterion-edges.ts';
@@ -1703,9 +1704,11 @@ export interface MissionCriterionFacts {
    *  of dropped serving epics. Once this hits CRITERION_SERVE_CAP the conductor stops
    *  re-filing and escalates once instead (see deriveCriterionAction). */
   servedEpicCount: number;
-  /** Count of this criterion's serving-epic leaf runs whose `finalOutcome` is 'rejected' or
-   *  'blocked'. Feeds the conductor debounce fingerprint so a leaf flipping to rejected/parked
-   *  breaks debounce even when the derived action is unchanged (still 'building'). */
+  /** Count of this criterion's serving-epic leaves that are rejected/blocked in the ledger,
+   *  plus serving-epic leaves held on a sibling collision (holdOutcomeFor(heldReason) === 'held'),
+   *  deduped by leaf id. Feeds the conductor debounce fingerprint so a leaf flipping to
+   *  rejected/parked/collision-held breaks debounce even when the derived action is unchanged
+   *  (still 'building'). */
   rejectedParkedCount: number;
   /** Sha the last recorded verdict was measured against. Optional — absent ⇒ freshness check fails closed. */
   verifiedAtSha?: string | null;
@@ -2117,10 +2120,29 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       ).length;
       const servingEpics = serving.map((e) => ({ id: e.id, title: e.title, landed: resolveLanded(e), landedVia: landedVia(e) }));
       const servingEpicIds = new Set(serving.map((e) => e.id));
-      const rejectedParkedCount = runs.filter(
-        (r) => r.epicId != null && servingEpicIds.has(r.epicId) &&
-          (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked'),
-      ).length;
+      const rejectedParkedCount = (() => {
+        const leafIds = new Set<string>();
+        // Seed with rejected/blocked runs from serving epics
+        for (const r of runs) {
+          if (r.epicId != null && servingEpicIds.has(r.epicId) &&
+              (r.finalOutcome === 'rejected' || r.finalOutcome === 'blocked')) {
+            leafIds.add(r.leafId);
+          }
+        }
+        // Walk descendants of serving epics for collision-held leaves
+        const walk = (parentId: string) => {
+          for (const t of childrenByParent.get(parentId) ?? []) {
+            if (!isEpic(t) && t.heldAt != null && holdOutcomeFor(t.heldReason ?? null) === 'held') {
+              leafIds.add(t.id);
+            }
+            walk(t.id);
+          }
+        };
+        for (const e of serving) {
+          walk(e.id);
+        }
+        return leafIds.size;
+      })();
       let servingEpicLandSha: string | null = null;
       let servingEpicLandedAt: number | null = null;
       try {
