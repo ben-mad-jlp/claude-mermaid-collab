@@ -203,9 +203,10 @@ describe('campaign-judge-panel', () => {
       });
     }
 
-    // Create a fake LLM that returns specific verdicts per lens.
-    // goal-met and evidence-quality vote done; refuter votes not-done.
-    // The commander, seeing 2 done and 1 not-done, rules done (majority and strong reasoning).
+    // Create a fake LLM that returns specific verdicts per lens for both rounds.
+    // goal-met and evidence-quality vote done; refuter votes not-done in round 1.
+    // In round 2 (deliberation), all lenses keep their verdicts.
+    // The commander, seeing the round-2 verdicts, rules done.
     let lensCallCount = 0;
     let commanderCallCount = 0;
     const fakeJudgmentLLM: JudgmentLLM = {
@@ -223,7 +224,8 @@ describe('campaign-judge-panel', () => {
         expect(lensMatch).toBeTruthy();
         const lensName = lensMatch![1];
 
-        // Return different verdicts per lens.
+        // Return the same verdicts for both round 1 and round 2 deliberation.
+        // All lenses keep their verdicts across rounds.
         if (lensName === 'goal-met') {
           return '{"verdict":"done","rationale":"Goal is clearly met by the passing probe"}';
         } else if (lensName === 'evidence-quality') {
@@ -242,8 +244,8 @@ describe('campaign-judge-panel', () => {
       ruledAtSha: 'sha123',
     });
 
-    // Verify the judge was called once per lens plus once for the commander.
-    expect(lensCallCount).toBe(3);
+    // Verify the judge was called 6 times for lenses (3 round 1 + 3 round 2 deliberation) plus once for the commander.
+    expect(lensCallCount).toBe(6);
     expect(commanderCallCount).toBe(1);
 
     // Verify the commander ruling is 'done'.
@@ -254,15 +256,15 @@ describe('campaign-judge-panel', () => {
     expect(result.citedLenses).toContain('goal-met');
     expect(result.citedLenses).toContain('evidence-quality');
 
-    // Verify all three lenses were persisted.
+    // Verify all three lenses were persisted in two rounds.
     const completions = listCampaignCompletions(project, campaign.id);
     expect(completions).toHaveLength(1);
 
     const lensRecords = listCompletionLenses(project, result.id);
-    expect(lensRecords).toHaveLength(3);
+    expect(lensRecords).toHaveLength(6);
 
-    // Verify each lens verdict and reasoning.
-    const lensMap = new Map(lensRecords.map((l) => [l.lens, l]));
+    // Verify each lens verdict and reasoning from the independent round only.
+    const lensMap = new Map(lensRecords.filter((l) => l.round === 'independent').map((l) => [l.lens, l]));
 
     expect(lensMap.get('goal-met')?.verdict).toBe('done');
     expect(lensMap.get('goal-met')?.reasoning).toContain('Goal is clearly met');
