@@ -94,6 +94,20 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
   return (
     <div className="p-2 space-y-3">
       {campaigns.map((c) => (
+        c.droppedAt != null ? (
+          // A dropped campaign no longer runs passes or spawns missions — one muted line,
+          // no goal/probes/ruling, so retired work cannot be mistaken for live work.
+          <div
+            key={c.id}
+            data-testid="campaign-dropped"
+            className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-600"
+          >
+            <span className="line-through">{c.title}</span>
+            <span className="shrink-0 px-1 py-0.5 rounded text-2xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-500">
+              dropped
+            </span>
+          </div>
+        ) : (
         <div key={c.id} className="space-y-1">
           {/* Campaign heading with optional click handler */}
           {onOpenEntity ? (
@@ -267,6 +281,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
             </div>
           )}
         </div>
+        )
       ))}
     </div>
   );
