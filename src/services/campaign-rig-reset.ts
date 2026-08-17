@@ -9,6 +9,7 @@
  */
 import Database from 'bun:sqlite';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { canonicalProjectRoot, canonicalProjectRootLoose } from './store-paths.ts';
 import { openCollabDb, closeCollabDb } from './collab-db.ts';
 
@@ -65,21 +66,64 @@ CREATE INDEX IF NOT EXISTS idx_campaign_rig_reset_probe ON campaign_rig_reset(pr
 /** Module-local prepared marker, mirroring campaign-pass and campaign-store patterns. */
 const prepared = new Set<string>();
 
-/** Live default implementations for injectable deps. */
-function restoreToCommitLive(targetDir: string, commitSha: string): void {
-  throw new Error('restoreToCommitLive not wired');
+/**
+ * Live default implementations. These were `not wired` throw-stubs when the module first
+ * landed, which made the whole rig layer a PLACEBO in production: the pass's per-probe
+ * fail-open catch swallowed the throw, so every rig probe silently skipped both its reset
+ * and its measurement, with nothing in any log. A rig here is a git checkout that probe
+ * commands run against (the probes drive the app themselves), so the live contract is
+ * filesystem-level: restore the pinned commit, then read the project manifest from disk.
+ */
+async function restoreToCommitLive(targetDir: string, commitSha: string): Promise<void> {
+  const git = async (...args: string[]): Promise<void> => {
+    const p = Bun.spawn(['git', '-C', targetDir, ...args], { stdout: 'ignore', stderr: 'pipe' });
+    const code = await p.exited;
+    if (code !== 0) {
+      const err = await new Response(p.stderr).text();
+      throw new Error(`git ${args.join(' ')} failed in ${targetDir}: ${err.trim().slice(0, 300)}`);
+    }
+  };
+  // Refuse an unknown commit up front — a typo'd pin must fail the reset, not restore HEAD.
+  await git('cat-file', '-e', `${commitSha}^{commit}`);
+  // Detached checkout of the pin, then drop untracked drift. -fd (not -fdx): ignored build
+  // artifacts survive so a reset doesn't force expensive regeneration the probes don't test.
+  await git('checkout', '-f', commitSha, '--');
+  await git('clean', '-fd');
 }
 
+/** The probes launch the application themselves; the handle only carries the rig's root. */
 function startAppLive(targetDir: string): AppHandle {
-  throw new Error('startAppLive not wired');
+  return { targetDir };
 }
 
-function openProjectLive(handle: AppHandle, targetDir: string): OpenedProject {
-  throw new Error('openProjectLive not wired');
+/** Read the manifest, then report the members actually PRESENT on disk after the restore.
+ *  A member declared in project.json but missing as a file shows up as an
+ *  openedMemberCount < manifestCount mismatch in the persisted record. */
+async function openProjectLive(_handle: AppHandle, targetDir: string): Promise<OpenedProject> {
+  const members = await readManifestMembers(targetDir);
+  const present: string[] = [];
+  for (const m of members) {
+    if (existsSync(join(targetDir, m.path))) present.push(m.label);
+  }
+  return { members: present };
 }
 
-function readManifestCountLive(targetDir: string): number {
-  throw new Error('readManifestCountLive not wired');
+async function readManifestCountLive(targetDir: string): Promise<number> {
+  return (await readManifestMembers(targetDir)).length;
+}
+
+/** Parse project.json's members array. Throws on a missing or shapeless manifest —
+ *  a rig without a readable manifest is a failed reset, not a zero-member project. */
+async function readManifestMembers(targetDir: string): Promise<Array<{ label: string; path: string }>> {
+  const manifestPath = join(targetDir, 'project.json');
+  const raw = await Bun.file(manifestPath).text().catch(() => {
+    throw new Error(`rig manifest unreadable: ${manifestPath}`);
+  });
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed?.members)) {
+    throw new Error(`rig manifest has no members array: ${manifestPath}`);
+  }
+  return parsed.members as Array<{ label: string; path: string }>;
 }
 
 const nowMs = (): number => Date.now();
