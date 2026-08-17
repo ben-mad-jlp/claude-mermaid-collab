@@ -96,8 +96,9 @@ describe('campaign-commander-ruling', () => {
       ruledAtSha: 'sha123',
     });
 
-    // Verify the judge was called once per lens, plus once for the commander.
-    expect(lensCallCount).toBe(3);
+    // TWO calls per lens, not one: the panel rules independently and then deliberates,
+    // so three lenses across two rounds is six. The commander still rules exactly once.
+    expect(lensCallCount).toBe(6);
     expect(commanderCallCount).toBe(1);
 
     // Verify the verdict came from the commander.
