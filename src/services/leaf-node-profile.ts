@@ -22,6 +22,7 @@ export const LEAF_NODE_KINDS: LeafNodeKind[] = [
   'research', 'wimplement', 'verify', 'fix',
   'driveplan', 'driveexec', 'report',
   'explore',
+  'lens', 'commander',
   'summary',
 ];
 
@@ -99,6 +100,9 @@ export const NODE_PROFILE: Record<LeafNodeKind, { model: string; allowedTools: s
   // the request points at one — the allowlist is the constant above, not a literal, because a
   // literal here is exactly how that constant sat dead and unread since 2026-08-07.
   explore: { model: 'sonnet', allowedTools: EXPLORE_NODE_ALLOWED_TOOLS, effort: 'high' },
+  // Judgment roles: campaign completion ruling (read-only, high-reasoning rulings over evidence)
+  lens: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
+  commander: { model: 'opus', allowedTools: 'Read Grep Glob Bash', effort: 'high' },
   // zen mode (design-zen-mode Phase 4): summarizes a watched session's progress. Read-only;
   // emits the summary as its final message (consumed by Z7). Default sonnet (claude-sonnet-4-6).
   summary: { model: 'sonnet', allowedTools: 'Read Grep Glob', effort: 'low' },
