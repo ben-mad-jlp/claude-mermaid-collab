@@ -1495,6 +1495,7 @@ export async function runLeaf(
         commands: recordedCommands,
         worktreeRoot: worktreeCwd,
         mainCheckoutRoot: deps.mainCheckoutRoot ?? null,
+        scratchDir: leafScratchFor(worktreeCwd),
       });
       if (!found) return;
       if (workingRootEscape && workingRootEscape.escaped.length === found.escaped.length) return; // already surfaced

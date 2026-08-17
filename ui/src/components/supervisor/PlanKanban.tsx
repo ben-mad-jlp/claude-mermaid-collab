@@ -284,8 +284,7 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
       return wa !== wb ? wa - wb : (a.order ?? 0) - (b.order ?? 0);
     };
     return WORK_REQUEST_VIEW_ORDER
-      .filter((v) => byType.has(v))
-      .map((v) => ({ type: v, label: WORK_REQUEST_VIEW_LABEL[v], items: byType.get(v)!.slice().sort(byWaveOrder) }));
+      .map((v) => ({ type: v, label: WORK_REQUEST_VIEW_LABEL[v], items: (byType.get(v) ?? []).slice().sort(byWaveOrder) }));
   }, [todos, waveMap]);
 
 
@@ -449,25 +448,31 @@ export const PlanKanban: React.FC<PlanKanbanProps> = ({ todos, onSelectTodo, sho
                   <header className="px-2 py-1 text-xs font-semibold text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
                     {lane.label}
                   </header>
-                  <div className="flex flex-wrap gap-1.5 p-1.5">
-                    {lane.items
-                      .map((t) => (
-                        <div key={t.id} className="space-y-1 w-56">
-                          <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />
-                          <button
-                            type="button"
-                            data-testid="promote-to-epic"
-                            data-todo-id={t.id}
-                            disabled={!onPromoteToEpic}
-                            title={onPromoteToEpic ? 'Promote to a deliverable epic' : 'Promote to epic — not available yet'}
-                            onClick={onPromoteToEpic ? () => onPromoteToEpic(t) : undefined}
-                            className="w-full text-left px-3 py-1 text-3xs rounded text-accent-700 dark:text-accent-300 hover:bg-accent-50 dark:hover:bg-accent-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            Promote to epic
-                          </button>
-                        </div>
-                      ))}
-                  </div>
+                  {lane.items.length === 0 ? (
+                    <div data-testid={`work-request-view-${lane.type}-empty`} className="px-2 py-1.5 text-3xs text-gray-400 dark:text-gray-500 italic">
+                      No {lane.label.toLowerCase()} requests
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 p-1.5">
+                      {lane.items
+                        .map((t) => (
+                          <div key={t.id} className="space-y-1 w-56">
+                            <PlanCard todo={t} unblocks={unblocks.get(t.id) ?? 0} onSelect={onSelectTodo} byId={byId} inflightLeafIds={inflightLeafIds} subtasks={undefined} />
+                            <button
+                              type="button"
+                              data-testid="promote-to-epic"
+                              data-todo-id={t.id}
+                              disabled={!onPromoteToEpic}
+                              title={onPromoteToEpic ? 'Promote to a deliverable epic' : 'Promote to epic — not available yet'}
+                              onClick={onPromoteToEpic ? () => onPromoteToEpic(t) : undefined}
+                              className="w-full text-left px-3 py-1 text-3xs rounded text-accent-700 dark:text-accent-300 hover:bg-accent-50 dark:hover:bg-accent-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              Promote to epic
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
