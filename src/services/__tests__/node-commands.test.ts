@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { LEAF_SCRATCH_ROOT, leafScratchFor } from '../leaf-scratch';
 import {
   parseNodeCommands,
   isCwdEscape,
@@ -869,5 +870,70 @@ describe('detectWorkingRootEscape — the implement-node cwd guard', () => {
       worktreeRoot: WT,
     });
     expect(found).toBeNull();
+  });
+
+  it('does NOT fire in the leaf\'s own sanctioned scratch dir (and its subdirs)', () => {
+    const SCRATCH = leafScratchFor(WT);
+    // Test with a command at the scratch root
+    const found1 = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'bun test x.test.ts', cwd: SCRATCH, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      scratchDir: SCRATCH,
+    });
+    expect(found1).toBeNull();
+
+    // Test with a command in a scratch subdirectory
+    const found2 = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'git commit -am probe', cwd: join(SCRATCH, 'sub'), exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      scratchDir: SCRATCH,
+    });
+    expect(found2).toBeNull();
+  });
+
+  it('still fires in the MAIN checkout when a scratchDir is passed', () => {
+    const SCRATCH = leafScratchFor(WT);
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'git commit -am wip', cwd: MAIN, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      scratchDir: SCRATCH,
+      mainCheckoutRoot: MAIN,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.escaped).toHaveLength(1);
+    expect(found!.message).toContain(WT);
+  });
+
+  it('still fires in ANOTHER leaf\'s scratch dir', () => {
+    const SCRATCH_A = leafScratchFor(WT);
+    const SCRATCH_B = leafScratchFor('/wt/leaf-exec-99999999');
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'bun test', cwd: SCRATCH_B, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      scratchDir: SCRATCH_A,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.escaped).toHaveLength(1);
+  });
+
+  it('without scratchDir, a command in the scratch dir is still an escape', () => {
+    const SCRATCH = leafScratchFor(WT);
+    const found = detectWorkingRootEscape({
+      commands: [
+        { cmd: 'bun test x.test.ts', cwd: SCRATCH, exitCode: 0 },
+      ],
+      worktreeRoot: WT,
+      // NO scratchDir parameter
+    });
+    expect(found).not.toBeNull();
+    expect(found!.escaped).toHaveLength(1);
   });
 });
