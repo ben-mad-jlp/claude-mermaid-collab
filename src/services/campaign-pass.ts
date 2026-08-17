@@ -482,7 +482,13 @@ export async function runCampaignPass(
         if (link && isMissionOpenFn(project, link.missionId)) {
           skipped.push(probe.id);
         } else {
-          if (link != null) {
+          // Dead-link self-heal — but a `pending:` row is a LIVE CLAIM, not a dead link:
+          // its missionId never resolves to a mission, so the open-check above is always
+          // false for it. Unlinking it here deleted a concurrent pass's claim mid-forge
+          // and both passes forged (campaign-forge-atomicity red on trunk, 2 missions for
+          // one probe). Leave pending rows alone: a fresh one makes the claim below lose
+          // (correct), and claimProbeForForge itself deletes stale ones.
+          if (link != null && !link.missionId.startsWith(PENDING_MISSION_PREFIX)) {
             unlinkProbeMission(project, probe.id);
           }
           toGroup.push(probe);
