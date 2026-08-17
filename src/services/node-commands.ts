@@ -436,18 +436,49 @@ export function detectWorkingRootEscape(opts: {
   commands: readonly RecordedCommand[];
   worktreeRoot: string;
   mainCheckoutRoot?: string | null;
+  scratchDir?: string;
 }): { escaped: RecordedCommand[]; message: string } | null {
   try {
+    // Precompute scratch root candidates for containment check
+    let scratchRoots: string[] = [];
+    if (opts.scratchDir) {
+      try {
+        scratchRoots.push(realpathSync(opts.scratchDir));
+      } catch {
+        scratchRoots.push(resolve(opts.scratchDir));
+      }
+      // Always include the resolved form as a fallback candidate
+      scratchRoots.push(resolve(opts.scratchDir));
+    }
+
+    // Predicate: is a cwd contained within the scratch dir(s)?
+    const isUnderScratch = (cwd: string): boolean => {
+      if (scratchRoots.length === 0) return false;
+      let resolvedCwd: string;
+      try {
+        resolvedCwd = realpathSync(cwd);
+      } catch {
+        resolvedCwd = resolve(cwd);
+      }
+      for (const scratch of scratchRoots) {
+        const rel = relative(scratch, resolvedCwd);
+        // cwd is contained in scratch iff relative path is empty or doesn't escape
+        if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return true;
+      }
+      return false;
+    };
+
     const escaped = opts.commands.filter(
-      (c) => isCwdEscape(c.cwd, opts.worktreeRoot) && escapeMutatesOrVerifies(c.cmd),
+      (c) => isCwdEscape(c.cwd, opts.worktreeRoot) && !isUnderScratch(c.cwd) && escapeMutatesOrVerifies(c.cmd),
     );
     if (escaped.length === 0) return null;
     const first = escaped[0]!;
     const main = opts.mainCheckoutRoot ? ` The repository's MAIN checkout is ${opts.mainCheckoutRoot}.` : '';
+    const scratchMsg = opts.scratchDir ? `  Sanctioned scratch: ${opts.scratchDir}.` : '';
     const message =
       `working-root-escape: ${escaped.length} command(s) that mutate or verify ran OUTSIDE this leaf's ` +
       `worktree ${opts.worktreeRoot} — first: \`${first.cmd.slice(0, 200)}\` (cwd ${first.cwd}).${main} ` +
-      `Only the worktree is diffed: edits and test runs anywhere else are discarded and read as an EMPTY DIFF.`;
+      `Only the worktree is diffed: edits and test runs anywhere else are discarded and read as an EMPTY DIFF.${scratchMsg}`;
     return { escaped, message };
   } catch {
     return null; // FAIL OPEN — advisory only
