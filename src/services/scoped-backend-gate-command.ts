@@ -50,6 +50,45 @@ export function buildScopedBackendTestCommand(changedFiles: readonly string[]): 
   return `bun run scripts/test-backend.ts ${files.map(shellQuote).join(' ')}`;
 }
 
+/**
+ * Normalize a bare `bun test` command to the backend wrapper form.
+ *
+ * A pure, total function that never throws. Returns the command unchanged unless:
+ * 1. It does NOT already contain `scripts/test-backend.ts` (idempotence check first)
+ * 2. The lane scope (`matchSource`) is a backend scope: ^src/, ^scripts/, or ^desktop/src/
+ * 3. The command is a bare `bun test` invocation
+ *
+ * When all conditions hold, rewrites `bun test <tail>` to `bun run scripts/test-backend.ts <tail>`,
+ * preserving {file}/{files} placeholders and all flags verbatim.
+ */
+export function normalizeBareRunnerCommand(command: string, matchSource: string): string {
+  // 1. Idempotence: already in wrapper form ⇒ unchanged
+  if (/scripts\/test-backend\.ts/.test(command)) {
+    return command;
+  }
+
+  // 2. Lane scope must be backend: ^src/, ^scripts/, or ^desktop/src/
+  const trimmedSource = matchSource.trim();
+  const isBackendScope =
+    trimmedSource.startsWith('^src/') ||
+    trimmedSource.startsWith('^scripts/') ||
+    trimmedSource.startsWith('^desktop/src/');
+
+  if (!isBackendScope) {
+    return command;
+  }
+
+  // 3. Command must be a bare `bun test` invocation
+  const match = /^bun\s+test\b(.*)$/.exec(command);
+  if (!match) {
+    return command;
+  }
+
+  // All conditions met: rewrite to wrapper form, preserving the tail (flags and placeholders)
+  const tail = match[1];
+  return `bun run scripts/test-backend.ts${tail}`;
+}
+
 /** Single-quote a path for `sh -c`, escaping any embedded single quotes. */
 function shellQuote(p: string): string {
   return `'${p.replace(/'/g, "'\\''")}'`;

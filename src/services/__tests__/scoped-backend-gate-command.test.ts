@@ -3,8 +3,9 @@
  */
 import { describe, it, expect } from 'bun:test';
 import path from 'path';
-import { selectBackendSpecFiles, buildScopedBackendTestCommand } from '../scoped-backend-gate-command';
+import { selectBackendSpecFiles, buildScopedBackendTestCommand, normalizeBareRunnerCommand } from '../scoped-backend-gate-command';
 import { collectBackendTestFiles, DEFAULT_TEST_ROOTS } from '../../../scripts/test-backend';
+import { resolveLeafGate } from '../leaf-gate';
 
 describe('scoped-backend-gate-command', () => {
   describe('selectBackendSpecFiles', () => {
@@ -160,6 +161,64 @@ describe('scoped-backend-gate-command', () => {
       const arrayAll = resultArray.fast.length + resultArray.serial.length + resultArray.nested.length;
 
       expect(stringAll).toBe(arrayAll);
+    });
+  });
+
+  describe('normalizeBareRunnerCommand', () => {
+    it('a bare bun test declaration on a src lane becomes the backend wrapper form', () => {
+      const manifest = {
+        gate: {
+          tests: [{ match: '^src/', command: 'bun test {file}' }],
+        },
+      } as any;
+
+      const result = resolveLeafGate(manifest);
+      expect(result).not.toBeNull();
+      expect(result!.tests).toBeDefined();
+      expect(result!.tests!.length).toBe(1);
+
+      const lane = result!.tests![0];
+      expect(lane.command).toBe('bun run scripts/test-backend.ts {file}');
+      expect(lane.mode).toBe('per-file');
+    });
+
+    it('a ui vitest lane command is returned unchanged', () => {
+      expect(normalizeBareRunnerCommand('bunx vitest run {file}', '^ui/')).toBe('bunx vitest run {file}');
+    });
+
+    it('a command already naming scripts/test-backend.ts on a src lane is returned identically (idempotence)', () => {
+      const cmd = 'bun run scripts/test-backend.ts {file}';
+      expect(normalizeBareRunnerCommand(cmd, '^src/')).toBe(cmd);
+    });
+
+    it('preserves flags and placeholders when normalizing', () => {
+      expect(normalizeBareRunnerCommand('bun test --timeout 30000 {files}', '^src/'))
+        .toBe('bun run scripts/test-backend.ts --timeout 30000 {files}');
+    });
+
+    it('returns a desktop/src lane bare bun test in wrapper form', () => {
+      expect(normalizeBareRunnerCommand('bun test {file}', '^desktop/src/'))
+        .toBe('bun run scripts/test-backend.ts {file}');
+    });
+
+    it('returns a scripts lane bare bun test in wrapper form', () => {
+      expect(normalizeBareRunnerCommand('bun test {file}', '^scripts/'))
+        .toBe('bun run scripts/test-backend.ts {file}');
+    });
+
+    it('leaves non-backend scopes unchanged', () => {
+      const cmd = 'bun test {file}';
+      expect(normalizeBareRunnerCommand(cmd, '^other/')).toBe(cmd);
+    });
+
+    it('leaves non-bun-test commands unchanged', () => {
+      const cmd = 'npm run test {file}';
+      expect(normalizeBareRunnerCommand(cmd, '^src/')).toBe(cmd);
+    });
+
+    it('never throws on any input', () => {
+      expect(() => normalizeBareRunnerCommand('', '')).not.toThrow();
+      expect(() => normalizeBareRunnerCommand('bun test {file}', '')).not.toThrow();
     });
   });
 });
