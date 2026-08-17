@@ -24,6 +24,8 @@ import {
   type CompletionLensInput,
   type CompletionVerdict,
 } from './campaign-store.ts';
+import { NODE_PROFILE } from './leaf-node-profile.ts';
+import { resolveNodeProvider, resolveNodeModel } from './node-provider.ts';
 
 export interface JudgeCampaignOpts {
   llm: JudgmentLLM;
@@ -46,6 +48,7 @@ export interface CampaignLens {
  * and the artifacts and commands it consulted.
  */
 export interface LensExamination {
+  lens: string;
   verdict: CompletionVerdict;
   reasoning: string;
   artifactsRead: string[];
@@ -150,6 +153,147 @@ FOCUS: ${lens.focus}`;
 }
 
 /**
+ * Build the system and user prompts for the campaign completion commander.
+ * The commander reads the lens arguments (verdict, reasoning, evidence) and rules on the strength
+ * of the arguments, not by vote count. One well-argued dissent can defeat concurring lenses.
+ *
+ * The system instructs the commander to respond with a JSON object containing:
+ * - verdict: 'done' | 'not-done'
+ * - rationale: string (the commander's reasoning)
+ * - citedLenses: string[] (names of lenses the commander relied on)
+ *
+ * The user prompt contains the campaign goal (verbatim) and, per lens, the lens name,
+ * verdict, full reasoning, and the artifacts/commands examined.
+ */
+export function buildCommanderPrompt(
+  campaign: CampaignRow,
+  lensExaminations: LensExamination[],
+): { system: string; user: string } {
+  const system = `You are a COMMANDER ruling on campaign completion based on the lens arguments presented to you.
+
+Respond with a single JSON object in this format:
+{"verdict":"done"|"not-done","rationale":string,"citedLenses":string[]}
+
+Rules:
+- The verdict is decided by the STRENGTH OF THE ARGUMENTS, not by vote count or majority rule.
+- One well-argued dissent can defeat concurring lenses if the dissent's reasoning is sound.
+- The commander rules on the quality of the evidence and reasoning, not on how many lenses voted one way.
+- The rationale must explain WHY you ruled as you did, citing the lens arguments that drove your decision.
+- citedLenses should name only those lens names whose arguments you actually relied on in your reasoning.
+- If you cannot determine completeness with confidence, respond with "not-done".`;
+
+  const goalSection = campaign.goal
+    ? `Campaign Goal:
+${campaign.goal}`
+    : `Campaign Goal: (none — a goalless campaign cannot be ruled done)`;
+
+  // Build the lens arguments section.
+  const lensArguments = lensExaminations
+    .map((exam) => {
+      const artifactsSection = exam.artifactsRead.length > 0
+        ? `\n  Artifacts Read: ${exam.artifactsRead.join(', ')}`
+        : '';
+      const commandsSection = exam.commandsRun.length > 0
+        ? `\n  Commands Run: ${exam.commandsRun.join(', ')}`
+        : '';
+
+      return `Lens: ${exam.lens}
+  Verdict: ${exam.verdict}
+  Reasoning: ${exam.reasoning || '(no reasoning provided)'}${artifactsSection}${commandsSection}`;
+    })
+    .join('\n\n');
+
+  const user = `${goalSection}
+
+Lens Arguments:
+${lensArguments}
+
+Based on the lens arguments above, rule on whether this campaign is complete.`;
+
+  return { system, user };
+}
+
+/**
+ * Resolve the commander node's model and effort from NODE_PROFILE.
+ * Reads NODE_PROFILE.commander and resolves through the provider/model chain.
+ */
+export function resolveCommanderProfile(
+  project?: string,
+): { provider: string; model: string; effort: string } {
+  const profile = NODE_PROFILE.commander;
+  const provider = resolveNodeProvider(project, 'commander', profile.allowedTools);
+  const model = resolveNodeModel(project, 'commander', provider as any, profile.model);
+  return { provider, model, effort: profile.effort };
+}
+
+/**
+ * Rule on campaign completion based on lens arguments via the commander LLM.
+ * The commander reads the full lens arguments (verdict, reasoning, evidence) and rules
+ * on the strength of the reasoning, not by vote count.
+ *
+ * Returns { verdict, rationale, citedLenses, model }. On any error (throw, empty reply,
+ * unparseable JSON, out-of-union verdict), degrades to verdict 'not-done' with rationale
+ * 'judge-inconclusive: ${reason}' and empty citedLenses.
+ */
+export async function ruleByCommander(
+  lensExaminations: LensExamination[],
+  opts: {
+    llm: JudgmentLLM;
+    project?: string;
+    campaign: CampaignRow;
+  },
+): Promise<{ verdict: CompletionVerdict; rationale: string; citedLenses: string[]; model: string }> {
+  const profile = resolveCommanderProfile(opts.project);
+  const { system, user } = buildCommanderPrompt(opts.campaign, lensExaminations);
+
+  try {
+    const reply = await opts.llm.complete(system, user);
+
+    if (!reply || !reply.trim()) {
+      throw new Error('empty reply from commander');
+    }
+
+    // Extract the first JSON object from the reply, tolerating prose or markdown fences.
+    const jsonMatch = reply.match(/\{[^{}]*(?:"[^"]*"[^{}]*)*\}/);
+    if (!jsonMatch) {
+      throw new Error('no JSON object found in commander reply');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    if (parsed.verdict !== 'done' && parsed.verdict !== 'not-done') {
+      throw new Error(`invalid verdict: ${parsed.verdict}`);
+    }
+
+    // Keep only lens names that actually exist in lensExaminations.
+    const validLensNames = new Set(lensExaminations.map((e) => e.lens));
+    const citedLenses: string[] = [];
+    if (Array.isArray(parsed.citedLenses)) {
+      for (const name of parsed.citedLenses) {
+        if (typeof name === 'string' && validLensNames.has(name)) {
+          citedLenses.push(name);
+        }
+      }
+    }
+
+    return {
+      verdict: parsed.verdict,
+      rationale: parsed.rationale || `commander ruled: ${parsed.verdict}`,
+      citedLenses,
+      model: profile.model,
+    };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      verdict: 'not-done',
+      rationale: `judge-inconclusive: ${reason}`,
+      citedLenses: [],
+      model: profile.model,
+    };
+  }
+}
+
+/**
  * Gather and deduplicate the examined evidence from probes and lenses.
  * Returns a pure aggregation of all artifacts read and commands run by the judge.
  *
@@ -225,32 +369,11 @@ export function gatherExaminedEvidence(
   return { artifactsRead, commandsRun };
 }
 
-/**
- * Pure function that rules on a panel of lens verdicts.
- * Returns 'done' only when at least two lenses vote 'done'; otherwise 'not-done'.
- * The rationale names the concurring and dissenting lenses and embeds each lens's
- * reasoning verbatim.
- */
-export function rulePanel(lensVerdicts: CompletionLensInput[]): { verdict: CompletionVerdict; rationale: string } {
-  const doneVerdicts = lensVerdicts.filter((lv) => lv.verdict === 'done');
-  const notDoneVerdicts = lensVerdicts.filter((lv) => lv.verdict === 'not-done');
-
-  const verdict: CompletionVerdict = doneVerdicts.length >= 2 ? 'done' : 'not-done';
-
-  const doneNames = doneVerdicts.map((lv) => lv.lens).join(', ');
-  const notDoneNames = notDoneVerdicts.map((lv) => lv.lens).join(', ');
-
-  const reasoningLines = lensVerdicts.map((lv) => `  ${lv.lens}: ${lv.reasoning || '(no reasoning provided)'}`).join('\n');
-
-  let rationale = `Panel ruled: ${verdict}\nConcurring lenses: ${doneNames || '(none)'}\nDissenting lenses: ${notDoneNames || '(none)'}\n\nLens reasoning:\n${reasoningLines}`;
-
-  return { verdict, rationale };
-}
 
 /**
- * Judge a campaign's completion status via a panel of lenses.
+ * Judge a campaign's completion status via a panel of lenses and a commander.
  * Reads campaign state, builds a prompt, calls the injected LLM once per lens,
- * and persists the verdict.
+ * then passes the lens arguments to the commander for a ruling, and persists the verdict.
  *
  * Store reads (getCampaign, listProbes, listProbeVerdicts) run outside the try/catch
  * so a genuine store failure surfaces as a throw rather than becoming a silent not-done.
@@ -259,8 +382,8 @@ export function rulePanel(lensVerdicts: CompletionLensInput[]): { verdict: Compl
  * network failure, empty reply, unparseable JSON, verdict outside {done,not-done} —
  * resolves to verdict: 'not-done' with reasoning: 'judge-inconclusive: ${reason}'.
  *
- * All lens verdicts (including dissenters and inconclusive lenses) are passed to rulePanel,
- * which votes based on the majority of 'done' verdicts (>=2 required).
+ * All lens verdicts (including dissenters and inconclusive lenses) are passed to the commander,
+ * which reads the full arguments and rules on the strength of the reasoning, not by vote count.
  *
  * Every path persists exactly once via recordCampaignCompletion and returns that record.
  */
@@ -338,6 +461,7 @@ export async function judgeCampaignCompletion(
     });
 
     lensExaminations.push({
+      lens: lens.name,
       verdict: lensVerdict,
       reasoning: lensReasoning,
       artifactsRead: lensArtifactsRead,
@@ -345,8 +469,12 @@ export async function judgeCampaignCompletion(
     });
   }
 
-  // Apply the panel rule: done only at >=2 done verdicts.
-  const panelRuling = rulePanel(lensVerdicts);
+  // Rule by commander: the commander reads the lens arguments and rules on the strength of the reasoning.
+  const commanderRuling = await ruleByCommander(lensExaminations, {
+    llm: opts.llm,
+    project: project,
+    campaign,
+  });
 
   // Gather the examined evidence from probes and lenses, fail if empty.
   const { artifactsRead, commandsRun } = gatherExaminedEvidence(
@@ -361,10 +489,11 @@ export async function judgeCampaignCompletion(
   return recordCampaignCompletion(project, {
     campaignId,
     judge: opts.judge,
-    verdict: panelRuling.verdict,
+    verdict: commanderRuling.verdict,
     ruledAtSha: opts.ruledAtSha,
-    rationale: panelRuling.rationale,
+    rationale: commanderRuling.rationale,
     lenses: lensVerdicts,
+    citedLenses: commanderRuling.citedLenses,
     artifactsRead,
     commandsRun,
   });
