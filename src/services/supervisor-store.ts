@@ -600,7 +600,10 @@ export type ConductorPassReason =
   | 'conductor-empty-conducts-capped'
   // The mission's only actionable criteria are shipped but awaiting live observation — the pass
   // returns without spending a node (nothing to serve until the observation window closes).
-  | 'awaiting-observation-wait';
+  | 'awaiting-observation-wait'
+  // The pass STOPPED because the serve target is held on a sibling-collision condition —
+  // no node spent, but not quiet: a human/holder must clear it before the conductor resumes.
+  | 'held';
 
 export interface ConductorLastPass {
   missionId: string | null;

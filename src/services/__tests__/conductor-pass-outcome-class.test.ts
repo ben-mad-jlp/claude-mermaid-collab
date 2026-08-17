@@ -61,7 +61,7 @@ describe('conductor-pass-outcome-class', () => {
     }
 
     // Verify count and membership
-    expect(unionMembers.size).toBe(22);
+    expect(unionMembers.size).toBe(23);
 
     const tableKeys = new Set(Object.keys(CONDUCTOR_PASS_OUTCOME_CLASS));
     const sortedTableKeys = Array.from(tableKeys).sort();
