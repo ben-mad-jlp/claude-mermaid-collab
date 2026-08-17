@@ -65,6 +65,7 @@ export interface CampaignCompletionRecord {
   ruledAt: number;
   artifactsRead: string[];
   commandsRun: string[];
+  citedLenses: string[];
 }
 
 /** Input shape for recording a campaign completion verdict. */
@@ -77,6 +78,7 @@ export interface CampaignCompletionInput {
   lenses?: CompletionLensInput[];
   artifactsRead?: string[];
   commandsRun?: string[];
+  citedLenses?: string[];
 }
 
 /** A campaign row: the container for a set of probes. */
@@ -165,6 +167,7 @@ const COMPLETION_VERDICT_TABLE_DDL = `
   rationale TEXT,
   artifactsRead TEXT NOT NULL DEFAULT '[]',
   commandsRun TEXT NOT NULL DEFAULT '[]',
+  citedLenses TEXT NOT NULL DEFAULT '[]',
   ruledAt INTEGER NOT NULL
 `;
 
@@ -327,6 +330,23 @@ function addCompletionExaminedColumns(db: Database): void {
   }
 }
 
+/**
+ * Idempotent migration to add citedLenses column to campaign_completion_verdict table.
+ * Uses PRAGMA table_info to check if the column exists; adds it if missing.
+ * Safe to call multiple times and on tables that already have the column.
+ */
+function addCompletionCitedLensesColumn(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign_completion_verdict)")
+    .all() as Array<{ name: string }>;
+
+  const hasCitedLenses = tableInfo.some((col) => col.name === 'citedLenses');
+
+  if (!hasCitedLenses) {
+    db.prepare("ALTER TABLE campaign_completion_verdict ADD COLUMN citedLenses TEXT NOT NULL DEFAULT '[]'").run();
+  }
+}
+
 export function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -352,6 +372,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add artifactsRead and commandsRun columns to campaign_completion_verdict if missing.
   addCompletionExaminedColumns(db);
+
+  // Idempotent migration: add citedLenses column to campaign_completion_verdict if missing.
+  addCompletionCitedLensesColumn(db);
 
   prepared.add(project);
   return db;
@@ -458,6 +481,17 @@ function assertCompletionInput(input: CampaignCompletionInput): void {
   for (const entry of commandsRun) {
     if (typeof entry !== 'string') {
       throw new Error('completion verdict commandsRun entries must be strings');
+    }
+  }
+
+  // Validate citedLenses if provided (type check only)
+  const citedLenses = input.citedLenses ?? [];
+  if (!Array.isArray(citedLenses)) {
+    throw new Error('completion verdict citedLenses must be an array');
+  }
+  for (const entry of citedLenses) {
+    if (typeof entry !== 'string') {
+      throw new Error('completion verdict citedLenses entries must be strings');
     }
   }
 
@@ -713,12 +747,13 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
   // Trim and filter evidence arrays, keeping the original order
   const trimmedArtifacts = (input.artifactsRead ?? []).map((a) => a.trim()).filter((a) => a);
   const trimmedCommands = (input.commandsRun ?? []).map((c) => c.trim()).filter((c) => c);
+  const citedLenses = input.citedLenses ?? [];
 
   db.exec('BEGIN');
   try {
     // Insert the parent completion record with examined evidence.
     db.prepare(
-      'INSERT INTO campaign_completion_verdict (campaignId, judge, verdict, ruledAtSha, rationale, artifactsRead, commandsRun, ruledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO campaign_completion_verdict (campaignId, judge, verdict, ruledAtSha, rationale, artifactsRead, commandsRun, citedLenses, ruledAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       input.campaignId,
       input.judge,
@@ -727,6 +762,7 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
       input.rationale ?? null,
       JSON.stringify(trimmedArtifacts),
       JSON.stringify(trimmedCommands),
+      JSON.stringify(citedLenses),
       ts,
     );
 
@@ -763,6 +799,7 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
       ruledAt: ts,
       artifactsRead: trimmedArtifacts,
       commandsRun: trimmedCommands,
+      citedLenses,
     };
   } catch (err) {
     db.exec('ROLLBACK');
@@ -773,7 +810,7 @@ export function recordCampaignCompletion(project: string, input: CampaignComplet
 /**
  * List all recorded completion verdicts for a campaign, ordered by ruledAt then id.
  * Returns an empty array if the campaign id is unknown.
- * Parses artifactsRead and commandsRun from JSON, defaulting to empty arrays if absent.
+ * Parses artifactsRead, commandsRun, and citedLenses from JSON, defaulting to empty arrays if absent.
  */
 export function listCampaignCompletions(project: string, campaignId: string): CampaignCompletionRecord[] {
   const db = openCampaignDb(project);
@@ -791,12 +828,13 @@ export function listCampaignCompletions(project: string, campaignId: string): Ca
     ruledAt: row.ruledAt,
     artifactsRead: JSON.parse(row.artifactsRead ?? '[]'),
     commandsRun: JSON.parse(row.commandsRun ?? '[]'),
+    citedLenses: JSON.parse(row.citedLenses ?? '[]'),
   }));
 }
 
 /**
  * Get the latest completion verdict for a campaign, or null if none exist.
- * Parses artifactsRead and commandsRun from JSON, defaulting to empty arrays if absent.
+ * Parses artifactsRead, commandsRun, and citedLenses from JSON, defaulting to empty arrays if absent.
  */
 export function latestCampaignCompletion(project: string, campaignId: string): CampaignCompletionRecord | null {
   const db = openCampaignDb(project);
@@ -814,6 +852,7 @@ export function latestCampaignCompletion(project: string, campaignId: string): C
     ruledAt: row.ruledAt,
     artifactsRead: JSON.parse(row.artifactsRead ?? '[]'),
     commandsRun: JSON.parse(row.commandsRun ?? '[]'),
+    citedLenses: JSON.parse(row.citedLenses ?? '[]'),
   } : null;
 }
 
