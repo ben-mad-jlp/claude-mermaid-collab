@@ -2,6 +2,7 @@ import { listWatchedProjects, type WatchedProject, listOpenEscalations, type Esc
 import { listTodos, type Todo } from './todo-store.js';
 import { listMissions, type MissionSummary } from './mission-store.js';
 import { specCoverage, type CoverageRollup } from './spec-coverage.js';
+import { listCampaignsForSnapshot, type BridgeCampaign } from './campaign-snapshot.js';
 
 export type BridgeSnapshotView = 'full' | 'core';
 
@@ -19,6 +20,7 @@ export interface BridgeSnapshotOptions {
     listMissions?: typeof listMissions;
     listOpenEscalations?: typeof listOpenEscalations;
     specCoverage?: typeof specCoverage;
+    listCampaignsForSnapshot?: typeof listCampaignsForSnapshot;
     snapshotSummaryMessages?: () => Array<Record<string, unknown>>;
   };
 }
@@ -30,6 +32,7 @@ export interface BridgeSnapshot {
   openEscalations: Escalation[];
   coverage: CoverageRollup | null;
   summaries: Array<Record<string, unknown>>;
+  campaigns: BridgeCampaign[];
 }
 
 const DEFAULT_BRIDGE_TODOS_LIMIT = 200;
@@ -52,6 +55,7 @@ export async function buildBridgeSnapshot(
   const _listMissions = deps?.listMissions ?? listMissions;
   const _listOpenEscalations = deps?.listOpenEscalations ?? listOpenEscalations;
   const _specCoverage = deps?.specCoverage ?? specCoverage;
+  const _listCampaignsForSnapshot = deps?.listCampaignsForSnapshot ?? listCampaignsForSnapshot;
   const _snapshotSummaryMessages = deps?.snapshotSummaryMessages;
 
   const result: BridgeSnapshot = {
@@ -61,6 +65,7 @@ export async function buildBridgeSnapshot(
     openEscalations: [],
     coverage: null,
     summaries: [],
+    campaigns: [],
   };
 
   // Read projects
@@ -112,6 +117,13 @@ export async function buildBridgeSnapshot(
     } catch {
       // Degrade to null
     }
+  }
+
+  // Read campaigns
+  try {
+    result.campaigns = _listCampaignsForSnapshot(project);
+  } catch {
+    // Degrade to []
   }
 
   // Read summaries (only in 'full' view)
