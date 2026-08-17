@@ -697,6 +697,22 @@ export async function setMissionAbandoned(project: string, todoId: string, aband
   return getMission(project, id)!;
 }
 
+/** Sync helper: update todos.status and completedAt/updatedAt stamps on the shared collab-db handle.
+ *  Called inside db.transaction() by setMissionClosed to atomically close/reopen a mission's
+ *  durable todo node. */
+function stampMissionTodoStatus(db: Database, todoId: string, done: boolean): void {
+  const iso = new Date().toISOString();
+  if (done) {
+    // Mark the mission todo done with current ISO timestamp.
+    db.prepare('UPDATE todos SET status = ?, completedAt = ?, updatedAt = ? WHERE id = ?')
+      .run('done', iso, iso, todoId);
+  } else {
+    // Reopen: take the mission todo off done and clear completedAt.
+    db.prepare('UPDATE todos SET status = ?, completedAt = NULL, updatedAt = ? WHERE id = ?')
+      .run('planned', iso, todoId);
+  }
+}
+
 /** Durable "converged and frozen" stamp. Called ONCE by deactivateIfTerminal the first time a
  *  mission's derived status reads 'converged' — makes terminality durable so a later land that
  *  happens to reopen one of the mission's criteria (unverifyCriteriaForLandedPaths) cannot
@@ -718,10 +734,13 @@ export function setMissionClosed(
 
   // Reopen path: clear all closure-related fields
   if (at == null) {
-    const res = db
-      .prepare('UPDATE mission SET closedAt = NULL, closedBy = NULL, closureEvidence = NULL, updatedAt = ? WHERE todoId = ?')
-      .run(nowMs(), id);
-    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+    db.transaction(() => {
+      const res = db
+        .prepare('UPDATE mission SET closedAt = NULL, closedBy = NULL, closureEvidence = NULL, updatedAt = ? WHERE todoId = ?')
+        .run(nowMs(), id);
+      if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+      stampMissionTodoStatus(db, id, false);
+    })();
     return;
   }
 
@@ -736,10 +755,13 @@ export function setMissionClosed(
 
   if (unmet.length === 0) {
     // Clean convergence: no unmet criteria, update as before
-    const res = db
-      .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
-      .run(at, nowMs(), id);
-    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+    db.transaction(() => {
+      const res = db
+        .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
+        .run(at, nowMs(), id);
+      if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+      stampMissionTodoStatus(db, id, true);
+    })();
   } else {
     // Dirty closure: record attribution and raise a card
     const closureEvidenceObj = {
@@ -749,10 +771,13 @@ export function setMissionClosed(
     };
     const closureEvidenceStr = JSON.stringify(closureEvidenceObj);
 
-    const res = db
-      .prepare('UPDATE mission SET closedAt = ?, closedBy = ?, closureEvidence = ?, updatedAt = ? WHERE todoId = ?')
-      .run(at, judge, closureEvidenceStr, nowMs(), id);
-    if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+    db.transaction(() => {
+      const res = db
+        .prepare('UPDATE mission SET closedAt = ?, closedBy = ?, closureEvidence = ?, updatedAt = ? WHERE todoId = ?')
+        .run(at, judge, closureEvidenceStr, nowMs(), id);
+      if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
+      stampMissionTodoStatus(db, id, true);
+    })();
 
     // Raise one deduped human card — wrapped in try/catch so a supervisor-store failure never breaks closure
     try {

@@ -34,7 +34,6 @@ import {
   listMissions,
   listCriteria,
   _resetMissionDbCache,
-  UncitableMissionCriteriaError,
 } from '../mission-store';
 import { ensureBucket } from '../bucket-registry';
 import {
@@ -252,13 +251,14 @@ describe('repair-forge consumption parity', () => {
     expect(titleCount).not.toBe(batch.length);
   });
 
-  it('leaves every candidate item eligible when criteria generation rejects one', async () => {
+  it('forges the citable four and leaves the uncitable candidate eligible', async () => {
     _resetRepairForgeThrottle(project);
     const bucketId = await ensureBucket(project, 'bugfix');
 
     // Seed enough bugfix leaves to trigger a batch (threshold: 5).
     // One item will have an uncitable criterion (command-result).
     const leafIds: string[] = [];
+    let uncitableLeafId: string | null = null;
     for (let i = 0; i < 5; i++) {
       const leaf = await createTodo(project, {
         ownerSession: 'test-session',
@@ -274,42 +274,52 @@ describe('repair-forge consumption parity', () => {
         },
       });
       leafIds.push(leaf.id);
+      if (i === 1) uncitableLeafId = leaf.id;
     }
 
     const missionsBefore = listMissions(project, { withFacts: false, includeArchived: true });
 
-    // Run the pass with the real forgeMission (which enforces citability).
-    // forgeMission will reject during criteria validation (before any write).
-    let err: unknown;
-    try {
-      await runRepairForgePass(project, {
-        threshold: 5,
-        forge: forgeMission,
-        createEscalation: () => ({
-          escalation: {} as any,
-          isNew: true,
-        }),
-      });
-    } catch (e) {
-      err = e;
-    }
+    // Run the pass with the real forgeMission. The pre-validation should partition the batch,
+    // card the uncitable item, and forge the citable 4.
+    const result = await runRepairForgePass(project, {
+      threshold: 5,
+      forge: forgeMission,
+      createEscalation: () => ({
+        escalation: {} as any,
+        isNew: true,
+      }),
+    });
 
-    // The pass should have thrown UncitableMissionCriteriaError (propagated from forgeMission).
-    expect(err).toBeInstanceOf(UncitableMissionCriteriaError);
+    // The pass should have forged successfully with 4 criteria.
+    expect(result.reason).toBe('forged');
+    expect(result.forged).not.toBe(null);
+    expect(result.forged!.criteriaCount).toBe(4);
+    expect(result.forged!.consumed.length).toBe(4);
 
-    // Verify no new missions were created
+    // Verify one new mission was created
     const missionsAfter = listMissions(project, { withFacts: false, includeArchived: true });
-    expect(missionsAfter.length).toBe(missionsBefore.length);
+    expect(missionsAfter.length).toBe(missionsBefore.length + 1);
 
-    // Verify all candidate leaves are still non-terminal and not promoted
+    // Verify the uncitable leaf is not in consumed and is still eligible
+    expect(result.forged!.consumed).not.toContain(uncitableLeafId);
+    const uncitableLeaf = getTodo(project, uncitableLeafId!)!;
+    expect(uncitableLeaf.status).not.toBe('done');
+    expect(uncitableLeaf.promotedTo).toBe(null);
+
+    // Verify the other 4 leaves are promoted
     for (const leafId of leafIds) {
       const leaf = getTodo(project, leafId)!;
-      expect(leaf.status).not.toBe('done');
-      expect(leaf.promotedTo).toBe(null);
+      if (leafId === uncitableLeafId) {
+        expect(leaf.status).not.toBe('done');
+        expect(leaf.promotedTo).toBe(null);
+      } else {
+        expect(leaf.status).toBe('done');
+        expect(leaf.promotedTo).toBe(result.forged!.missionId);
+      }
     }
   });
 
-  it('leaves the mission count identical when criteria generation rejects one', async () => {
+  it('increases the mission count by exactly 1 when criteria generation rejects one', async () => {
     _resetRepairForgeThrottle(project);
     const bucketId = await ensureBucket(project, 'bugfix');
 
@@ -332,25 +342,23 @@ describe('repair-forge consumption parity', () => {
 
     const before = listMissions(project, { withFacts: false, includeArchived: true }).length;
 
-    // Run the pass; forgeMission will reject due to uncitable criteria.
-    let err: unknown;
-    try {
-      await runRepairForgePass(project, {
-        threshold: 5,
-        forge: forgeMission,
-        createEscalation: () => ({
-          escalation: {} as any,
-          isNew: true,
-        }),
-      });
-    } catch (e) {
-      err = e;
-    }
+    // Run the pass; pre-validation will partition and card the uncitable item,
+    // then forge the 4 citable items.
+    const result = await runRepairForgePass(project, {
+      threshold: 5,
+      forge: forgeMission,
+      createEscalation: () => ({
+        escalation: {} as any,
+        isNew: true,
+      }),
+    });
 
-    // The pass should have thrown UncitableMissionCriteriaError.
-    expect(err).toBeInstanceOf(UncitableMissionCriteriaError);
+    // The pass should have forged successfully.
+    expect(result.reason).toBe('forged');
+    expect(result.forged).not.toBe(null);
 
-    // Mission count must not change.
-    expect(listMissions(project, { withFacts: false, includeArchived: true }).length).toBe(before);
+    // Mission count must increase by exactly 1.
+    const after = listMissions(project, { withFacts: false, includeArchived: true }).length;
+    expect(after).toBe(before + 1);
   });
 });

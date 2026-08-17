@@ -19,8 +19,10 @@ import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } f
 import { createEscalation, listOpenEscalations, type EscalationOption } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
 import { getConfig } from './config-service.js';
+import { classifyCriterion } from './criteria-citability.js';
 
 export const REPAIR_MISSION_APPROVAL_KIND = 'repair-mission-approval';
+export const REPAIR_UNCITABLE_KIND = 'repair-request-uncitable';
 
 /** Minimum spacing between repair-forge passes for a single project. */
 export const REPAIR_FORGE_INTERVAL_MS = 300_000; // 5 min
@@ -93,6 +95,8 @@ export interface RepairForgeDeps {
   abandonMission?: typeof setMissionAbandoned;
   /** List open escalations for dedup. Default: listOpenEscalations({ project }). */
   listOpenEscalations?: (project: string) => ReturnType<typeof listOpenEscalations>;
+  /** Log function for diagnostic messages. Default: console.warn. */
+  log?: (msg: string) => void;
   /** Batch size threshold. Default: REPAIR_BATCH_K or REPAIR_FORGE_THRESHOLD env. */
   threshold?: number;
   /** Age trigger in milliseconds. Default: REPAIR_AGE_MS. */
@@ -103,7 +107,7 @@ export interface RepairForgeDeps {
 
 export interface RepairForgeResult {
   forged: { missionId: string; consumed: string[]; criteriaCount: number; budgetUsd: number } | null;
-  reason: 'forged' | 'repair-mission-open' | 'no-batch' | 'forge-rolled-back';
+  reason: 'forged' | 'repair-mission-open' | 'no-batch' | 'no-citable-batch' | 'forge-rolled-back';
   staleApprovalCards: number;
 }
 
@@ -124,6 +128,7 @@ export async function runRepairForgePass(
   const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
   const abandonMissionFn = deps.abandonMission ?? setMissionAbandoned;
   const listOpenEscalationsFn = deps.listOpenEscalations ?? ((p: string) => listOpenEscalations({ project: p }));
+  const logFn = deps.log ?? ((m: string) => console.warn(m));
   const threshold = deps.threshold ?? (Number(getConfig('REPAIR_FORGE_THRESHOLD', '') || 0) || REPAIR_BATCH_K);
   const ageMs = deps.ageMs ?? REPAIR_AGE_MS;
   const now = deps.now ?? Date.now();
@@ -230,23 +235,61 @@ export async function runRepairForgePass(
     return { forged: null, reason: 'no-batch', staleApprovalCards: 0 };
   }
 
+  // STEP 3.5: Partition the batch by citability and card uncitable items.
+  // Use the same classifyCriterion call shape as the forge gate will use (with empty declaredFiles).
+  const citableBatch: typeof batch = [];
+  const uncitableItems: Array<{ item: typeof batch[number]; verdict: ReturnType<typeof classifyCriterion> }> = [];
+
+  for (const item of batch) {
+    const verdict = classifyCriterion(item.spec.fixedMeans.trim(), []);
+    if (verdict.citable) {
+      citableBatch.push(item);
+    } else {
+      uncitableItems.push({ item, verdict });
+    }
+  }
+
+  // Card each uncitable item with fail-open discipline (non-fatal).
+  for (const { item, verdict } of uncitableItems) {
+    try {
+      createEscalationFn({
+        project,
+        session: REPAIR_FORGE_SESSION,
+        kind: REPAIR_UNCITABLE_KIND,
+        audience: 'human',
+        operatorGated: true,
+        todoId: item.request.id,
+        conditionKey: `repair-forge-uncitable:${item.request.id}`,
+        questionText: `Bugfix request uncitable: "${item.request.title || '(untitled)'}" — ${verdict.kind}: ${verdict.reason}`,
+      });
+    } catch (err) {
+      // Card creation failure is non-fatal; log and continue to next item
+      logFn(`[repair-forge] card creation failed for uncitable item ${item.request.id}: ${String(err).slice(0, 100)}`);
+    }
+  }
+
+  // If no citable items remain, return early with no-citable-batch reason.
+  if (citableBatch.length === 0) {
+    return { forged: null, reason: 'no-citable-batch', staleApprovalCards };
+  }
+
   // Determine the trigger (size or age) for naming on the card and audit record.
   const trigger = repairBatchTrigger(requests, { k: threshold, ageMs, now }) ?? 'size';
 
-  // Build the trigger suffix for the card text.
+  // Build the trigger suffix for the card text (based on citableBatch).
   let triggerSuffix = '';
   if (trigger === 'size') {
-    triggerSuffix = ` triggered by size (${batch.length} >= k=${threshold})`;
+    triggerSuffix = ` triggered by size (${citableBatch.length} >= k=${threshold})`;
   } else if (trigger === 'age') {
-    // batch[0] is the oldest (sorted ascending); compute its age in hours.
-    const oldestTime = Date.parse(batch[0].request.createdAt);
+    // citableBatch[0] is the oldest (sorted ascending); compute its age in hours.
+    const oldestTime = Date.parse(citableBatch[0].request.createdAt);
     const ageHours = isNaN(oldestTime) ? 0 : Math.round((now - oldestTime) / (3600 * 1000));
     const ageMsHours = Math.round(ageMs / (3600 * 1000));
     triggerSuffix = ` triggered by age (oldest ${ageHours}h > ${ageMsHours}h)`;
   }
 
   // STEP 4: Build the repair mission spec and forge (with unapproved + inactive).
-  const spec = buildRepairMissionSpec(batch);
+  const spec = buildRepairMissionSpec(citableBatch);
   const forgeInput: ForgeMissionInput = {
     session: REPAIR_FORGE_SESSION,
     title: spec.title,
@@ -258,7 +301,15 @@ export async function runRepairForgePass(
     consumesTodoIds: spec.consumesTodoIds,
   };
 
-  const forgeResult = await forgeFn(project, forgeInput);
+  // Wrap forgeFn call in try/catch with logging for the selected batch.
+  const batchItemIds = batch.map((item) => item.request.id);
+  let forgeResult;
+  try {
+    forgeResult = await forgeFn(project, forgeInput);
+  } catch (err) {
+    logFn(`[repair-forge] forge threw for items ${batchItemIds.join(',')}: ${String(err).slice(0, 100)}`);
+    throw err;
+  }
   const missionId = forgeResult.missionId;
 
   // Extract the actual counts from the forge result, with fallbacks to spec.
