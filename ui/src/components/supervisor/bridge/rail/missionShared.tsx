@@ -109,6 +109,23 @@ export const RatifiedBadge: React.FC = () => (
   </span>
 );
 
+export const MissionDropsIndicator: React.FC<{ dropped?: number }> = ({ dropped }) => {
+  const count = dropped ?? 0;
+  const title = count > 0
+    ? `${count} criterion${count === 1 ? '' : 'a'} dropped — converged with drops, not a clean convergence.`
+    : 'Converged with drops, not a clean convergence.';
+
+  return (
+    <span
+      data-testid="mission-drops-indicator"
+      className="shrink-0 text-3xs font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-300"
+      title={title}
+    >
+      Drops
+    </span>
+  );
+};
+
 /** Board-ish status → dot colour for an epic row. */
 export function epicDotClass(status: string): string {
   const s = (status || '').toLowerCase();

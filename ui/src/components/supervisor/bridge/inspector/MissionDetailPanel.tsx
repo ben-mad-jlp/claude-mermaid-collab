@@ -16,7 +16,7 @@
 
 import React, { useState } from 'react';
 import { useSupervisorStore, type MissionSummary, type MissionStatus } from '@/stores/supervisorStore';
-import { StatusPill, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
+import { StatusPill, MissionDropsIndicator, MissionCreateDialog, MissionDetail, isMissionCompleted } from '../rail/missionShared';
 import { stripKindPrefix } from '@/lib/todoKind';
 import { useMissions } from '../rail/useMissions';
 
@@ -124,7 +124,12 @@ export const MissionDetailPanel: React.FC<MissionDetailPanelProps> = ({ serverId
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                     {stripKindPrefix(m.node?.title ?? 'Mission')}
                   </span>
-                  <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
+                  <div className="flex items-center gap-1 shrink-0">
+                    <StatusPill status={(m.rollup?.status ?? 'needs-discovery') as MissionStatus} />
+                    {(m.rollup?.convergedWithDrops === true || (m.rollup?.capability?.dropped ?? 0) > 0) && (
+                      <MissionDropsIndicator dropped={m.rollup?.capability?.dropped} />
+                    )}
+                  </div>
                 </button>
               ))}
             </div>

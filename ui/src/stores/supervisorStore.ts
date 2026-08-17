@@ -355,6 +355,8 @@ export interface MissionSummary {
     stopped?: boolean;
     stopReason?: string | null;
     status?: MissionStatus;
+    convergedWithDrops?: boolean;
+    terminalReason?: string | null;
   };
   criteria: Array<{ id: string; text: string; met: boolean; order: number; verifiedAt?: number | null; verifiedAtSha?: string | null; evidencePaths?: string[]; servingEpics?: Array<{ id: string; title: string; landed: boolean }>; status?: 'active' | 'met' | 'dropped'; droppedReason?: string | null }>;
   /** This mission's `kind:'epic'` children, as classified server-side — no client predicate needed. */
