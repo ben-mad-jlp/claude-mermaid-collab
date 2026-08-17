@@ -241,6 +241,12 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
             const { project, todoId, acceptance, claimToken } = args as { project: string; todoId: string; acceptance: 'accepted' | 'rejected'; claimToken?: string };
             if (!project || !todoId || !acceptance) throw new Error('Missing required: project, todoId, acceptance');
             const result = await handleWorkerComplete(makeCoordinatorDeps(), project, todoId, acceptance, claimToken);
+            // Branch on skipped: if the completion was a no-op due to lost claim, return
+            // an error-carrying response and skip the broadcast.
+            if (result.skipped) {
+              const errorText = `${result.refusal} — reset_todo(${todoId}, status='ready') and retry`;
+              return JSON.stringify({ ...result, error: errorText }, null, 2);
+            }
             getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
             return JSON.stringify(result, null, 2);
           }
