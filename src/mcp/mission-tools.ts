@@ -31,6 +31,7 @@ import { buildMissionDiagnostic } from '../services/mission-diagnostic.js';
 import { isEpicLandedInGit, detectTrunkBranch } from '../services/epic-landedness.js';
 import { deriveConductorPassLiveness } from '../services/conductor-pass-liveness.js';
 import { assertServingEpicModulesReachable } from '../services/module-reachability.js';
+import { assertNamedCommandGreen } from '../services/criterion-command-remeasure.js';
 
 /**
  * ListTools declarations for the mission tool group. Spread into the ListTools
@@ -341,6 +342,7 @@ export async function handleMissionTool(name: string, args: any): Promise<string
 
       if (met === true) {
         await assertServingEpicModulesReachable(project, criterionId);
+        await assertNamedCommandGreen(project, criterionId);
         const stakes = classifyVerifyStakes(collectVerifyStakesInput(project, criterionId));
         panel = stakes.panel;
         trigger = stakes.trigger;
