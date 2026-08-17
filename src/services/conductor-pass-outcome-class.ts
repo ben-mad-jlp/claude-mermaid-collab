@@ -23,6 +23,7 @@ export const CONDUCTOR_PASS_OUTCOME_CLASS = {
   'conductor-timeouts-capped': 'stuck',
   'conductor-empty-conducts-capped': 'stuck',
   'awaiting-observation-wait': 'quiet',
+  'held': 'stuck',
 } satisfies Record<ConductorPassReason, 'quiet' | 'stuck'>;
 
 export function classifyConductorPassOutcome(
