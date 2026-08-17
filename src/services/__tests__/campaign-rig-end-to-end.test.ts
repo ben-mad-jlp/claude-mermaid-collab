@@ -49,16 +49,16 @@ describe('campaign-rig-end-to-end', () => {
     // FORGE: create 7-probe campaign with dependencies
     const title = 'seven-probe-rig';
     const probes: ProbeForgeInput[] = [
-      { ref: 'p1', kind: 'command', environment: 'rig', command: 'echo rig-p1' },
-      { ref: 'p2', kind: 'command', environment: 'rig', command: 'echo rig-p2' },
-      { ref: 'p3', kind: 'command', environment: 'rig', command: 'echo rig-p3' },
-      { ref: 'p4', kind: 'command', environment: 'rig', command: 'echo rig-p4' },
-      { ref: 'p5', kind: 'command', environment: 'rig', command: 'echo rig-p5' },
-      { ref: 'p6', kind: 'command', environment: 'rig', command: 'echo rig-p6' },
+      { ref: 'p1', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p1' },
+      { ref: 'p2', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p2' },
+      { ref: 'p3', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p3' },
+      { ref: 'p4', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p4' },
+      { ref: 'p5', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p5' },
+      { ref: 'p6', kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'echo rig-p6' },
       {
         ref: 'p7',
         kind: 'command',
-        environment: 'rig',
+        environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha',
         command: 'echo rig-p7',
         dependsOn: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'],
       },
@@ -130,6 +130,9 @@ describe('campaign-rig-end-to-end', () => {
 
     // PASS: run campaign pass with injected deps
     const deps: CampaignPassDeps = {
+      // The pass now RESETS a rig probe before measuring; inject the reset so this test
+      // exercises the ordering without needing a live rig at the pinned directory.
+      runRigReset: (async () => ({} as any)) as any,
       execProbe: async () => ({ verdict: 'pass', evidence: null }),
       commitSha: () => 'rigsha1',
     };

@@ -22,6 +22,7 @@ import {
 } from './campaign-store.ts';
 import { forgeMission, type ForgeMissionInput, type ForgeMissionResult } from '../mcp/tools/mission-forge.ts';
 import { getMission, isMissionTerminal } from './mission-store.ts';
+import { runRigReset } from './campaign-rig-reset.ts';
 
 /** A probe's linked mission, or null if no link exists. */
 export interface ProbeMissionLink {
@@ -55,6 +56,8 @@ export interface CampaignPassDeps {
   listProbes?: typeof listProbes;
   /** Record a probe verdict. Defaults to the live recordProbeVerdict implementation. */
   recordProbeVerdict?: typeof recordProbeVerdict;
+  /** Reset a rig probe's pinned directory to its pinned commit before it measures. */
+  runRigReset?: typeof import('./campaign-rig-reset.ts').runRigReset;
   /** Execute a probe command and return its verdict. Defaults to the live defaultExecProbe implementation. */
   execProbe?: (probe: CampaignProbe) => Promise<{ verdict: RecordedVerdict; evidence?: string | null }>;
   /** Resolve the current commit sha. Defaults to the live defaultCommitSha implementation. */
@@ -391,6 +394,7 @@ export async function runCampaignPass(
     const execProbeFn = deps.execProbe ?? ((probe: CampaignProbe) => defaultExecProbe(project, probe));
     const commitShaFn = deps.commitSha ?? (() => defaultCommitSha(project));
     const forgeReq = deps.forgeMission ?? forgeMission;
+    const rigResetFn = deps.runRigReset ?? runRigReset;
     const isMissionOpenFn = deps.isMissionOpen ?? ((proj: string, missionId: string) => {
       const mission = getMission(proj, missionId);
       return mission != null && !isMissionTerminal(mission);
@@ -404,6 +408,18 @@ export async function runCampaignPass(
 
       for (const probe of front) {
         try {
+          // A rig probe is RESET before it measures: restore its pinned directory to its
+          // pinned commit so the run starts from a known state and two runs are comparable.
+          // Without this, every run silently inherits the previous run's drift — the first
+          // Koch campaign produced three runs whose progress all lived in an unsaved buffer.
+          // The reset is REQUIRED, not advisory: if it throws, the probe does not measure,
+          // because a verdict against unknown state is worse than no verdict.
+          if (probe.environment === 'rig') {
+            await rigResetFn(project, probe.id, {
+              targetDir: probe.rigTargetDir!,
+              commitSha: probe.rigCommitSha!,
+            });
+          }
           const result = await execProbeFn(probe);
           recordVerdictFn(project, {
             probeId: probe.id,

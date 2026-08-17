@@ -150,6 +150,12 @@ export interface CampaignProbe {
   declaredPaths: string[];
   verdict: ProbeVerdict;
   command: string | null;
+  /** Rig pin: directory restored before this probe runs. Guaranteed present for a 'rig' probe —
+   *  assertProbeInput refuses one without it — and optional here only so hand-built test
+   *  fixtures for worktree probes need not carry it. */
+  rigTargetDir?: string | null;
+  /** Rig pin: commit that directory is restored TO. Same guarantee as rigTargetDir. */
+  rigCommitSha?: string | null;
   createdAt: number;
 }
 
@@ -161,6 +167,10 @@ export interface ProbeInput {
   command?: string | null;
   dependsOn?: string[];
   declaredPaths?: string[];
+  /** Rig pin: the directory restored before this probe runs. REQUIRED when environment is 'rig'. */
+  rigTargetDir?: string | null;
+  /** Rig pin: the commit that directory is restored TO. REQUIRED when environment is 'rig'. */
+  rigCommitSha?: string | null;
 }
 
 /** A recorded verdict row: provenance for a probe's test result. */
@@ -193,6 +203,8 @@ const PROBE_TABLE_DDL = `
   declaredPaths TEXT NOT NULL DEFAULT '[]',
   verdict TEXT NOT NULL DEFAULT 'not-run' CHECK (verdict IN ('not-run', 'pass', 'fail')),
   command TEXT,
+  rigTargetDir TEXT,
+  rigCommitSha TEXT,
   createdAt INTEGER NOT NULL
 `;
 
@@ -444,6 +456,17 @@ function ensureMissionProposalTables(db: Database): void {
  * Uses PRAGMA table_info to check if the columns exist; adds them if missing.
  * Safe to call multiple times and on tables that already have the columns.
  */
+function addProbeRigPinColumns(db: Database): void {
+  const cols = (db.prepare('PRAGMA table_info(campaign_probe)').all() as Array<{ name: string }>)
+    .map((c) => c.name);
+  if (!cols.includes('rigTargetDir')) {
+    db.prepare('ALTER TABLE campaign_probe ADD COLUMN rigTargetDir TEXT').run();
+  }
+  if (!cols.includes('rigCommitSha')) {
+    db.prepare('ALTER TABLE campaign_probe ADD COLUMN rigCommitSha TEXT').run();
+  }
+}
+
 function addCompletionLensRoundColumns(db: Database): void {
   const tableInfo = db
     .prepare("PRAGMA table_info(campaign_completion_lens)")
@@ -488,6 +511,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add citedLenses column to campaign_completion_verdict if missing.
   addCompletionCitedLensesColumn(db);
+
+  // Idempotent migration: add the rig pin columns to campaign_probe if missing.
+  addProbeRigPinColumns(db);
 
   // Idempotent migration: add round and changedVerdict columns to campaign_completion_lens if missing.
   addCompletionLensRoundColumns(db);
@@ -534,6 +560,17 @@ function assertProbeInput(input: ProbeInput): void {
   const validKinds: ProbeKind[] = ['command'];
   if (!validKinds.includes(input.kind)) {
     throw new Error(`invalid probe kind: ${input.kind}`);
+  }
+  // A rig probe MUST name what gets reset and to what. Without both, `environment: 'rig'`
+  // is a label that resets nothing and the run silently inherits the previous run's drift —
+  // which is exactly how the first Koch campaign produced three uncomparable runs.
+  if (input.environment === 'rig') {
+    if (!input.rigTargetDir?.trim()) {
+      throw new Error("a rig probe requires rigTargetDir (the directory restored before it runs)");
+    }
+    if (!input.rigCommitSha?.trim()) {
+      throw new Error("a rig probe requires rigCommitSha (the commit that directory is restored to)");
+    }
   }
   if (input.declaredPaths !== undefined) {
     if (!Array.isArray(input.declaredPaths)) {
@@ -689,7 +726,7 @@ export function createCampaign(
 
     for (const probe of probes) {
       db.prepare(
-        'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, rigTargetDir, rigCommitSha, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
         probe.id ?? randomUUID(),
         campaignId,
@@ -699,6 +736,8 @@ export function createCampaign(
         JSON.stringify(probe.declaredPaths ?? []),
         'not-run',
         probe.command ?? null,
+        probe.rigTargetDir ?? null,
+        probe.rigCommitSha ?? null,
         ts,
       );
     }
@@ -768,6 +807,8 @@ export function listProbes(project: string, campaignId: string): CampaignProbe[]
     environment: row.environment as ProbeEnvironment,
     dependsOn: JSON.parse(row.dependsOn),
     declaredPaths: JSON.parse(row.declaredPaths),
+    rigTargetDir: row.rigTargetDir ?? null,
+    rigCommitSha: row.rigCommitSha ?? null,
     verdict: row.verdict as ProbeVerdict,
     command: row.command,
     createdAt: row.createdAt,
@@ -785,7 +826,7 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
   const ts = nowMs();
 
   db.prepare(
-    'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO campaign_probe (id, campaignId, kind, environment, dependsOn, declaredPaths, verdict, command, rigTargetDir, rigCommitSha, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     probeId,
     campaignId,
@@ -795,6 +836,8 @@ export function addProbe(project: string, campaignId: string, input: ProbeInput)
     JSON.stringify(input.declaredPaths ?? []),
     'not-run',
     input.command ?? null,
+    input.rigTargetDir ?? null,
+    input.rigCommitSha ?? null,
     ts,
   );
 
