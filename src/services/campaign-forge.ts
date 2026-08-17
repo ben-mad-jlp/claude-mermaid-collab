@@ -95,6 +95,10 @@ export function forgeCampaign(
     command: p.command,
     dependsOn: (p.dependsOn ?? []).map((ref) => refToId.get(ref)!),
     declaredPaths: p.declaredPaths ?? [],
+    // The rig pin must survive the forge mapping: dropping it here is how a validated
+    // rig probe still reached the store pin-less and reset nothing.
+    rigTargetDir: p.rigTargetDir ?? null,
+    rigCommitSha: p.rigCommitSha ?? null,
   }));
 
   return createCampaign(project, { title: input.title, goal: input.goal, probes: storeProbes });

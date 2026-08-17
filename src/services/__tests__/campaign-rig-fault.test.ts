@@ -53,7 +53,7 @@ describe('campaign-rig-fault', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Fault Test Campaign',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 
@@ -102,7 +102,7 @@ describe('campaign-rig-fault', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Fault Card Test',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 
@@ -170,7 +170,7 @@ describe('campaign-rig-fault', () => {
         id: 1,
         probeId: probe.id,
         verdict: 'pass' as const,
-        environment: 'rig' as const,
+        environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha' as const,
         commitSha: 'abc123',
         evidence: null,
         recordedAt: Date.now(),
@@ -211,7 +211,7 @@ describe('campaign-rig-fault', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Fault Verdict Preservation',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 

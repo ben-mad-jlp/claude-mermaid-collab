@@ -151,14 +151,14 @@ describe('forge-campaign-validation', () => {
       {
         ref: 'check-external',
         kind: 'command',
-        environment: 'rig',
+        environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha',
         command: 'test -f /Users/shared/rig/out.step',
         asserts: 'the exported STEP at /Users/shared/rig/out.step has 12 solids',
       },
       {
         ref: 'check-dependent',
         kind: 'command',
-        environment: 'rig',
+        environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha',
         command: 'true',
         dependsOn: ['check-external'],
       },

@@ -54,7 +54,7 @@ describe('campaign-rig-reset', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Test Campaign',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 
@@ -163,7 +163,7 @@ describe('campaign-rig-reset', () => {
     const campaign = createCampaign(project, {
       title: 'Post-Migration Campaign',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'false' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'false' },
       ],
     });
 
@@ -199,7 +199,7 @@ describe('campaign-rig-reset', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Reset Order Test',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 
@@ -256,7 +256,7 @@ describe('campaign-rig-reset', () => {
     const campaign = createCampaign(project, {
       title: 'Rig Reset Counts Test',
       probes: [
-        { kind: 'command', environment: 'rig', command: 'true' },
+        { kind: 'command', environment: 'rig', rigTargetDir: '/tmp/test-rig', rigCommitSha: 'testsha', command: 'true' },
       ],
     });
 
