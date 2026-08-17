@@ -1587,7 +1587,7 @@ export async function resetCampaignProbesForLandedPaths(
 export async function landEpic(
   project: string,
   target: LandTarget,
-  opts?: { allowDirty?: boolean; actor?: LandActor },
+  opts?: { allowDirty?: boolean; actor?: LandActor; onPhase?: (phase: string) => void },
   deps: LandStageDeps = defaultLandStageDeps,
 ): Promise<LandEpicOutcome> {
   const resolved = resolveLandTarget(project, target);
@@ -1603,9 +1603,12 @@ export async function landEpic(
     const todosBeforeLand = listTodos(project, { includeCompleted: true });
     const snapshot = snapshotEpicWorkGraph(project, epicId, todosBeforeLand);
 
+    const phase = (p: string) => { try { opts?.onPhase?.(p); } catch { /* a hook must never fail a land */ } };
+
     try {
       const ctx = { project, escalationId, session: resolvingSession, epicId, epicBranch, targetProject, todoId };
 
+      phase('checkDirtyTree');
       const dirtyResult = await deps.checkDirtyTree(wm, opts, ctx);
       if (!dirtyResult.ok) {
         const outcome = dirtyResult as LandEpicOutcome;
@@ -1614,6 +1617,7 @@ export async function landEpic(
       const dirty = (dirtyResult as { ok: boolean; dirty?: string[] }).dirty ?? [];
 
       const todosAtProofTime = listTodos(project, { includeCompleted: true });
+      phase('runStewardPrecheck');
       const stewardResult = await deps.runStewardPrecheck(project, epicId, epicBranch, targetProject, todosAtProofTime, { escalationId, session: resolvingSession });
       if (!stewardResult.ok) {
         const outcome = stewardResult as LandEpicOutcome;
@@ -1624,12 +1628,14 @@ export async function landEpic(
       const epicChildIds = stewardOk.epicChildIds ?? [];
       const stewardMeasurements = stewardOk.measurements;
 
+      phase('checkStaleness');
       const stalenessResult = await deps.checkStaleness(wm, targetProject, epicId, epicBranch, ctx);
       if (!stalenessResult.ok) {
         const outcome = stalenessResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
+      phase('runProofStage');
       const proofResult = await deps.runProofStage(project, targetProject, epicId, epicBranch, todosAtProofTime, epic, { escalationId, session: resolvingSession, todoId, actor: opts?.actor }, stewardMeasurements);
       if (!proofResult.ok) {
         const outcome = proofResult as LandEpicOutcome;
@@ -1638,12 +1644,14 @@ export async function landEpic(
       const proofOk = proofResult as { ok: boolean; proof?: LandProof };
       const proof = proofOk.proof!;
 
+      phase('checkOpenChildren');
       const openChildResult = await deps.checkOpenChildren(project, epicId, { escalationId, session: resolvingSession, epicBranch });
       if (!openChildResult.ok) {
         const outcome = openChildResult as LandEpicOutcome;
         return await restoreOnFailure(project, targetProject, epicId, epicBranch, snapshot, outcome);
       }
 
+      phase('runMerge');
       const mergeResult = await deps.runMerge(wm, epicId, dirty, opts, proof, ctx);
       if (!mergeResult.ok) {
         const outcome = mergeResult as LandEpicOutcome;
@@ -1653,10 +1661,13 @@ export async function landEpic(
       const land = mergeOk.land!;
 
       const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
+      phase('finalizeLandRecord');
       await deps.finalizeLandRecord(targetProject, epicId, land, freshTodosAtLandTime, ctx);
 
+      phase('teardownEpic');
       await deps.teardownEpic(wm, epicId, targetProject, { epicBranch });
 
+      phase('runPostLandGuard');
       const postLandResult = await deps.runPostLandGuard(targetProject, land, wm, dirty, ctx);
       if (!postLandResult.ok) return postLandResult as LandEpicOutcome;
       const treeRestored = postLandResult.treeRestored ?? false;
