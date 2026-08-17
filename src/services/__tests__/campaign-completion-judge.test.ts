@@ -73,9 +73,17 @@ describe('campaign-completion-judge', () => {
     }
 
     // Create a fake LLM that asserts the prompt contains the goal and probe info.
+    // The lenses and commander all see the goal and probes.
+    let callCount = 0;
     const fakeJudgmentLLM: JudgmentLLM = {
       async complete(system: string, user: string): Promise<string> {
-        // Verify the prompt contains the goal.
+        callCount++;
+        if (system.includes('COMMANDER')) {
+          // Commander sees that the lenses agree the goal is unmet.
+          return '{"verdict":"not-done","rationale":"arm was never assembled","citedLenses":[]}';
+        }
+
+        // Verify the prompt contains the goal (in lens prompts).
         expect(user).toContain('Assemble a complete robot arm with gripper and articulation');
         // Verify the prompt contains probe ids.
         expect(user).toContain(actualProbes[0].id);
@@ -115,10 +123,14 @@ describe('campaign-completion-judge', () => {
       ],
     });
 
-    // Test case 1: judge.complete rejects
+    // Test case 1: lens LLM calls all pass, but commander throws
     const failingJudgmentLLM: JudgmentLLM = {
-      async complete(): Promise<string> {
-        throw new Error('Network timeout');
+      async complete(system: string): Promise<string> {
+        if (system.includes('COMMANDER')) {
+          throw new Error('Network timeout');
+        }
+        // Lenses all return done.
+        return '{"verdict":"done","rationale":"lens complete"}';
       },
     };
 
@@ -132,10 +144,13 @@ describe('campaign-completion-judge', () => {
     expect(result1.rationale).toContain('judge-inconclusive:');
     expect(result1.rationale).toContain('Network timeout');
 
-    // Test case 2: judge returns garbage prose (no JSON)
+    // Test case 2: commander returns garbage prose (no JSON)
     const garbageJudgmentLLM: JudgmentLLM = {
-      async complete(): Promise<string> {
-        return 'I think maybe the campaign is done or maybe not, who knows really';
+      async complete(system: string): Promise<string> {
+        if (system.includes('COMMANDER')) {
+          return 'I think maybe the campaign is done or maybe not, who knows really';
+        }
+        return '{"verdict":"done","rationale":"lens complete"}';
       },
     };
 
@@ -149,10 +164,13 @@ describe('campaign-completion-judge', () => {
     expect(result2.rationale).toContain('judge-inconclusive:');
     expect(result2.rationale).toContain('no JSON object found');
 
-    // Test case 3: judge returns JSON with invalid verdict
+    // Test case 3: commander returns JSON with invalid verdict
     const invalidVerdictJudgmentLLM: JudgmentLLM = {
-      async complete(): Promise<string> {
-        return '{"verdict":"maybe","rationale":"unclear"}';
+      async complete(system: string): Promise<string> {
+        if (system.includes('COMMANDER')) {
+          return '{"verdict":"maybe","rationale":"unclear"}';
+        }
+        return '{"verdict":"done","rationale":"lens complete"}';
       },
     };
 
