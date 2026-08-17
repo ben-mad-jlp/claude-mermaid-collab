@@ -22,6 +22,11 @@ import {
   _resetMissionDbCache,
 } from '../mission-store';
 import { type ForgeMissionInput } from '../../mcp/tools/mission-forge';
+import {
+  type MissionProposalRecord,
+  type ProposalObjectionRecord,
+} from '../campaign-store';
+import { type JudgmentLLM } from '../judgment-llm';
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
 
@@ -76,6 +81,27 @@ describe('campaign-pass-forge-logging', () => {
     const mockExecProbe = async () => ({ verdict: 'fail' as const, evidence: 'timeout' });
     const mockCommitSha = () => 'abc123';
     const mockRecordProbeVerdict = () => undefined as any;
+    const mockRuleMissionProposal = async (
+      _project: string,
+      args: { campaignId: string; proposedGoal: string; ruledAtSha: string },
+    ): Promise<{ record: MissionProposalRecord; objections: ProposalObjectionRecord[] }> => ({
+      record: {
+        id: 1,
+        campaignId: args.campaignId,
+        proposedGoal: args.proposedGoal,
+        ruling: 'approved' as const,
+        ruledAtSha: args.ruledAtSha,
+        rationale: null,
+        ruledAt: Date.now(),
+        missionId: null,
+      },
+      objections: [],
+    });
+    const mockLlm: JudgmentLLM = {
+      complete: async () => {
+        throw new Error('mockLlm.complete should never be called');
+      },
+    };
 
     const deps: CampaignPassDeps = {
       campaignFront: mockCampaignFront,
@@ -84,6 +110,8 @@ describe('campaign-pass-forge-logging', () => {
       execProbe: mockExecProbe,
       commitSha: mockCommitSha,
       recordProbeVerdict: mockRecordProbeVerdict,
+      ruleMissionProposal: mockRuleMissionProposal,
+      llm: mockLlm,
     };
 
     // Spy on console.warn to capture log messages.
