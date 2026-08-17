@@ -429,9 +429,15 @@ export async function runCampaignPass(
             evidence: result.evidence ?? null,
           });
           executed.push(probe.id);
-        } catch {
-          // Fail-open per-probe: one throwing exec/record leaves the probe unchanged
-          // and doesn't prevent others from executing.
+        } catch (err) {
+          // Fail-open per-probe: one throwing exec/record leaves the probe unchanged and
+          // doesn't prevent others from executing — but NEVER silently. This catch swallowed
+          // 'not wired' rig-reset stubs for every probe of a live campaign: zero verdicts,
+          // zero log lines, and the pass reported success. A skipped measurement must be
+          // attributable from the log alone.
+          console.warn(
+            `[campaign-pass] probe ${probe.id.slice(0, 8)} skipped (no verdict recorded): ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     } catch {
