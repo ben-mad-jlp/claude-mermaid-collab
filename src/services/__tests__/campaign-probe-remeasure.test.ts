@@ -20,6 +20,7 @@ import { upsertMission } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
 import { _closeDb } from '../supervisor-store';
+import type { JudgmentLLM } from '../judgment-llm';
 
 let project: string;
 
@@ -72,10 +73,17 @@ describe('campaign-probe-remeasure', () => {
       return { missionId: missionTodo.id } as any;
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       execProbe: mockExecProbe,
       commitSha: () => 'sha-test',
       forgeMission: mockForgeMission,
+      llm: approvingLlm,
     };
 
     // First pass: probe is 'not-run', enters front, executes and records 'fail'.

@@ -32,6 +32,7 @@ import {
 } from '../mission-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
+import type { JudgmentLLM } from '../judgment-llm';
 
 let project: string;
 
@@ -386,10 +387,17 @@ describe('campaign-pass', () => {
       ];
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
@@ -486,10 +494,17 @@ describe('campaign-pass', () => {
       ];
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
@@ -586,10 +601,17 @@ describe('campaign-pass', () => {
       ];
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
@@ -694,10 +716,17 @@ describe('campaign-pass', () => {
       ];
     };
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);

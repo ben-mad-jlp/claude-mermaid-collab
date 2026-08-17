@@ -27,6 +27,7 @@ import {
 import { forgeMission, type ForgeMissionInput, type ForgeMissionResult } from '../../mcp/tools/mission-forge';
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
+import type { JudgmentLLM } from '../judgment-llm';
 
 let project: string;
 
@@ -82,10 +83,17 @@ describe('campaign-forge-atomicity', () => {
       },
     ];
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     // Run the pass. It should reject due to the thrown criterion.
@@ -157,10 +165,17 @@ describe('campaign-forge-atomicity', () => {
       },
     ];
 
+    const approvingLlm: JudgmentLLM = {
+      async complete(): Promise<string> {
+        return '{"objection":null,"reasoning":"ok"}';
+      },
+    };
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
+      llm: approvingLlm,
     };
 
     // Run two concurrent passes over the same campaign.
