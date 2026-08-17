@@ -27,6 +27,7 @@ export interface AsyncJobRow {
   createdAt: number;
   updatedAt: number;
   resultJson: string | null;
+  phase: string | null;
 }
 
 const DDL = `
@@ -41,7 +42,8 @@ CREATE TABLE IF NOT EXISTS async_job (
   pid INTEGER NOT NULL,
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
-  resultJson TEXT
+  resultJson TEXT,
+  phase TEXT
 );
 `;
 
@@ -61,6 +63,7 @@ function openDb(project: string): Database {
   const db = new Database(path);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(DDL);
+  addColumnIfMissing(db, 'async_job', 'phase', 'TEXT');
   dbCache.set(root, db);
   return db;
 }
@@ -83,9 +86,9 @@ export function createJob(
   const targetId = opts.targetId ?? null;
 
   db.prepare(
-    `INSERT INTO async_job (id, project, kind, status, targetId, error, bootId, pid, createdAt, updatedAt, resultJson)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, project, opts.kind, 'pending', targetId, null, CURRENT_BOOT_ID, process.pid, now, now, null);
+    `INSERT INTO async_job (id, project, kind, status, targetId, error, bootId, pid, createdAt, updatedAt, resultJson, phase)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, project, opts.kind, 'pending', targetId, null, CURRENT_BOOT_ID, process.pid, now, now, null, null);
 
   return {
     id,
@@ -99,6 +102,7 @@ export function createJob(
     createdAt: now,
     updatedAt: now,
     resultJson: null,
+    phase: null,
   };
 }
 
@@ -126,6 +130,64 @@ export function markJobFailed(project: string, id: string, error: string): Async
   const now = Date.now();
   db.prepare(`UPDATE async_job SET status = ?, updatedAt = ?, error = ? WHERE id = ?`).run('failed', now, error, id);
   return (db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow) ?? null;
+}
+
+export function updateJobPhase(project: string, id: string, phase: string): AsyncJobRow | null {
+  const db = openDb(project);
+  const existing = db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow | undefined;
+  if (!existing) return null;
+  const now = Math.max(Date.now(), existing.updatedAt + 1);
+  db.prepare(`UPDATE async_job SET phase = ?, updatedAt = ? WHERE id = ? AND status = 'running'`).run(phase, now, id);
+  return (db.query('SELECT * FROM async_job WHERE id = ?').get(id) as AsyncJobRow) ?? null;
+}
+
+export const JOB_STALL_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function sweepStalledJobs(project: string, opts?: { now?: number }): Promise<{ swept: AsyncJobRow[] }> {
+  const db = openDb(project);
+  const now = opts?.now ?? Date.now();
+  const timeout = now - JOB_STALL_TIMEOUT_MS;
+
+  const stalledRows = db
+    .query(
+      `SELECT * FROM async_job
+       WHERE status IN ('pending', 'running') AND bootId = ? AND updatedAt < ?`,
+    )
+    .all(CURRENT_BOOT_ID, timeout) as AsyncJobRow[];
+
+  const swept: AsyncJobRow[] = [];
+
+  for (const row of stalledRows) {
+    const error = `stalled after ${JOB_STALL_TIMEOUT_MS}ms with no progress (last phase: ${row.phase ?? 'none'})`;
+
+    // Transition to failed.
+    db.prepare(`UPDATE async_job SET status = ?, updatedAt = ?, error = ? WHERE id = ?`).run('failed', now, error, row.id);
+
+    const updated = db.query('SELECT * FROM async_job WHERE id = ?').get(row.id) as AsyncJobRow;
+    if (updated) swept.push(updated);
+
+    // Raise an escalation with conditionKey dedup.
+    try {
+      const { createEscalation } = await import('./supervisor-store.js');
+      const questionText = `Land job ${row.kind}${row.targetId ? ` (target ${row.targetId})` : ''} stalled with no progress for ${JOB_STALL_TIMEOUT_MS}ms.`;
+      createEscalation({
+        project,
+        session: 'daemon',
+        kind: 'async-job-stalled',
+        questionText,
+        audience: 'human',
+        conditionKey: `async-job-stalled:${row.id}`,
+        todoId: row.targetId ?? null,
+      });
+    } catch (err) {
+      console.error(
+        `mermaid-collab: async-job stall escalation failed for ${row.id} —`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  return { swept };
 }
 
 export function getJob(project: string, id: string): AsyncJobRow | null {
