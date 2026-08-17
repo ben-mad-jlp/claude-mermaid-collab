@@ -62,6 +62,9 @@ export interface BridgeCampaign {
   title: string;
   goal: string | null;
   createdAt: number;
+  /** Set when the campaign was dropped (drop_campaign). The UI must be able to distinguish
+   *  a retired campaign from a live one — no pass runs for a dropped campaign. */
+  droppedAt: number | null;
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
 }
@@ -143,6 +146,7 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       title: campaign.title,
       goal: campaign.goal,
       createdAt: campaign.createdAt,
+      droppedAt: campaign.droppedAt ?? null,
       probes: enrichedProbes,
       ruling,
     };

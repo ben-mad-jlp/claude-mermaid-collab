@@ -60,6 +60,9 @@ export interface BridgeCampaign {
   title: string;
   goal: string | null;
   createdAt: number;
+  /** Set when the campaign was dropped. Optional so snapshots from an older server
+   *  (no field) still parse; missing means live. */
+  droppedAt?: number | null;
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
 }
