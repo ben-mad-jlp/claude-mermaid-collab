@@ -167,6 +167,20 @@ export function describeUnfinishedPass(startedAt: number, now: number): string {
   return mins >= 1 ? `in flight (${mins}m)` : `in flight (${Math.floor(ageMs / 1000)}s)`;
 }
 
+/**
+ * Determine whether a conductor pass row is genuinely inflight (still running and within budget).
+ * Returns true only if the pass has not ended (endedAt === null) AND has not exceeded the
+ * timeout budget. At exactly CONDUCTOR_NODE_TIMEOUT_MS elapsed, the boundary flips: the row
+ * is no longer inflight, and describeUnfinishedPass will call it 'killed (ran out of time)'.
+ * This shared gate ensures the badge and sentence agree on the edge.
+ */
+export function isPassInflight(
+  row: Pick<ConductorPassRow, 'startedAt' | 'endedAt'>,
+  now: number,
+): boolean {
+  return row.endedAt === null && now - row.startedAt < CONDUCTOR_NODE_TIMEOUT_MS;
+}
+
 export function formatConductorPass(
   row: ConductorPassRow,
   now: number = Date.now(),
