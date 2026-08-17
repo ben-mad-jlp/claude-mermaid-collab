@@ -138,6 +138,11 @@ export interface CampaignRow {
   title: string;
   goal: string | null;
   createdAt: number;
+  /** Set when the campaign is dropped. A dropped campaign stays readable but no pass runs
+   *  for it — the ONLY way to stop a campaign from spawning missions, since passes iterate
+   *  every campaign of a project. Optional only so hand-built test fixtures need not carry
+   *  it; the store always maps it, and consumers check `== null` (missing ⇒ not dropped). */
+  droppedAt?: number | null;
 }
 
 /** A probe row: a deterministic check within a campaign. */
@@ -400,6 +405,23 @@ function addCampaignGoalColumn(db: Database): void {
 }
 
 /**
+ * Idempotent migration to add the droppedAt column to the campaign table.
+ * Uses PRAGMA table_info to check if the column exists; adds it if missing.
+ */
+function addCampaignDroppedAtColumn(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(campaign)")
+    .all() as Array<{ name: string }>;
+
+  const hasColumn = tableInfo.some((col) => col.name === 'droppedAt');
+  if (hasColumn) {
+    return; // Column already exists, no-op.
+  }
+
+  db.prepare("ALTER TABLE campaign ADD COLUMN droppedAt INTEGER").run();
+}
+
+/**
  * Idempotent migration to add artifactsRead and commandsRun columns to campaign_completion_verdict table.
  * Uses PRAGMA table_info to check if columns exist; adds them if missing.
  * Safe to call multiple times and on tables that already have the columns.
@@ -505,6 +527,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: add goal column to campaign if missing.
   addCampaignGoalColumn(db);
+
+  // Idempotent migration: add droppedAt column to campaign if missing.
+  addCampaignDroppedAtColumn(db);
 
   // Idempotent migration: add artifactsRead and commandsRun columns to campaign_completion_verdict if missing.
   addCompletionExaminedColumns(db);
@@ -754,6 +779,7 @@ export function createCampaign(
     title: input.title,
     goal: input.goal ?? null,
     createdAt: ts,
+    droppedAt: null,
   };
 }
 
@@ -769,6 +795,7 @@ export function getCampaign(project: string, campaignId: string): CampaignRow | 
     title: row.title,
     goal: row.goal ?? null,
     createdAt: row.createdAt,
+    droppedAt: row.droppedAt ?? null,
   } : null;
 }
 
@@ -787,7 +814,32 @@ export function listCampaigns(project: string): CampaignRow[] {
     title: row.title,
     goal: row.goal ?? null,
     createdAt: row.createdAt,
+    droppedAt: row.droppedAt ?? null,
   }));
+}
+
+/**
+ * Drop a campaign: no pass runs for it again, so it can never spawn another mission.
+ * The row and its probes stay readable (list/get) — a drop hides work from the
+ * machinery, never from the operator. Idempotent: dropping a dropped campaign keeps
+ * the ORIGINAL droppedAt. Throws on an unknown id — a drop that silently matched
+ * nothing is how stale campaigns keep running.
+ */
+export function dropCampaign(project: string, campaignId: string): CampaignRow {
+  const db = openCampaignDb(project);
+  const existing = getCampaign(project, campaignId);
+  if (!existing) {
+    throw new Error(`unknown campaign: ${campaignId}`);
+  }
+  if (existing.droppedAt !== null) {
+    return existing;
+  }
+  db.prepare('UPDATE campaign SET droppedAt = ? WHERE id = ?').run(nowMs(), campaignId);
+  const after = getCampaign(project, campaignId);
+  if (!after || after.droppedAt === null) {
+    throw new Error(`drop did not persist for campaign: ${campaignId}`);
+  }
+  return after;
 }
 
 /**

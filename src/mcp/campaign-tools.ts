@@ -4,7 +4,7 @@
 // listing campaigns with probe counts, and reading campaign state with probe verdicts
 // and front derivation. Extracted as a pure adapter over campaign-forge/store/front.
 import { forgeCampaignFromGoal, InvalidCampaignError } from '../services/campaign-forge.js';
-import { listCampaigns, listProbes, listProbeVerdicts, getCampaign, latestCampaignCompletion } from '../services/campaign-store.js';
+import { listCampaigns, listProbes, listProbeVerdicts, getCampaign, latestCampaignCompletion, dropCampaign } from '../services/campaign-store.js';
 import { campaignFront } from '../services/campaign-front.js';
 import { deriveCampaignCompletion } from '../services/campaign-completion.js';
 import { makeJudgmentLLM } from '../services/judgment-llm.js';
@@ -107,6 +107,24 @@ export const CAMPAIGN_TOOL_DEFS = [
       required: ['project', 'campaignId'],
     },
   },
+  {
+    name: 'drop_campaign',
+    description: 'Drop a campaign so no further pass runs for it: it stops spawning missions and takes no land side effects, but stays readable via list_campaigns/get_campaign with its droppedAt timestamp. Idempotent. This is the only way to retire a stale campaign — passes otherwise run for EVERY campaign of a project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: {
+          type: 'string',
+          description: 'Tracking project.',
+        },
+        campaignId: {
+          type: 'string',
+          description: 'Campaign id to drop.',
+        },
+      },
+      required: ['project', 'campaignId'],
+    },
+  },
 ];
 
 export async function handleCampaignTool(name: string, args: any): Promise<string | null> {
@@ -152,6 +170,13 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const latest = latestCampaignCompletion(project, campaignId);
       const completion = deriveCampaignCompletion({ probes, verdict: latest });
       return JSON.stringify({ campaignId, goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
+    }
+    case 'drop_campaign': {
+      const { project, campaignId } = args as { project?: string; campaignId?: string };
+      if (!project) throw new Error('Missing required: project');
+      if (!campaignId) throw new Error('Missing required: campaignId');
+      const dropped = dropCampaign(project, campaignId);
+      return JSON.stringify(dropped, null, 2);
     }
     default:
       return null;

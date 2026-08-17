@@ -84,7 +84,9 @@ export async function runCampaignPassForProject(
   const results: CampaignPassResult[] = [];
 
   try {
-    const campaignRows = listCampaignsFn(project);
+    // A dropped campaign gets NO pass — this filter is the only thing standing between a
+    // stale campaign and it spawning missions forever, since the loop covers every row.
+    const campaignRows = listCampaignsFn(project).filter((row) => row.droppedAt == null);
 
     // Iterate sequentially with await, wrapping each in try/catch for fail-open per-campaign.
     for (const row of campaignRows) {
