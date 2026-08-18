@@ -321,69 +321,70 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
           {/* Chamber deliberation transcript */}
           {c.chamber != null && (
             <div data-testid="campaign-chamber" className="px-2 space-y-2">
-              {/* Proposals */}
-              {c.chamber.proposals.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                    Proposals
-                  </div>
-                  {c.chamber.proposals.map((entry, idx) => (
-                    <div
-                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                      data-testid="chamber-proposal"
-                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                    >
-                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+              <div data-testid="chamber-transcript" className="max-h-96 overflow-y-auto space-y-2">
+                {/* Proposals */}
+                {c.chamber.proposals.length > 0 && (
+                  <div className="space-y-1">
+                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                      Propose
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Vetoes */}
-              {c.chamber.vetoes.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                    Vetoes
+                    {c.chamber.proposals.map((entry, idx) => (
+                      <div
+                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                        data-testid="chamber-proposal"
+                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                      >
+                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
+                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                      </div>
+                    ))}
                   </div>
-                  {c.chamber.vetoes.map((entry, idx) => (
-                    <div
-                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                      data-testid="chamber-veto"
-                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                    >
-                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                )}
 
-              {/* Wargame */}
-              {c.chamber.wargame.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                    Wargame
+                {/* Vetoes */}
+                {c.chamber.vetoes.length > 0 && (
+                  <div className="space-y-1">
+                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                      Veto
+                    </div>
+                    {c.chamber.vetoes.map((entry, idx) => (
+                      <div
+                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                        data-testid="chamber-veto"
+                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                      >
+                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
+                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                      </div>
+                    ))}
                   </div>
-                  {c.chamber.wargame.map((entry, idx) => (
-                    <div
-                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                      data-testid="chamber-wargame"
-                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                    >
-                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                )}
 
-              {/* Decision */}
-              <div
-                data-testid="chamber-decision"
-                className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5"
-              >
-                <div className="font-semibold">Decision:</div>
+                {/* Wargame */}
+                {c.chamber.wargame.length > 0 && (
+                  <div className="space-y-1">
+                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                      Wargame
+                    </div>
+                    {c.chamber.wargame.map((entry, idx) => (
+                      <div
+                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                        data-testid="chamber-wargame"
+                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                      >
+                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
+                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Decision */}
+                <div
+                  data-testid="chamber-decision"
+                  className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5"
+                >
+                  <div data-testid="chamber-phase-heading" className="font-semibold">Decision</div>
                 <div className="pl-2 space-y-1">
                   {/* Decision entries with role and agenda */}
                   {c.chamber.decision.length > 0 && (
@@ -419,6 +420,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                     </div>
                   )}
                 </div>
+              </div>
               </div>
             </div>
           )}
