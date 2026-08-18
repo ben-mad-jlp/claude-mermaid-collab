@@ -186,4 +186,134 @@ describe('CampaignPanel chamber deliberation', () => {
     const agendaElement = screen.getByTestId('chamber-role-agenda');
     expect(agendaElement.textContent).toContain(comptrollerAgenda);
   });
+
+  it('renders the deliberation transcript inside a scrollable container', () => {
+    const fixtureWithChamber: BridgeCampaign[] = [
+      {
+        id: 'camp-scroll',
+        title: 'Campaign with Scrollable Transcript',
+        goal: 'Test scrollable container',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-004',
+          outcome: 'decision',
+          chosenCandidate: null,
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'abc123def456',
+          decidedAt: 1629802500000,
+          proposals: [],
+          vetoes: [],
+          wargame: [],
+          decision: [],
+        },
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithChamber },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    const transcript = screen.getByTestId('chamber-transcript');
+    expect(transcript).toBeTruthy();
+    expect(transcript.className).toMatch(/max-h-/);
+    expect(transcript.className).toContain('overflow-y-auto');
+  });
+
+  it('groups transcript rows under their phase heading in convene order', () => {
+    const proposalContent = 'Proposal content here';
+    const vetoContent = 'Veto content here';
+    const wargameContent = 'Wargame content here';
+
+    const fixtureWithAllPhases: BridgeCampaign[] = [
+      {
+        id: 'camp-phases',
+        title: 'Campaign with All Phases',
+        goal: 'Test phase heading order',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-005',
+          outcome: 'decision',
+          chosenCandidate: 'candidate-x',
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'xyz789abc123',
+          decidedAt: 1629802500000,
+          proposals: [
+            {
+              phase: 'propose',
+              role: 'lens-architect',
+              model: 'claude-opus-5',
+              content: proposalContent,
+              createdAt: 1629802000000,
+            },
+          ],
+          vetoes: [
+            {
+              phase: 'veto',
+              role: 'lens-security',
+              model: 'claude-opus-5',
+              content: vetoContent,
+              createdAt: 1629802100000,
+            },
+          ],
+          wargame: [
+            {
+              phase: 'wargame',
+              role: 'lens-performance',
+              model: 'claude-opus-5',
+              content: wargameContent,
+              createdAt: 1629802200000,
+            },
+          ],
+          decision: [],
+        },
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithAllPhases },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    // Get all phase headings in document order
+    const headings = screen.getAllByTestId('chamber-phase-heading');
+    expect(headings.length).toBe(4);
+    expect(headings.map((h) => h.textContent?.trim())).toEqual([
+      'Propose',
+      'Veto',
+      'Wargame',
+      'Decision',
+    ]);
+
+    // Assert per-heading containment
+    // Heading[0] (Propose) parent contains chamber-proposal row
+    const proposalRow = screen.getByTestId('chamber-proposal');
+    expect(headings[0].parentElement).toBe(proposalRow.parentElement);
+
+    // Heading[1] (Veto) parent contains chamber-veto row
+    const vetoRow = screen.getByTestId('chamber-veto');
+    expect(headings[1].parentElement).toBe(vetoRow.parentElement);
+
+    // Heading[2] (Wargame) parent contains chamber-wargame row
+    const wargameRow = screen.getByTestId('chamber-wargame');
+    expect(headings[2].parentElement).toBe(wargameRow.parentElement);
+
+    // Heading[3] (Decision) parentElement is the chamber-decision element itself
+    const decisionBlock = screen.getByTestId('chamber-decision');
+    expect(headings[3].parentElement).toBe(decisionBlock);
+  });
 });
