@@ -10,7 +10,7 @@
 
 import React, { useMemo } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
-import type { BridgeCampaign, BridgeCampaignLens, BridgeChamberEntry } from '@/types/campaign';
+import type { BridgeCampaign, BridgeCampaignLens, BridgeChamberEntry, ChamberRosterEntry } from '@/types/campaign';
 
 export interface CampaignPanelProps {
   project: string;
@@ -26,6 +26,27 @@ export const PROBE_EVIDENCE_STALE_MS = 24 * 60 * 60 * 1000;
 
 /** Frozen empty array to avoid re-render on every store write. */
 const EMPTY: BridgeCampaign[] = [];
+
+/**
+ * Render a chamber role with its optional roster agenda description.
+ * The role is rendered in its own <span> to preserve test assertions like
+ * screen.getByText('lens-security'). The agenda (if present) renders in a sibling
+ * muted element with data-testid="chamber-role-agenda".
+ */
+const ChamberRole: React.FC<{ role: string; agenda: string | null }> = ({ role, agenda }) => (
+  <div className="flex items-center gap-2">
+    <span className="font-mono">{role}</span>
+    {agenda !== null && (
+      <span
+        data-testid="chamber-role-agenda"
+        title={agenda}
+        className="text-gray-400 dark:text-gray-500"
+      >
+        {agenda}
+      </span>
+    )}
+  </div>
+);
 
 /**
  * Format a probe's last evidence timestamp into a relative-age label.
@@ -75,6 +96,17 @@ export function panelHasDissent(lenses: BridgeCampaignLens[]): boolean {
   // Check if verdicts are unanimous
   const firstVerdict = lenses[0].verdict;
   return lenses.some((l) => l.verdict !== firstVerdict);
+}
+
+/**
+ * Resolve a chamber role to its roster agenda description, or null if the role
+ * is not found or the roster is undefined/empty.
+ * This is the crash-safety seam: never indexes or assumes the field exists.
+ */
+export function rosterAgendaFor(roster: ChamberRosterEntry[] | undefined, role: string): string | null {
+  if (!roster || roster.length === 0) return null;
+  const entry = roster.find((e) => e.name === role);
+  return entry?.agenda ?? null;
 }
 
 export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEntity, nowMs }) => {
@@ -301,7 +333,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       data-testid="chamber-proposal"
                       className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                     >
-                      <div className="font-mono">{entry.role}</div>
+                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
                       <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
                     </div>
                   ))}
@@ -320,7 +352,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       data-testid="chamber-veto"
                       className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                     >
-                      <div className="font-mono">{entry.role}</div>
+                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
                       <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
                     </div>
                   ))}
@@ -339,7 +371,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       data-testid="chamber-wargame"
                       className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                     >
-                      <div className="font-mono">{entry.role}</div>
+                      <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
                       <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
                     </div>
                   ))}
@@ -353,6 +385,17 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
               >
                 <div className="font-semibold">Decision:</div>
                 <div className="pl-2 space-y-1">
+                  {/* Decision entries with role and agenda */}
+                  {c.chamber.decision.length > 0 && (
+                    <div className="space-y-1">
+                      {c.chamber.decision.map((entry, idx) => (
+                        <div key={`${entry.phase}-${entry.createdAt}-${idx}`} className="space-y-0.5">
+                          <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
+                          <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="text-gray-500 dark:text-gray-500">
                     <span className="font-mono">Outcome:</span> {c.chamber.outcome}
                   </div>
