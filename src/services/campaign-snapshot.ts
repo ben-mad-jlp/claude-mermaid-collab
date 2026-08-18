@@ -11,11 +11,15 @@ import {
   listLinkedMissionIds,
   latestCampaignCompletion,
   listCompletionLenses,
+  listChamberDecisions,
+  listChamberTranscript,
   type CampaignRow,
   type CampaignProbe,
   type ProbeEnvironment,
   type CompletionVerdict,
   type CompletionLensRound,
+  type ChamberPhase,
+  type ChamberOutcome,
 } from './campaign-store.js';
 import { listTodos, type Todo } from './todo-store.js';
 import { isLeaf, isEpic } from './todo-kind.js';
@@ -42,6 +46,30 @@ export interface BridgeCampaignRuling {
   lenses: BridgeCampaignLens[];
 }
 
+/** A chamber transcript entry projected for bridge: role, model, and verbatim content. */
+export interface BridgeChamberEntry {
+  phase: ChamberPhase;
+  role: string;
+  model: string | null;
+  content: string;
+  createdAt: number;
+}
+
+/** Chamber deliberation outcome and transcript bucketed by phase. */
+export interface BridgeChamberDeliberation {
+  sessionId: string;
+  outcome: ChamberOutcome;
+  chosenCandidate: string | null;
+  strongestDissent: string | null;
+  refiningGuidance: string | null;
+  decidedAtSha: string;
+  decidedAt: number;
+  proposals: BridgeChamberEntry[];
+  vetoes: BridgeChamberEntry[];
+  wargame: BridgeChamberEntry[];
+  decision: BridgeChamberEntry[];
+}
+
 /** A probe in a campaign with its last recorded evidence. */
 export interface BridgeCampaignProbe {
   id: string;
@@ -59,7 +87,7 @@ export interface BridgeCampaignProbe {
   lastEvidenceCommitSha: string | null;
 }
 
-/** A campaign and its probes with optional ruling. */
+/** A campaign and its probes with optional ruling and chamber deliberation. */
 export interface BridgeCampaign {
   id: string;
   title: string;
@@ -70,6 +98,7 @@ export interface BridgeCampaign {
   droppedAt: number | null;
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
+  chamber: BridgeChamberDeliberation | null;
   /** Number of missions linked to this campaign via probe claims. */
   missionCount: number;
   /** Number of leaf todos whose parent chain reaches a linked mission. */
@@ -155,6 +184,59 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       };
     }
 
+    // Get the latest chamber decision for this campaign, or null if none exist.
+    const decisions = listChamberDecisions(project, campaign.id);
+    let chamber: BridgeChamberDeliberation | null = null;
+    if (decisions.length > 0) {
+      const decision = decisions[decisions.length - 1];
+      const transcript = listChamberTranscript(project, campaign.id, decision.sessionId);
+
+      // Bucket transcript rows by phase, preserving store order within each bucket.
+      const proposals: BridgeChamberEntry[] = [];
+      const vetoes: BridgeChamberEntry[] = [];
+      const wargame: BridgeChamberEntry[] = [];
+      const decisionEntries: BridgeChamberEntry[] = [];
+
+      for (const row of transcript) {
+        const entry: BridgeChamberEntry = {
+          phase: row.phase,
+          role: row.role,
+          model: row.model,
+          content: row.content,
+          createdAt: row.createdAt,
+        };
+
+        switch (row.phase) {
+          case 'propose':
+            proposals.push(entry);
+            break;
+          case 'veto':
+            vetoes.push(entry);
+            break;
+          case 'wargame':
+            wargame.push(entry);
+            break;
+          case 'decide':
+            decisionEntries.push(entry);
+            break;
+        }
+      }
+
+      chamber = {
+        sessionId: decision.sessionId,
+        outcome: decision.outcome,
+        chosenCandidate: decision.chosenCandidate,
+        strongestDissent: decision.strongestDissent,
+        refiningGuidance: decision.refiningGuidance,
+        decidedAtSha: decision.decidedAtSha,
+        decidedAt: decision.createdAt,
+        proposals,
+        vetoes,
+        wargame,
+        decision: decisionEntries,
+      };
+    }
+
     // Count missions and leaves linked to this campaign.
     const linkedMissionIds = listLinkedMissionIds(project, campaign.id);
     const missionCount = linkedMissionIds.length;
@@ -174,6 +256,7 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       droppedAt: campaign.droppedAt ?? null,
       probes: enrichedProbes,
       ruling,
+      chamber,
       missionCount,
       leafCount,
     };
