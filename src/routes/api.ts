@@ -544,10 +544,23 @@ export async function handleAPI(
     try {
       const raw = url.searchParams.get('project');
       const project = raw ? expandPath(raw) : null;
-      const { listAllSubscriptions } = await import('../services/session-subscriptions');
+      const { listAllSubscriptions, pendingCount } = await import('../services/session-subscriptions');
       const all = listAllSubscriptions();
       const subs = project ? all.filter((s) => s.project === project) : all;
-      return Response.json({ subscriptions: subs }, { headers: { 'Cache-Control': 'no-store' } });
+
+      // Build unseenBySession: track distinct (project, session) pairs to dedupe calls
+      const unseenBySession: Record<string, number> = {};
+      const seenPairs = new Set<string>();
+
+      for (const sub of subs) {
+        const key = `${sub.project} ${sub.session}`;
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key);
+          unseenBySession[sub.session] = (unseenBySession[sub.session] ?? 0) + pendingCount(sub.project, sub.session);
+        }
+      }
+
+      return Response.json({ subscriptions: subs, unseenBySession }, { headers: { 'Cache-Control': 'no-store' } });
     } catch (error: any) {
       return serverError(error);
     }
