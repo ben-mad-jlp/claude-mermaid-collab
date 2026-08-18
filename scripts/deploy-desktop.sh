@@ -147,6 +147,9 @@ UI_SRC="$REPO/ui/dist"
 ASAR_SRC="$REPO/desktop/out-asar/app.asar"
 MANIFEST_SRC="$REPO/desktop/out-asar/build-manifest.json"
 if [ "$DO_ASAR" = 1 ]; then
+  # The script is spawned detached and non-login from the GUI sidecar (deploy-service.ts requestSelfDeploy),
+  # so the repo-local bin dir must be on PATH explicitly for electron-vite to resolve.
+  export PATH="$REPO/desktop/node_modules/.bin:$PATH"
   log "packing app.asar (electron main)…"
   PACK_ARGS=(); [ "$DO_BUILD" = 1 ] || PACK_ARGS+=(--no-build)
   ( cd "$REPO" && bun scripts/pack-app-asar.ts "${PACK_ARGS[@]+"${PACK_ARGS[@]}"}" ) \
