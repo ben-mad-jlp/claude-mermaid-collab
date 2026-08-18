@@ -15,7 +15,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  readFileSync, writeFileSync, mkdirSync, cpSync, copyFileSync, rmSync,
+  readFileSync, writeFileSync, mkdirSync, cpSync, copyFileSync, rmSync, existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -40,6 +40,14 @@ export interface PackAppAsarOptions {
   now?: () => number;
 }
 
+export function resolveElectronViteBin(repoRoot: string): string {
+  const bin = join(repoRoot, 'desktop', 'node_modules', '.bin', 'electron-vite');
+  if (!existsSync(bin)) {
+    throw new Error(`electron-vite binary not found at ${bin}. Please run 'npm install' in the desktop directory.`);
+  }
+  return bin;
+}
+
 const defaultOptions = (opts: Partial<PackAppAsarOptions> & { repoRoot: string }): Required<PackAppAsarOptions> => ({
   repoRoot: opts.repoRoot,
   outDir: opts.outDir ?? join(opts.repoRoot, 'desktop', 'out'),
@@ -51,10 +59,13 @@ const defaultOptions = (opts: Partial<PackAppAsarOptions> & { repoRoot: string }
   indexHtmlPath: opts.indexHtmlPath ?? join(opts.repoRoot, 'ui', 'dist', 'index.html'),
   doBuild: opts.doBuild ?? true,
   runBuild: opts.runBuild ?? (() => {
+    const binDir = join(opts.repoRoot, 'desktop', 'node_modules', '.bin');
+    const bin = resolveElectronViteBin(opts.repoRoot);
     const desktopDir = join(opts.repoRoot, 'desktop');
-    const result = spawnSync('electron-vite', ['build'], {
+    const result = spawnSync(bin, ['build'], {
       cwd: desktopDir,
       stdio: 'inherit',
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ''}` },
     });
     if (result.status !== 0) {
       throw new Error(`electron-vite build failed with exit code ${result.status ?? 1}`);
