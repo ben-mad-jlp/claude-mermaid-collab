@@ -10,7 +10,7 @@
 
 import React, { useMemo } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
-import type { BridgeCampaign, BridgeCampaignLens } from '@/types/campaign';
+import type { BridgeCampaign, BridgeCampaignLens, BridgeChamberEntry } from '@/types/campaign';
 
 export interface CampaignPanelProps {
   project: string;
@@ -283,6 +283,100 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Chamber deliberation transcript */}
+          {c.chamber != null && (
+            <div data-testid="campaign-chamber" className="px-2 space-y-2">
+              {/* Proposals */}
+              {c.chamber.proposals.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                    Proposals
+                  </div>
+                  {c.chamber.proposals.map((entry, idx) => (
+                    <div
+                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                      data-testid="chamber-proposal"
+                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                    >
+                      <div className="font-mono">{entry.role}</div>
+                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Vetoes */}
+              {c.chamber.vetoes.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                    Vetoes
+                  </div>
+                  {c.chamber.vetoes.map((entry, idx) => (
+                    <div
+                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                      data-testid="chamber-veto"
+                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                    >
+                      <div className="font-mono">{entry.role}</div>
+                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Wargame */}
+              {c.chamber.wargame.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
+                    Wargame
+                  </div>
+                  {c.chamber.wargame.map((entry, idx) => (
+                    <div
+                      key={`${entry.phase}-${entry.createdAt}-${idx}`}
+                      data-testid="chamber-wargame"
+                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                    >
+                      <div className="font-mono">{entry.role}</div>
+                      <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Decision */}
+              <div
+                data-testid="chamber-decision"
+                className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5"
+              >
+                <div className="font-semibold">Decision:</div>
+                <div className="pl-2 space-y-1">
+                  <div className="text-gray-500 dark:text-gray-500">
+                    <span className="font-mono">Outcome:</span> {c.chamber.outcome}
+                  </div>
+                  {c.chamber.chosenCandidate !== null && (
+                    <div className="text-gray-500 dark:text-gray-500">
+                      <span className="font-mono">Chosen:</span> {c.chamber.chosenCandidate}
+                    </div>
+                  )}
+                  {c.chamber.strongestDissent !== null && (
+                    <div className="text-gray-500 dark:text-gray-500">
+                      <span className="font-mono">Dissent:</span> {c.chamber.strongestDissent}
+                    </div>
+                  )}
+                  {c.chamber.refiningGuidance !== null ? (
+                    <div className="text-gray-500 dark:text-gray-500">
+                      <span className="font-mono">Guidance:</span> {c.chamber.refiningGuidance}
+                    </div>
+                  ) : (
+                    <div className="text-gray-400 dark:text-gray-600 pl-2 italic">
+                      No guidance recorded
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
