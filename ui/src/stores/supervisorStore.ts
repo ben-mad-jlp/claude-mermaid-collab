@@ -604,6 +604,7 @@ interface SupervisorState {
    *  trigger threshold. Mirrors the set_watchdog_threshold MCP tool. Reloads projects. */
   setWatchdogThreshold: (serverId: string, project: string, thresholdPercent: number | null) => Promise<boolean>;
   supervised: SupervisedSession[];
+  knownServerIds: string[];
   config: SupervisorConfig | null;
   liveness: SupervisorLiveness | null;
   loadLiveness: (serverId: string) => Promise<void>;
@@ -737,14 +738,31 @@ interface SupervisorState {
 /** Merge supervised sessions by server. For each id in results:
  *  - if res.ok: replace all prior rows whose serverId === id with fresh rows (stale:false)
  *  - else: keep prior rows, each marked stale:true
- *  Rows whose serverId is not in the ids list pass through unchanged.
+ *  Rows whose serverId is not in the ids list or results pass through unchanged, unless
+ *  knownIds is provided and non-empty: then prune rows whose serverId is absent from
+ *  both results and knownIds (legacy rows with no serverId are always kept).
+ *  Finally, dedupe via a Map keyed `${serverId}:${project}:${session}` with merged rows
+ *  taking precedence over retained rows.
  */
 function mergeSupervisedByServer(
   prior: SupervisedSession[],
   results: Array<{ id: string; res: InvokeResult | null }>,
+  knownIds?: string[],
 ): SupervisedSession[] {
   const ids = new Set(results.map((r) => r.id));
-  const priorForOtherServers = prior.filter((s) => !ids.has(s.serverId || ''));
+
+  // Prune logic: keep prior rows for servers not in results, unless knownIds says to drop them.
+  // Keep legacy rows (!s.serverId) unconditionally.
+  let priorForOtherServers: SupervisedSession[];
+  if (knownIds && knownIds.length > 0) {
+    const knownSet = new Set(knownIds);
+    priorForOtherServers = prior.filter(
+      (s) => !ids.has(s.serverId || '') && (!s.serverId || knownSet.has(s.serverId)),
+    );
+  } else {
+    // Before first hydrate or with empty knownIds: keep all rows not in results (today's behavior)
+    priorForOtherServers = prior.filter((s) => !ids.has(s.serverId || ''));
+  }
 
   const merged: SupervisedSession[] = [];
   for (const { id, res } of results) {
@@ -770,7 +788,21 @@ function mergeSupervisedByServer(
     }
   }
 
-  return [...merged, ...priorForOtherServers];
+  // Dedupe: use a Map keyed `${serverId}:${project}:${session}`. Merged rows first,
+  // then retained rows, so merged rows win on collision.
+  const dedupeMap = new Map<string, SupervisedSession>();
+  for (const s of merged) {
+    const key = `${s.serverId || ''}:${s.project}:${s.session}`;
+    dedupeMap.set(key, s);
+  }
+  for (const s of priorForOtherServers) {
+    const key = `${s.serverId || ''}:${s.project}:${s.session}`;
+    if (!dedupeMap.has(key)) {
+      dedupeMap.set(key, s);
+    }
+  }
+
+  return [...dedupeMap.values()];
 }
 
 export const useSupervisorStore = create<SupervisorState>((set, get) => ({
@@ -890,6 +922,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     return true;
   },
   supervised: hydrate<SupervisedSession[]>(SUPERVISED_KEY, []),
+  knownServerIds: [],
   config: hydrate<SupervisorConfig | null>(SUPERVISOR_CONFIG_KEY, null),
   liveness: null,
   auditByProject: {},
@@ -928,7 +961,13 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   loadSupervised: async (serverId) => {
     const res = await invoke(serverId, '/api/supervisor/supervised', 'GET');
     set((state) => {
-      const supervised = mergeSupervisedByServer(state.supervised, [{ id: serverId, res }]);
+      // Compute knownIds: the union of known servers + this call's serverId, or undefined
+      // if knownServerIds is empty (before first hydrate).
+      const knownIds =
+        state.knownServerIds.length > 0
+          ? [...new Set([...state.knownServerIds, serverId])]
+          : undefined;
+      const supervised = mergeSupervisedByServer(state.supervised, [{ id: serverId, res }], knownIds);
       localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
       return { supervised };
     });
@@ -1251,9 +1290,9 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const ids = serverIds.length ? serverIds : ['local'];
     const results = await Promise.all(ids.map((id) => invoke(id, '/api/supervisor/supervised', 'GET')));
     set((state) => {
-      const supervised = mergeSupervisedByServer(state.supervised, ids.map((id, i) => ({ id, res: results[i] })));
+      const supervised = mergeSupervisedByServer(state.supervised, ids.map((id, i) => ({ id, res: results[i] })), ids);
       localStorage.setItem(SUPERVISED_KEY, JSON.stringify(supervised));
-      return { supervised };
+      return { supervised, knownServerIds: ids };
     });
   },
 
