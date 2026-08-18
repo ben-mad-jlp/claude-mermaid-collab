@@ -93,6 +93,68 @@ function resolveLLM(llm: JudgmentLLM | ChamberLLMFactory, role: string, phase: C
 }
 
 /**
+ * Resolve the president's chosen candidate from the parsed reply.
+ *
+ * Rules, all returning `null` (⇒ inaction):
+ * - `parsed` is not a non-null object;
+ * - `chosenIndex` present but not an integer in `[0, wargamed.length)`;
+ * - `chosenCandidate` (or `chosen`) present as a string that does not `===` the `goal` of any
+ *   entry in `wargamed` — even when `chosenIndex` is in range (the two must agree);
+ * - neither `chosenIndex` nor a matching `chosenCandidate` present.
+ *
+ * When only a matching `chosenCandidate` string is given, resolve its index from `wargamed`.
+ */
+export function resolvePresidentChoice(
+  parsed: any,
+  wargamed: ChamberWargamed[],
+): { candidate: ChamberCandidate; index: number } | null {
+  // parsed must be a non-null object
+  if (!parsed || typeof parsed !== 'object') {
+    return null;
+  }
+
+  const chosenIndex = parsed.chosenIndex;
+  const chosenCandidate = parsed.chosenCandidate || parsed.chosen;
+
+  let resolvedIndex: number | null = null;
+  let resolvedCandidate: ChamberCandidate | null = null;
+
+  // If chosenIndex is provided, validate it
+  if (typeof chosenIndex === 'number') {
+    if (chosenIndex >= 0 && chosenIndex < wargamed.length) {
+      resolvedIndex = chosenIndex;
+      resolvedCandidate = wargamed[chosenIndex].candidate;
+    } else {
+      // chosenIndex out of range
+      return null;
+    }
+  }
+
+  // If chosenCandidate is provided, find it in wargamed
+  if (typeof chosenCandidate === 'string') {
+    const found = wargamed.find((w) => w.candidate.goal === chosenCandidate);
+    if (!found) {
+      // String doesn't match any candidate goal
+      return null;
+    }
+    const candidateIndex = wargamed.indexOf(found);
+    if (resolvedIndex !== null && resolvedIndex !== candidateIndex) {
+      // chosenIndex and chosenCandidate disagree
+      return null;
+    }
+    resolvedIndex = candidateIndex;
+    resolvedCandidate = found.candidate;
+  }
+
+  // Neither chosenIndex nor matching chosenCandidate present
+  if (resolvedIndex === null || !resolvedCandidate) {
+    return null;
+  }
+
+  return { candidate: resolvedCandidate, index: resolvedIndex };
+}
+
+/**
  * Propose phase: Each general author a candidate for closure.
  *
  * Iterates through CHAMBER_GENERALS in order. Each general is called once via LLM.complete.
@@ -358,6 +420,8 @@ Examine this candidate critically. What is the strongest concern or weakness? Or
  *
  * Failure discipline: If the president reply is unparseable or out-of-range, the outcome
  * is set to 'inaction' and chosenCandidate/strongestDissent/refiningGuidance are set to null.
+ * The failure reason is folded into the persisted decide transcript row's content as
+ * {"outcome":"inaction","reason":"..."}.
  *
  * Returns the recorded decision.
  */
@@ -405,46 +469,66 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
   let chosenCandidate: string | null = null;
   let strongestDissent: string | null = null;
   let refiningGuidance: string | null = null;
-  let decideContent = '(failed)';
+  let decideContent = JSON.stringify({ outcome: 'inaction', reason: 'empty reply' });
+  let presidentFailure: string | null = null;
 
   try {
     const reply = await llm.complete(system, user);
 
-    if (reply && reply.trim()) {
+    if (!reply || !reply.trim()) {
+      presidentFailure = 'empty reply';
+      decideContent = JSON.stringify({ outcome: 'inaction', reason: presidentFailure });
+    } else {
       const jsonMatch = reply.match(/\{[^{}]*(?:"[^"]*"[^{}]*)*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const chosenIndex = parsed.chosenIndex;
-        const dissentIndex = parsed.dissentIndex;
-        const guidance = parsed.guidance;
+      if (!jsonMatch) {
+        presidentFailure = 'unparseable JSON';
+        decideContent = JSON.stringify({ outcome: 'inaction', reason: presidentFailure });
+      } else {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch {
+          presidentFailure = 'unparseable JSON';
+          decideContent = JSON.stringify({ outcome: 'inaction', reason: presidentFailure });
+        }
 
-        // Validate chosenIndex.
-        if (typeof chosenIndex === 'number' && chosenIndex >= 0 && chosenIndex < wargamed.length) {
-          outcome = 'decision';
-          chosenCandidate = wargamed[chosenIndex].candidate.goal;
+        if (parsed && !presidentFailure) {
+          const resolved = resolvePresidentChoice(parsed, wargamed);
+          if (!resolved) {
+            presidentFailure = 'chosen candidate not among surviving candidates';
+            decideContent = JSON.stringify({ outcome: 'inaction', reason: presidentFailure });
+          } else {
+            const dissentIndex = parsed.dissentIndex;
+            const guidance = parsed.guidance;
 
-          // Resolve strongest dissent by reference.
-          if (typeof dissentIndex === 'number' && dissentIndex >= 0 && dissentIndex < dissents.length) {
-            strongestDissent = dissents[dissentIndex].dissent;
-          } else if (dissents.length > 0) {
-            // Find the longest recorded dissent string.
-            strongestDissent = dissents.reduce((longest, current) =>
-              current.dissent.length > longest.dissent.length ? current : longest,
-            ).dissent;
+            outcome = 'decision';
+            chosenCandidate = resolved.candidate.goal;
+
+            // Resolve strongest dissent by reference.
+            if (typeof dissentIndex === 'number' && dissentIndex >= 0 && dissentIndex < dissents.length) {
+              strongestDissent = dissents[dissentIndex].dissent;
+            } else if (dissents.length > 0) {
+              // Find the longest recorded dissent string.
+              strongestDissent = dissents.reduce((longest, current) =>
+                current.dissent.length > longest.dissent.length ? current : longest,
+              ).dissent;
+            }
+
+            refiningGuidance = guidance || null;
+            decideContent = JSON.stringify({
+              chosenIndex: resolved.index,
+              dissentIndex,
+              guidance,
+              reasoning: parsed.reasoning || '',
+            });
           }
-
-          refiningGuidance = guidance || null;
-          decideContent = JSON.stringify({
-            chosenIndex,
-            dissentIndex,
-            guidance,
-            reasoning: parsed.reasoning || '',
-          });
         }
       }
     }
-  } catch {
-    // Fall through: president failed, outcome stays 'inaction'
+  } catch (err) {
+    // Fall through: president threw, outcome stays 'inaction'
+    presidentFailure = `threw: ${err instanceof Error ? err.message : String(err)}`;
+    decideContent = JSON.stringify({ outcome: 'inaction', reason: presidentFailure });
   }
 
   // Persist the decision with the decide transcript in the same transactional call.
@@ -469,6 +553,18 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
   });
 
   return decision;
+}
+
+/**
+ * Assert that chamber transcript rows have been recorded before forge is invoked.
+ * Throws if the transcript for this session is empty, ensuring that all phase
+ * records are persisted before any mission forging begins.
+ */
+export function assertTranscriptRecordedBeforeForge(project: string, args: ChamberArgs): void {
+  const transcript = listChamberTranscript(project, args.campaignId, args.sessionId);
+  if (transcript.length === 0) {
+    throw new Error('chamber: transcript not recorded before forge');
+  }
 }
 
 /**
@@ -516,6 +612,8 @@ export async function runChamber(
   let forged: any = null;
   if (decision.outcome === 'decision' && args.forgeInput) {
     try {
+      // Guard: transcript must be recorded before any forge attempt.
+      assertTranscriptRecordedBeforeForge(project, args);
       forged = await deps.forgeMission(project, args.forgeInput);
     } catch {
       // Forge failure: logged but does not fail the run (the decision is already persisted).
