@@ -124,6 +124,11 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
             </div>
           )}
 
+          {/* Mission and leaf counts */}
+          <span data-testid="campaign-counts" className="px-2 text-3xs text-gray-400 dark:text-gray-500">
+            {c.missionCount ?? 0} missions, {c.leafCount ?? 0} leaves
+          </span>
+
           {/* Goal line with null placeholder */}
           <div className="px-2 text-3xs text-gray-400 dark:text-gray-500">
             {c.goal === null ? 'No goal recorded' : c.goal}
