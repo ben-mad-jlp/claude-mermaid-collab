@@ -393,11 +393,20 @@ describe('campaign-pass', () => {
       },
     };
 
+    const decidingChamber: CampaignPassDeps['runChamber'] = async () => ({
+      candidates: [], vetoes: [], wargamed: [],
+      decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
+        chosenCandidate: 'Probe failures: timeout', strongestDissent: null,
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+      forged: null,
+    });
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       llm: approvingLlm,
+      runChamber: decidingChamber,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
@@ -419,7 +428,7 @@ describe('campaign-pass', () => {
     expect(result.forged[0].probeIds.sort()).toEqual([p1.id, p2.id].sort());
   });
 
-  it('forges separate missions for probes with differing failure signatures', async () => {
+  it('groups probes with differing failure signatures and forges one chamber-decided mission', async () => {
     // Create a campaign with two probes.
     const campaign = createCampaign(project, {
       title: 'Test Campaign',
@@ -451,13 +460,12 @@ describe('campaign-pass', () => {
 
     // Track forge calls.
     let forgeCallCount = 0;
-    const forgedMissions: string[] = [];
+    const forgedMissionId = 'm-forge-1';
     const mockForgeMission = async (proj: string, input: any) => {
       forgeCallCount++;
       // Create the mission todo first, then use its ID.
       const missionTodo = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: input.title, kind: 'mission' });
       const missionId = missionTodo.id;
-      forgedMissions.push(missionId);
       upsertMission(project, missionId);
       return {
         node: { id: missionId } as any,
@@ -500,28 +508,35 @@ describe('campaign-pass', () => {
       },
     };
 
+    const decidingChamber: CampaignPassDeps['runChamber'] = async () => ({
+      candidates: [], vetoes: [], wargamed: [],
+      decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
+        chosenCandidate: 'Fix both probe failures', strongestDissent: null,
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+      forged: null,
+    });
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       llm: approvingLlm,
+      runChamber: decidingChamber,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
 
-    // Should forge two missions.
-    expect(forgeCallCount).toBe(2);
+    // Chamber convene now decides on one mission; signature grouping still yields 2 groups but forgeCallCount is 1.
+    expect(forgeCallCount).toBe(1);
 
-    // Each probe should be linked to a different mission.
+    // Both probes should be linked to the same decided mission.
     const link1 = getProbeMissionLink(project, p1.id);
     const link2 = getProbeMissionLink(project, p2.id);
-    expect(link1?.missionId).not.toBe(link2?.missionId);
-    expect([link1?.missionId, link2?.missionId]).toContain(forgedMissions[0]);
-    expect([link1?.missionId, link2?.missionId]).toContain(forgedMissions[1]);
+    expect(link1?.missionId).toBe(link2?.missionId);
 
-    // Result should show two groups.
+    // Result should show two groups but only one forged mission.
     expect(result.groups).toHaveLength(2);
-    expect(result.forged).toHaveLength(2);
+    expect(result.forged).toHaveLength(1);
   });
 
   it('skips a probe that already holds an open linked mission', async () => {
@@ -607,11 +622,20 @@ describe('campaign-pass', () => {
       },
     };
 
+    const decidingChamber: CampaignPassDeps['runChamber'] = async () => ({
+      candidates: [], vetoes: [], wargamed: [],
+      decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
+        chosenCandidate: 'Fix the probe failure', strongestDissent: null,
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+      forged: null,
+    });
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       llm: approvingLlm,
+      runChamber: decidingChamber,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
@@ -632,7 +656,7 @@ describe('campaign-pass', () => {
     expect(link1?.missionId).toBe(existingMissionId);
   });
 
-  it('preserves fail-open discipline: throwing forge does not block other groups', async () => {
+  it('preserves fail-open discipline: a throwing forge releases claims and leaves the pass result intact', async () => {
     // Create a campaign with three probes.
     const campaign = createCampaign(project, {
       title: 'Test Campaign',
@@ -669,28 +693,11 @@ describe('campaign-pass', () => {
       evidence: 'error b',
     });
 
-    // Forge will throw for the first group (signature 'error a'), but not the second.
+    // Forge will throw on its only call.
     let forgeCallCount = 0;
     const mockForgeMission = async (proj: string, input: any) => {
       forgeCallCount++;
-      if (forgeCallCount === 1) {
-        throw new Error('forge failed for group 1');
-      }
-      // Create the mission todo first, then use its ID.
-      const missionTodo = await createTodo(project, { allowOrphan: true, ownerSession: 's1', title: input.title, kind: 'mission' });
-      const missionId = missionTodo.id;
-      upsertMission(project, missionId);
-      return {
-        node: { id: missionId } as any,
-        missionId,
-        criteria: input.criteria,
-        constraints: [],
-        decisions: [],
-        digestWritten: false,
-        rollup: {} as any,
-        ratificationMessage: '',
-        consumedBucketItems: { consumed: [], skipped: [] },
-      };
+      throw new Error('forge failed');
     };
 
     const mockCampaignFront = (proj: string, campaignId: string) => {
@@ -722,27 +729,36 @@ describe('campaign-pass', () => {
       },
     };
 
+    const decidingChamber: CampaignPassDeps['runChamber'] = async () => ({
+      candidates: [], vetoes: [], wargamed: [],
+      decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
+        chosenCandidate: 'Fix all probe failures', strongestDissent: null,
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+      forged: null,
+    });
+
     const deps: CampaignPassDeps = {
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       llm: approvingLlm,
+      runChamber: decidingChamber,
     };
 
     const result = await runCampaignPass(project, campaign.id, 's1', deps);
 
-    // Forge should be called twice (once per group), but only the second succeeds.
-    expect(forgeCallCount).toBe(2);
+    // Forge should be called exactly once (the only chamber convene).
+    expect(forgeCallCount).toBe(1);
 
-    // Only one mission should be forged.
-    expect(result.forged).toHaveLength(1);
+    // No missions should be forged.
+    expect(result.forged).toHaveLength(0);
 
-    // p3 should be linked, but p1 and p2 should not.
-    expect(getProbeMissionLink(project, p3.id)).not.toBeNull();
+    // No probes should be linked (claims were released).
     expect(getProbeMissionLink(project, p1.id)).toBeNull();
     expect(getProbeMissionLink(project, p2.id)).toBeNull();
+    expect(getProbeMissionLink(project, p3.id)).toBeNull();
 
-    // Both groups should be listed even though the first failed to forge.
+    // Both groups should be listed even though forge failed.
     expect(result.groups).toHaveLength(2);
   });
 
