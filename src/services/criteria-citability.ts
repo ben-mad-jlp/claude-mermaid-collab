@@ -584,6 +584,32 @@ export function classifyCriterion(
     return { text, citable: true, kind: 'command-result' };
   }
 
+  // Rule 1.7: ACQUIT a criterion that names BOTH a test/spec FILE and a QUOTED assertion NAME,
+  // even without a runner invocation. This acquits mission criteria (which have no declared files)
+  // that name a concrete test file and assertion: "the test passes, asserting it('…') in
+  // repair-forge-specless-visibility.test.ts". A test path plus assertion name is itself the
+  // citation: a reviewer opens that file and looks for that name. For LEAF criteria with a
+  // change-set, also require that the test file path resolves into the declared files.
+  //
+  // Why the declaredFiles guard exists: Rule 1.6 abstains when declaredFiles is empty (its step
+  // (ii), :314-318), so a MISSION criterion — always classified with no change-set — would fall
+  // through to the Rule 2 command-result conviction even when it names a test file and quoted
+  // assertion. This arm rescues it. The guard MUST NOT be dropped: verified at master, a
+  // criterion with `declaredFiles ['src/lib/unrelated.ts']` (a test file not in the diff) is
+  // convicted by Rule 2 (command-result), not Rule 1, so rule ordering alone does not protect the
+  // invariant at criteria-citability.test.ts:890.
+  if (namesTestFileAndAssertion(text)) {
+    if (declaredFiles.length === 0) {
+      // Mission criterion case: no manifest to check, accept the test file + assertion citation
+      return { text, citable: true, kind: 'command-result' };
+    }
+    // Leaf criterion case: require the test file to resolve into declared files
+    const testFilePaths = text.match(/[\w./-]*[\w-]+\.(?:test|spec)\.(?:[jt]sx?|mjs|cjs)\b/gi) ?? [];
+    if (testFilePaths.some((p) => resolvesIntoDeclaredChangeSet(p, declaredFiles))) {
+      return { text, citable: true, kind: 'command-result' };
+    }
+  }
+
   // Rule 2: CONVICT on command-result
   const rule2 = convictOnCommandResult(text);
   if (rule2.uncitable) {

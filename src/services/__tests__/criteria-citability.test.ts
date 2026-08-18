@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, it, expect } from 'bun:test';
 import {
   parseBlueprintCriteria,
   classifyCriterion,
@@ -921,4 +921,47 @@ test('no remediation string ever suggests grepping the source tree for a shell c
       expect(/grep[^.]*(?:npm|npx|vitest|jest|bun\s+test|tsc)\b/.test(shape)).toBe(false);
     }
   }
+});
+
+// --- Rule 1.7: Test file + assertion without runner invocation (mission criteria) -----------
+//
+// A mission criterion has no declared files, so namesTestInvocation abstains on step (ii).
+// Rule 1.7 rescues citable test-file + assertion criteria that would otherwise fall through
+// to Rule 2 command-result conviction. These are citations in their own right: a reviewer
+// opens the named test file and looks for the quoted assertion.
+
+it('a bare-runner normalization criterion citing an it-name is citable', () => {
+  const v = classifyCriterion(
+    "a bare `bun test` runner string normalizes to the scoped form, asserting `it('a bare \\`bun test\\` runner string normalizes to the scoped form')` in gate-command.test.ts",
+    [] // Mission criterion: no declared files
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+it('a forge-outcome naming criterion citing an it-name is citable', () => {
+  const v = classifyCriterion(
+    "spec-less filings are named in the forge outcome, asserting `it('spec-less filings are named in the forge outcome')` in repair-forge-specless-visibility.test.ts",
+    [] // Mission criterion: no declared files
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+it('a gate-record verdict criterion citing an it-name is citable', () => {
+  const v = classifyCriterion(
+    "a failing gate stores a record whose verdict is fail, asserting `it('a failing gate stores a record whose verdict is fail')` in gate-record.test.ts",
+    [] // Mission criterion: no declared files
+  );
+  expect(v.citable).toBe(true);
+  expect(v.kind).toBe('command-result');
+});
+
+it('a bare command-outcome criterion with no named assertion is still uncitable', () => {
+  const v = classifyCriterion(
+    'bun test src/services/__tests__/x.test.ts passes',
+    [] // Mission criterion: no declared files
+  );
+  expect(v.citable).toBe(false);
+  expect(v.kind).toBe('command-result');
 });
