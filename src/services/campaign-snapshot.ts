@@ -8,6 +8,7 @@ import {
   listCampaigns,
   listProbes,
   listProbeVerdicts,
+  listLinkedMissionIds,
   latestCampaignCompletion,
   listCompletionLenses,
   type CampaignRow,
@@ -16,6 +17,8 @@ import {
   type CompletionVerdict,
   type CompletionLensRound,
 } from './campaign-store.js';
+import { listTodos, type Todo } from './todo-store.js';
+import { isLeaf, isEpic } from './todo-kind.js';
 
 /** Per-lens completion verdict from a two-round panel deliberation. */
 export interface BridgeCampaignLens {
@@ -67,6 +70,10 @@ export interface BridgeCampaign {
   droppedAt: number | null;
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
+  /** Number of missions linked to this campaign via probe claims. */
+  missionCount: number;
+  /** Number of leaf todos whose parent chain reaches a linked mission. */
+  leafCount: number;
 }
 
 /**
@@ -78,6 +85,13 @@ export interface BridgeCampaign {
  */
 export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
   const campaigns = listCampaigns(project);
+
+  // Read todos once (lazily, if there are campaigns) for parent-chain walking.
+  let todoMap: Map<string, Todo> | null = null;
+  if (campaigns.length > 0) {
+    const todos = listTodos(project, { includeCompleted: true });
+    todoMap = new Map(todos.map((t) => [t.id, t]));
+  }
 
   return campaigns.map((campaign: CampaignRow) => {
     const probes = listProbes(project, campaign.id);
@@ -141,6 +155,17 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       };
     }
 
+    // Count missions and leaves linked to this campaign.
+    const linkedMissionIds = listLinkedMissionIds(project, campaign.id);
+    const missionCount = linkedMissionIds.length;
+
+    let leafCount = 0;
+    if (linkedMissionIds.length > 0 && todoMap) {
+      // Count leaves whose parent chain reaches a linked mission.
+      const linkedMissionSet = new Set(linkedMissionIds);
+      leafCount = countLeavesByMissionReach(todoMap, linkedMissionSet);
+    }
+
     return {
       id: campaign.id,
       title: campaign.title,
@@ -149,6 +174,46 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       droppedAt: campaign.droppedAt ?? null,
       probes: enrichedProbes,
       ruling,
+      missionCount,
+      leafCount,
     };
   });
+}
+
+/**
+ * Count leaf todos whose parent chain reaches one of the linked mission ids.
+ * Walks upward from each leaf with a depth cap to prevent infinite loops.
+ */
+function countLeavesByMissionReach(todoMap: Map<string, Todo>, linkedMissions: Set<string>): number {
+  let count = 0;
+  const MAX_DEPTH = 100; // Prevent infinite loops on corrupt parent cycles.
+
+  for (const todo of todoMap.values()) {
+    if (isLeaf(todo)) {
+      // Walk parent chain from this leaf.
+      let current: Todo | undefined = todo;
+      let depth = 0;
+      const visited = new Set<string>();
+
+      while (current && depth < MAX_DEPTH) {
+        // Check if we've reached a linked mission.
+        if (linkedMissions.has(current.id)) {
+          count++;
+          break;
+        }
+
+        // Move to parent.
+        if (!current.parentId || visited.has(current.parentId)) {
+          // No parent or cycle detected, stop.
+          break;
+        }
+
+        visited.add(current.id);
+        current = todoMap.get(current.parentId);
+        depth++;
+      }
+    }
+  }
+
+  return count;
 }
