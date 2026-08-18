@@ -1067,6 +1067,37 @@ export function enqueueMission(project: string, todoId: string): MissionRow {
 }
 
 /**
+ * Reorder the mission queue by assigning new queuePos values to a provided list of missions.
+ * Skips any mission that is currently active (does not write queuePos=null for them).
+ * Positions are based on the caller's provided index, not compacted: a skipped active mission
+ * still consumes its index in the list, making the result deterministic.
+ * Returns the refreshed rows in request order.
+ */
+export function reorderMissionQueue(project: string, orderedTodoIds: string[]): MissionRow[] {
+  // Resolve every entry up front to catch misses before writing anything
+  const resolved: MissionRow[] = [];
+  for (const todoId of orderedTodoIds) {
+    const m = getMission(project, todoId);
+    if (!m) throw new Error(`mission not found: ${todoId}`);
+    resolved.push(m);
+  }
+
+  // Write queuePos for non-active missions, skipping active ones
+  const db = openDb(project);
+  const now = nowMs();
+  for (let i = 0; i < resolved.length; i++) {
+    const m = resolved[i];
+    if (!m.active) {
+      db.prepare('UPDATE mission SET queuePos = ?, updatedAt = ? WHERE todoId = ?')
+        .run(i, now, m.todoId);
+    }
+  }
+
+  // Return the refreshed rows in request order
+  return resolved.map((m) => getMission(project, m.todoId)!);
+}
+
+/**
  * Promote the next queued mission for the project if it currently has no active
  * non-terminal mission. A candidate is queued (active=0), APPROVED
  * (awaitingApprovalSince == null), non-terminal, and has queuePos set. Never touches

@@ -32,6 +32,8 @@ import { NeedsYouZone } from './NeedsYouZone';
 import { StrandedPanel } from './StrandedPanel';
 import { projectPlanStats } from '@/components/layout/SupervisorPanel';
 import { SubscribersPanel } from './SubscribersPanel';
+import { SessionUnseenBadge } from './SessionUnseenBadge';
+import { apiFetch } from '@/lib/api';
 import { StreamTicker } from './StreamTicker';
 import { DecisionCard } from './focal/DecisionCard';
 import { funnelCounts, excludeEpics, isStranded } from './funnel';
@@ -133,6 +135,7 @@ export const BridgeDashboard: React.FC = () => {
   const coverageByProject = useSupervisorStore((s) => s.coverageByProject);
 
   const subscriptions = useSubscriptionStore((s) => s.subscriptions);
+  const applyUnseenCounts = useSubscriptionStore((s) => s.applyUnseenCounts);
 
   const streamEvents = useEventStreamStore((s) => s.events);
   const backfillFromAudit = useEventStreamStore((s) => s.backfillFromAudit);
@@ -165,10 +168,15 @@ export const BridgeDashboard: React.FC = () => {
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
       void loadUnlandedEpics(serverScope, project);
+      void apiFetch(serverScope, '/api/subscriptions?project=' + encodeURIComponent(project))
+        .then((r) => r.json())
+        .then((j: { unseenBySession?: Record<string, number> }) =>
+          applyUnseenCounts(j.unseenBySession ?? {}))
+        .catch(() => {});
     }
     // Force the worker cards (polled session statuses) to refresh now, not in ≤10s.
     setStatusRefreshNonce((n) => n + 1);
-  }, [refetchSnapshot, serverScope, project, loadAudit, loadRequirements, loadUnlandedEpics]);
+  }, [refetchSnapshot, serverScope, project, loadAudit, loadRequirements, loadUnlandedEpics, applyUnseenCounts]);
 
   // EXPLICIT refresh (the ↺ button) — kept separate from the automatic
   // resyncBridge effect so a deliberate click is distinguishable from
@@ -442,6 +450,11 @@ export const BridgeDashboard: React.FC = () => {
     () => selectHumanActionableEscalations(nonLandOpenEscalations, { kind: 'project', project }),
     [nonLandOpenEscalations, project],
   );
+  const projectSubEntries = useMemo(
+    () => Object.entries(subscriptions).filter(([, s]) => s.project === project),
+    [subscriptions, project],
+  );
+
   const liveCount = useMemo(
     () => projectSubs.filter((s) => s.status === 'active').length,
     [projectSubs],
@@ -515,7 +528,23 @@ export const BridgeDashboard: React.FC = () => {
       stranded: <StrandedPanel todos={todos} onSelectTodo={handleSelectTodo} />,
       stream: <div className="h-full min-h-0 overflow-y-auto p-2"><StreamTicker embedded events={projectStreamEvents} titleByTodoId={titleByTodoId} onSelectEvent={(e) => { const t = e.todoId ? todos.find((x) => x.id === e.todoId) : undefined; if (t) handleSelectTodo(t); }} /></div>,
       executor: <div className="h-full min-h-0 overflow-y-auto p-2"><ExecutorStatsPanel project={project} serverScope={serverScope} /></div>,
-      subscribers: <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />,
+      subscribers: (
+        <div className="flex flex-col h-full min-h-0">
+          {projectSubEntries.length > 0 && (
+            <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 p-2 space-y-1">
+              {projectSubEntries.map(([key, entry]) => (
+                <div key={key} className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-gray-50 dark:bg-gray-900/30">
+                  <span className="text-2xs font-medium text-gray-700 dark:text-gray-300">{entry.session}</span>
+                  <SessionUnseenBadge subscriptionKey={key} />
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <SubscribersPanel project={project} serverScope={serverScope} todos={todos} onSelectTodo={handleSelectTodo} />
+          </div>
+        </div>
+      ),
       usage: <UsagePanel project={project} serverScope={serverScope} />,
       dogfood: <div className="h-full min-h-0 overflow-y-auto p-2"><DogfoodHealthPanel project={project} serverScope={serverScope} /></div>,
       conductor: <div className="h-full min-h-0 overflow-y-auto p-2"><ConductorActivityPanel project={project} onOpenEntity={(kind, id) => {
@@ -527,7 +556,7 @@ export const BridgeDashboard: React.FC = () => {
         }
       }} /></div>,
     }),
-    [nonLandOpenEscalations, blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name],
+    [nonLandOpenEscalations, blockerEscalations, landEscalations, todos, project, serverScope, daemonCounts.claimableIds, projectStreamEvents, titleByTodoId, handleJump, currentSession?.name, projectSubEntries],
   );
 
   // Mission detail is a stage view (design 2026-07-13): when the mission strip is
