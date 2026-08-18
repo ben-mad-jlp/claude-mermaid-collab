@@ -10,7 +10,7 @@ import {
 import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, setCriterionDependsOn, setCriterionMeasurementPendingUntil, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup, reArmCriterion,
-  activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned,
+  activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned, reorderMissionQueue,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
   missionIdOfCriterion,
   type CriterionType,
@@ -44,6 +44,7 @@ export const MISSION_TOOL_DEFS = [
       { name: 'approve_mission', description: "APPROVE a forged (unapproved) mission: clears its 'unapproved' status so it becomes active/driveable, AND ratifies its constitution by flipping its PROPOSED linked constraint records to active (so payload C injects them into every builder). Use after reviewing a mission produced by forge_mission_from_doc. Returns the updated mission + the constraints activated.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string', description: 'The mission node id.' }, approvedBy: { type: 'string', description: 'Who approved (handle recorded on the constraint records).' } }, required: ['project', 'todoId'] } },
       { name: 'plan_mission_criterion', description: "DELEGATE planning to a specialist PLANNER node: decompose one-or-more acceptance criteria into ONE right-sized epic + its leaves (with deps), grounded against the real code, and instantiate it PROMOTED-TO-READY under the mission (serving those criteria) so the Orchestrator build+land daemon picks it up. The conductor decides WHICH criteria to serve; this decides HOW. Model/effort configurable per-project via node_profile_override kind 'planner' (default opus/high), overridable per call. Returns the created epic + leaf ids + the planned spec.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string', description: 'The conductor/owner session creating the work.' }, missionId: { type: 'string', description: 'The mission the epic homes under.' }, criterionIds: { type: 'array', items: { type: 'string' }, description: 'The acceptance criteria this ONE epic should serve (a right-sized epic may serve several related criteria).' }, model: { type: 'string', description: 'Per-call model override (else node_profile_override[planner] → opus).' }, effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'Per-call effort override (else node_profile_override[planner] → high).' }, decompositionHint: { type: 'string', description: 'Re-decomposition hint for the planner prompt when a previous epic for this criterion churned.' }, baseRepair: { type: 'boolean', description: 'Opt-in only, for an epic whose purpose is greening a red base lane. Disables the epic-base-red hold (G2) for this epic\'s leaves. Never auto-inferred.' }, consumesTodoIds: { type: 'array', items: { type: 'string' }, description: 'Inbox/bugfix bucket todo ids this epic\'s leaves address — marked consumed (done + promotedTo) once the epic instantiates.' } }, required: ['project', 'session', 'missionId', 'criterionIds'] } },
       { name: 'set_active_mission', description: "Make ONE mission the ACTIVE mission for its PROJECT — the human 'drive this one instead' override for which mission the conductor drives. A project has at most one active mission, so this deactivates every OTHER active mission in the same project regardless of which session owns it, and AUTO-ENQUEUES each displaced mission to the back of the project's FIFO queue (active=0 with the next queuePos) — a displaced mission is never orphaned, and stays promotable. Returns the deactivated ids.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
+      { name: 'reorder_mission_queue', description: 'Reorder the mission queue by assigning new queuePos values to a provided list of mission ids. The active mission is never displaced and keeps its active=1 flag; it still consumes its index in the supplied list, so the result is deterministic.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoIds: { type: 'array', items: { type: 'string' } } }, required: ['project', 'todoIds'] } },
       { name: 'update_mission', description: "Edit a mission's node — its title (goal), description, and/or budgetUsd (per-mission USD budget ceiling). The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, title: { type: 'string', description: 'New goal text, bare — no role prefix.' }, description: { type: 'string' }, abandonedAt: { type: ['number', 'null'], description: 'Human-set abandonment stamp (ms epoch); null clears it. Set to mark the mission "done with it".' }, budgetUsd: { type: ['number', 'null'], description: 'Per-mission USD budget ceiling; null clears it to the project default. The ONLY supported mutation surface — do not UPDATE the mission row by hand.' }, actor: { type: 'string', description: 'WHO is changing the budget (required for a budgetUsd change; recorded to the autonomy audit log).' }, reason: { type: 'string', description: 'WHY the budget is changing (recorded to the autonomy audit log).' } }, required: ['project', 'todoId'] } },
       { name: 'delete_mission', description: "Permanently delete a mission — drops the mission work-graph node AND its loop-control state + criteria. Irreversible. Use to remove a mis-created or abandoned mission (vs converge/stop which keep it as a completed record).", inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' } }, required: ['project', 'todoId'] } },
       { name: 'update_mission_criterion', description: "Edit an acceptance criterion's TEXT (the assertion). Does not change its met/verdict — use set_mission_criterion for that.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, text: { type: 'string' }, dependsOn: { type: 'array', items: { type: 'string' }, description: 'Criterion ids this criterion depends on (must be met first). Optional.' }, measurementPendingUntil: { type: ['number', 'null'], description: 'Epoch-ms until which this criterion is serve-inert, awaiting a live-observation window (null clears it).' } }, required: ['project', 'criterionId'] } },
@@ -230,6 +231,22 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         console.warn('mission subscription sync failed (non-fatal):', (e as Error).message);
       }
       return JSON.stringify({ active: todoId, deactivated }, null, 2);
+    }
+    case 'reorder_mission_queue': {
+      const { project, todoIds } = args as { project: string; todoIds: any };
+      if (!project || !todoIds) throw new Error('Missing required: project, todoIds');
+      const ids = coerceArrayArg(todoIds, 'todoIds') as string[];
+      const rows = reorderMissionQueue(project, ids);
+      // Sort by queuePos ascending (nulls last) and map to todoId
+      const reordered = rows
+        .slice()
+        .sort((a, b) => {
+          const aPos = a.queuePos ?? Infinity;
+          const bPos = b.queuePos ?? Infinity;
+          return aPos - bPos;
+        })
+        .map((r) => r.todoId);
+      return JSON.stringify({ reordered }, null, 2);
     }
     case 'update_mission': {
       const { project, todoId, title, description, abandonedAt, budgetUsd, actor, reason } = args as {

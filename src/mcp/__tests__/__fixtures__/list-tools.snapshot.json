@@ -6820,6 +6820,28 @@
       "name": "set_active_mission"
     },
     {
+      "description": "Reorder the mission queue by assigning new queuePos values to a provided list of mission ids. The active mission is never displaced and keeps its active=1 flag; it still consumes its index in the supplied list, so the result is deterministic.",
+      "inputSchema": {
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "todoIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "project",
+          "todoIds"
+        ],
+        "type": "object"
+      },
+      "name": "reorder_mission_queue"
+    },
+    {
       "description": "Edit a mission's node — its title (goal), description, and/or budgetUsd (per-mission USD budget ceiling). The role is carried by `kind` and is never written into the title. Loop state (phase/iteration/criteria/verdicts) is untouched.",
       "inputSchema": {
         "properties": {
