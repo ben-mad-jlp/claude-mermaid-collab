@@ -445,4 +445,88 @@ describe('CampaignPanel chamber deliberation', () => {
     // The chamber-body element should have data-clamped="false"
     expect(chamberBody.getAttribute('data-clamped')).toBe('false');
   });
+
+  it('deliberation body rows carry the standard reading size class', () => {
+    const fixtureWithAllRows: BridgeCampaign[] = [
+      {
+        id: 'camp-text-size',
+        title: 'Campaign to Test Text Size',
+        goal: 'Verify text-xs on transcript rows',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-size-test',
+          outcome: 'decision',
+          chosenCandidate: 'candidate-a',
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'size123abc',
+          decidedAt: 1629802500000,
+          proposals: [
+            {
+              phase: 'propose',
+              role: 'lens-architect',
+              model: 'claude-opus-5',
+              content: 'Sample proposal',
+              createdAt: 1629802000000,
+            },
+          ],
+          vetoes: [
+            {
+              phase: 'veto',
+              role: 'lens-security',
+              model: 'claude-opus-5',
+              content: 'Sample veto',
+              createdAt: 1629802100000,
+            },
+          ],
+          wargame: [
+            {
+              phase: 'wargame',
+              role: 'lens-performance',
+              model: 'claude-opus-5',
+              content: 'Sample wargame',
+              createdAt: 1629802200000,
+            },
+          ],
+          decision: [
+            {
+              phase: 'decision',
+              role: 'president',
+              model: 'claude-opus-5',
+              content: 'Sample decision',
+              createdAt: 1629802300000,
+            },
+          ],
+        },
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithAllRows },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    // Assert each row container has text-xs and not text-3xs
+    const proposalRow = screen.getByTestId('chamber-proposal');
+    expect(proposalRow.className).toContain('text-xs');
+    expect(proposalRow.className).not.toContain('text-3xs');
+
+    const vetoRow = screen.getByTestId('chamber-veto');
+    expect(vetoRow.className).toContain('text-xs');
+    expect(vetoRow.className).not.toContain('text-3xs');
+
+    const wargameRow = screen.getByTestId('chamber-wargame');
+    expect(wargameRow.className).toContain('text-xs');
+    expect(wargameRow.className).not.toContain('text-3xs');
+
+    const decisionRow = screen.getByTestId('chamber-decision');
+    expect(decisionRow.className).toContain('text-xs');
+    expect(decisionRow.className).not.toContain('text-3xs');
+  });
 });

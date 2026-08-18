@@ -348,7 +348,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                     <div
                       key={lens.lens}
                       data-testid="campaign-lens"
-                      className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5"
+                      className="text-3xs text-gray-600 dark:text-gray-400"
                     >
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-gray-600 dark:text-gray-400">
@@ -430,7 +430,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       <div
                         key={`${entry.phase}-${entry.createdAt}-${idx}`}
                         data-testid="chamber-proposal"
-                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberEntryBody
                           entry={entry}
@@ -451,7 +451,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       <div
                         key={`${entry.phase}-${entry.createdAt}-${idx}`}
                         data-testid="chamber-veto"
-                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberEntryBody
                           entry={entry}
@@ -472,7 +472,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       <div
                         key={`${entry.phase}-${entry.createdAt}-${idx}`}
                         data-testid="chamber-wargame"
-                        className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
+                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberEntryBody
                           entry={entry}
@@ -486,7 +486,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                 {/* Decision */}
                 <div
                   data-testid="chamber-decision"
-                  className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5"
+                  className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5"
                 >
                   <div data-testid="chamber-phase-heading" className="font-semibold">Decision</div>
                 <div className="pl-2 space-y-1">
