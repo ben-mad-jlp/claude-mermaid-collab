@@ -986,6 +986,27 @@ export function resetProbeVerdict(project: string, probeId: string): void {
 }
 
 /**
+ * List all mission ids linked to a campaign via probe claims.
+ * Returns an empty array if the campaign_probe_mission table does not exist (lazy table,
+ * owned by campaign-pass.ts). Filters out pending claim rows (missionId starts with 'pending:').
+ * A pending claim is not a linked mission and would report a phantom zero-leaf mission.
+ */
+export function listLinkedMissionIds(project: string, campaignId: string): string[] {
+  const db = openCampaignDb(project);
+  try {
+    const rows = db
+      .prepare('SELECT DISTINCT missionId FROM campaign_probe_mission WHERE campaignId = ?')
+      .all(campaignId) as Array<{ missionId: string }>;
+    return rows
+      .map((row) => row.missionId)
+      .filter((missionId) => !missionId.startsWith('pending:'));
+  } catch {
+    // Table does not exist on projects where no probe has ever been linked.
+    return [];
+  }
+}
+
+/**
  * Record a campaign completion verdict with provenance (judge, ruling sha, examined evidence, and rationale).
  * Validates the input and throws on error before any INSERT. Returns the recorded completion record
  * with its lenses if provided. Transactional: all lens rows are inserted within the same transaction
