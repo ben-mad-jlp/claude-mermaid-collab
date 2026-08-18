@@ -107,4 +107,43 @@ describe('hermetic-tripwire', () => {
       (Database.prototype as any).prepare = originalPrepare;
     }
   });
+
+  it('throws HermeticTripwireError on a watched_project insert into a real store', () => {
+    const dbPath = join(process.cwd(), '.collab', 'tripwire-fixture.db');
+    try {
+      const db = new Database(dbPath);
+      try {
+        db.run('CREATE TABLE watched_project (project TEXT, addedAt INTEGER)');
+        expect(() =>
+          db.prepare('INSERT OR IGNORE INTO watched_project (project, addedAt) VALUES (?,?)').run('/x', 1)
+        ).toThrow(HermeticTripwireError);
+      } finally {
+        db.close();
+      }
+    } finally {
+      // Clean up database files
+      fs.rmSync(dbPath, { force: true });
+      fs.rmSync(`${dbPath}-wal`, { force: true });
+      fs.rmSync(`${dbPath}-shm`, { force: true });
+    }
+  });
+
+  it('allows a watched_project insert into a tmpdir store', () => {
+    const tmpPath = fs.mkdtempSync(join(tmpdir(), 'hermetic-tmpdir-'));
+    try {
+      const dbPath = join(tmpPath, 'test.db');
+      const db = new Database(dbPath);
+      try {
+        db.run('CREATE TABLE watched_project (project TEXT, addedAt INTEGER)');
+        expect(() =>
+          db.prepare('INSERT OR IGNORE INTO watched_project (project, addedAt) VALUES (?,?)').run('/x', 1)
+        ).not.toThrow();
+      } finally {
+        db.close();
+      }
+    } finally {
+      // Clean up temp directory
+      fs.rmSync(tmpPath, { recursive: true, force: true });
+    }
+  });
 });
