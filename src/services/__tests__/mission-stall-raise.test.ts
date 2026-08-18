@@ -1,7 +1,13 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { runMissionLoopPass, _resetOpenStallCards, type MissionLoopDeps } from '../mission-loop.ts';
 import { _resetStallObservations, type MissionStallFacts } from '../mission-stall-predicate.ts';
-import type { MissionSummary } from '../mission-store.ts';
+import {
+  stalledForMs,
+  isMissionStalled,
+  noteMissionLoopReason,
+  _resetMissionStallClock,
+} from '../mission-stall.ts';
+import { deriveMissionStatus, type MissionStatusFacts, type MissionSummary } from '../mission-store.ts';
 
 const PROJECT = '/p';
 const MISSION_ID = 'm1';
@@ -9,6 +15,7 @@ const MISSION_ID = 'm1';
 beforeEach(() => {
   _resetStallObservations();
   _resetOpenStallCards();
+  _resetMissionStallClock();
 });
 
 function baseFacts(overrides: Partial<MissionStallFacts> = {}): MissionStallFacts {
@@ -139,5 +146,43 @@ describe('mission-loop stall raise wiring', () => {
     // Subsequent silent (still not-stalled, no delta) tick: no second resolve.
     await runMissionLoopPass(PROJECT, { ...deps, now: 4000 });
     expect(resolveStallEscalation.length).toBe(1);
+  });
+
+  test('a restart with an empty open-card map still clears the stall episode when work is in flight', async () => {
+    const NOW = 5000;
+    const { deps } = runDeps(baseFacts());
+
+    // Open the episode with a STALLED reason.
+    noteMissionLoopReason(PROJECT, MISSION_ID, 'stalled', NOW);
+    expect(stalledForMs(PROJECT, MISSION_ID, NOW)).toBeGreaterThanOrEqual(0);
+
+    // Simulate restart: empty the open-card map. The loop reason rebuilds the STALLED
+    // classification via the none/blocked-silenced path, but work is actually in flight.
+    _resetOpenStallCards();
+    expect(stalledForMs(PROJECT, MISSION_ID, NOW)).toBeGreaterThanOrEqual(0);
+
+    // The missionSummary fixture + buildStallFacts with leavesRunning: 1 drives the
+    // none/blocked-silenced branch, which re-feeds the STALLED reason BEFORE the clear runs
+    // (that is the exact ordering the fix must survive).
+    deps.buildStallFacts = () => baseFacts({ leavesRunning: 1 });
+    await runMissionLoopPass(PROJECT, { ...deps, now: NOW });
+
+    // The stall episode must be cleared (inFlight is unconditional now).
+    expect(stalledForMs(PROJECT, MISSION_ID, NOW)).toBeNull();
+
+    // The derived status must read 'building' because work is in flight, not 'stalled'.
+    const statusFacts: MissionStatusFacts = {
+      abandonedAt: null,
+      budgetUsd: null,
+      spendUsd: 0,
+      hasBlockedLeaf: false,
+      hasBuildingLeaf: true, // work is in flight
+      hasLandedEpic: false,
+      hasOpenEpic: true,
+      criteria: [],
+      stalled: isMissionStalled(PROJECT, MISSION_ID, NOW),
+    };
+    const derivedStatus = deriveMissionStatus(statusFacts);
+    expect(derivedStatus).toBe('building');
   });
 });
