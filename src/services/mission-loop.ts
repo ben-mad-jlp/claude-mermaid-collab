@@ -567,14 +567,19 @@ function evaluateStallAndMaybeRaise(
     const verifyOwedIds = facts.verifyOwedCriterionIds ?? [];
 
     if (!stalled) {
+      const inFlight = IN_FLIGHT_COUNTER_KEYS.some((k) => (facts[k] as number) > 0);
       const openEntry = openStallByMission.get(episodeKey);
+      let criteriaDropped = false;
+      let blockedChanged = false;
       if (openEntry) {
-        const inFlight = IN_FLIGHT_COUNTER_KEYS.some((k) => (facts[k] as number) > 0);
-        const criteriaDropped = facts.unmetCriteria < openEntry.unmetCriteria;
-        const blockedChanged =
+        criteriaDropped = facts.unmetCriteria < openEntry.unmetCriteria;
+        blockedChanged =
           [...keyIds].sort().join('\0') !== [...openEntry.blockedCriterionIds].sort().join('\0');
-        if (inFlight || criteriaDropped || blockedChanged) {
-          clearStallObservation(project, missionId);
+      }
+      if (inFlight || (openEntry && (criteriaDropped || blockedChanged))) {
+        clearMissionStall(project, missionId);
+        clearStallObservation(project, missionId);
+        if (openEntry) {
           (deps.resolveStallEscalation ?? resolveStallEscalation)(project, openEntry.conditionKey);
           openStallByMission.delete(episodeKey);
         }
