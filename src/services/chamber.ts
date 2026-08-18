@@ -12,6 +12,7 @@
  */
 
 import type { JudgmentLLM } from './judgment-llm.ts';
+import { makeJudgmentLLM } from './judgment-llm.ts';
 import {
   buildGeneralSystemPrompt,
   buildPresidentSystemPrompt,
@@ -26,6 +27,8 @@ import {
   type ChamberDecisionInput,
   type ChamberDecisionRecord,
 } from './campaign-store.ts';
+import { resolveCommanderProfile, resolveLensProfile } from './campaign-completion-judge.ts';
+import { resolveTriageRoute } from './config-service.ts';
 
 // Re-export the roster as the single source of truth.
 export { CHAMBER_GENERALS };
@@ -68,7 +71,7 @@ export interface ChamberArgs {
   campaignId: string;
   sessionId: string;
   decidedAtSha: string;
-  llm: JudgmentLLM | ChamberLLMFactory;
+  llm?: JudgmentLLM | ChamberLLMFactory;
   model?: string | null;
   forgeInput?: any;
 }
@@ -81,15 +84,72 @@ export interface ChamberDeps {
 }
 
 /**
- * Resolve the LLM to use for a given role and phase.
- * If llm has a complete method, return it as-is. Otherwise, call it as a factory.
+ * Map a resolved node provider to the judgment provider equivalence.
+ * - 'claude' → 'claude' (subscription)
+ * - 'grok-build' | 'grok-api' → 'xai'
  */
-function resolveLLM(llm: JudgmentLLM | ChamberLLMFactory, role: string, phase: ChamberPhase): JudgmentLLM {
-  if ('complete' in llm && typeof llm.complete === 'function') {
-    return llm as JudgmentLLM;
+function nodeProviderToJudgmentProvider(nodeProvider: string): string {
+  if (nodeProvider === 'claude') return 'claude';
+  // Both grok variants map to xai
+  return 'xai';
+}
+
+/**
+ * Resolve the profile (provider, model, effort) for a chamber role.
+ * For 'president', delegates to resolveCommanderProfile.
+ * For each general, delegates to resolveLensProfile.
+ */
+export function resolveChamberRoleProfile(
+  project: string | undefined,
+  role: string,
+): { provider: string; model: string; effort: string } {
+  if (role === 'president') {
+    return resolveCommanderProfile(project);
   }
-  const factory = llm as ChamberLLMFactory;
-  return factory(role, phase);
+  // For all generals, use the lens profile.
+  return resolveLensProfile(project);
+}
+
+/**
+ * Resolve the LLM to use for a given role and phase.
+ * If args.llm is provided:
+ *   - object with .complete → return as-is
+ *   - factory function → call factory(role, phase)
+ * If args.llm is absent, lazily build using makeJudgmentLLM with the resolved profile,
+ * memoised per-call by role so each phase reuses the same client.
+ */
+function resolveLLM(
+  project: string | undefined,
+  args: ChamberArgs,
+  role: string,
+  phase: ChamberPhase,
+  clientCache: Map<string, JudgmentLLM>,
+): JudgmentLLM {
+  // If an llm is injected, use it (object or factory).
+  if (args.llm) {
+    if ('complete' in args.llm && typeof args.llm.complete === 'function') {
+      return args.llm as JudgmentLLM;
+    }
+    const factory = args.llm as ChamberLLMFactory;
+    return factory(role, phase);
+  }
+
+  // No llm injected: lazily build via makeJudgmentLLM, memoised by role.
+  if (!clientCache.has(role)) {
+    const profile = resolveChamberRoleProfile(project, role);
+    const triageRoute = resolveTriageRoute({ project });
+    // Map node provider to judgment provider
+    const judgmentProvider = nodeProviderToJudgmentProvider(profile.provider);
+    const config = {
+      provider: judgmentProvider as any,
+      model: profile.model,
+      apiKey: triageRoute.apiKey,
+      cwd: triageRoute.cwd,
+    };
+    clientCache.set(role, makeJudgmentLLM(config));
+  }
+
+  return clientCache.get(role)!;
 }
 
 /**
@@ -168,10 +228,9 @@ export async function propose(
   args: ChamberArgs,
 ): Promise<ChamberCandidate[]> {
   const candidates: ChamberCandidate[] = [];
+  const clientCache = new Map<string, JudgmentLLM>();
 
   for (const general of CHAMBER_GENERALS) {
-    const llm = resolveLLM(args.llm, general, 'propose');
-
     // Build the prompt with the reply contract for the propose phase.
     const { system: baseSystem, user } = buildGeneralSystemPrompt(general, {
       goal: 'Campaign closure readiness',
@@ -188,6 +247,7 @@ export async function propose(
     let candidate: ChamberCandidate | null = null;
 
     try {
+      const llm = resolveLLM(project, args, general, 'propose', clientCache);
       const reply = await llm.complete(system, user);
 
       if (reply && reply.trim()) {
@@ -209,12 +269,13 @@ export async function propose(
     }
 
     // Always write a transcript row, even if the general failed or was dropped.
+    const resolvedModel = args.model ?? resolveChamberRoleProfile(project, general).model;
     recordChamberTranscript(project, {
       campaignId: args.campaignId,
       sessionId: args.sessionId,
       phase: 'propose',
       role: general,
-      model: args.model ?? null,
+      model: resolvedModel,
       content: candidate
         ? JSON.stringify({ goal: candidate.goal, rationale: candidate.rationale })
         : '(failed)',
@@ -250,6 +311,7 @@ export async function veto(
   }
 
   const vetoes: ChamberVeto[] = [];
+  const clientCache = new Map<string, JudgmentLLM>();
 
   // Build the candidate slate for the prompt.
   const candidateSlate = candidates
@@ -257,8 +319,6 @@ export async function veto(
     .join('\n');
 
   for (const general of CHAMBER_GENERALS) {
-    const llm = resolveLLM(args.llm, general, 'veto');
-
     const { system: baseSystem, user: baseUser } = buildGeneralSystemPrompt(general, {
       goal: 'Campaign closure readiness',
     });
@@ -281,6 +341,7 @@ You may veto one candidate by index and provide your dissent, or pass with null 
     let veto: ChamberVeto | null = null;
 
     try {
+      const llm = resolveLLM(project, args, general, 'veto', clientCache);
       const reply = await llm.complete(system, user);
 
       if (reply && reply.trim()) {
@@ -306,12 +367,13 @@ You may veto one candidate by index and provide your dissent, or pass with null 
     }
 
     // Always write a transcript row.
+    const resolvedModel = args.model ?? resolveChamberRoleProfile(project, general).model;
     recordChamberTranscript(project, {
       campaignId: args.campaignId,
       sessionId: args.sessionId,
       phase: 'veto',
       role: general,
-      model: args.model ?? null,
+      model: resolvedModel,
       content: veto
         ? JSON.stringify({ targetIndex: veto.targetIndex, dissent: veto.dissent })
         : '(no veto)',
@@ -341,13 +403,13 @@ export async function wargame(
   const survivingCandidates = candidates.filter((_, i) => !vetoedIndices.has(i));
 
   const wargamed: ChamberWargamed[] = [];
+  const clientCache = new Map<string, JudgmentLLM>();
 
   for (let i = 0; i < survivingCandidates.length; i++) {
     const candidate = survivingCandidates[i];
 
     // Rotate through generals to challenge each candidate from a different perspective.
     const wargamerGeneral = CHAMBER_GENERALS[i % CHAMBER_GENERALS.length];
-    const llm = resolveLLM(args.llm, wargamerGeneral, 'wargame');
 
     // Build the prompt from the constitution using the wargamer general.
     const { system: baseSystem, user: baseUser } = buildGeneralSystemPrompt(wargamerGeneral, {
@@ -373,6 +435,7 @@ Examine this candidate critically. What is the strongest concern or weakness? Or
     const critiques: string[] = [];
 
     try {
+      const llm = resolveLLM(project, args, wargamerGeneral, 'wargame', clientCache);
       const reply = await llm.complete(system, user);
 
       if (reply && reply.trim()) {
@@ -394,12 +457,13 @@ Examine this candidate critically. What is the strongest concern or weakness? Or
     });
 
     // Write a wargame transcript row.
+    const resolvedModel = args.model ?? resolveChamberRoleProfile(project, wargamerGeneral).model;
     recordChamberTranscript(project, {
       campaignId: args.campaignId,
       sessionId: args.sessionId,
       phase: 'wargame',
       role: wargamerGeneral,
-      model: args.model ?? null,
+      model: resolvedModel,
       content: critiques.length > 0 ? JSON.stringify({ critique: critiques.join('; ') }) : '(no critique)',
     });
   }
@@ -431,7 +495,7 @@ export async function decide(
   wargamed: ChamberWargamed[],
   dissents: ChamberVeto[],
 ): Promise<ChamberDecisionRecord> {
-  const llm = resolveLLM(args.llm, 'president', 'decide');
+  const clientCache = new Map<string, JudgmentLLM>();
 
   // Build the president prompt.
   const { system: baseSystem, user: baseUser } = buildPresidentSystemPrompt({
@@ -473,6 +537,7 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
   let presidentFailure: string | null = null;
 
   try {
+    const llm = resolveLLM(project, args, 'president', 'decide', clientCache);
     const reply = await llm.complete(system, user);
 
     if (!reply || !reply.trim()) {
@@ -532,6 +597,7 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
   }
 
   // Persist the decision with the decide transcript in the same transactional call.
+  const resolvedModel = args.model ?? resolveChamberRoleProfile(project, 'president').model;
   const decision = recordChamberDecision(project, {
     campaignId: args.campaignId,
     sessionId: args.sessionId,
@@ -546,7 +612,7 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
         sessionId: args.sessionId,
         phase: 'decide',
         role: 'president',
-        model: args.model ?? null,
+        model: resolvedModel,
         content: decideContent,
       },
     ],
