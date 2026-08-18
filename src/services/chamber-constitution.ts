@@ -117,6 +117,59 @@ export const AGENDA_ARTICLE: Readonly<Record<string, number>> = {
 } as const;
 
 /**
+ * A roster entry for a chamber member (general or president).
+ *
+ * Each entry pairs the member's name with a description of their agenda lens.
+ */
+export interface ChamberRosterEntry {
+  name: string;
+  agenda: string;
+}
+
+/**
+ * The chamber roster: the five generals plus the president.
+ *
+ * Each member has a distinct agenda lens through which they examine campaign readiness.
+ * Each general's agenda incorporates the title of their assigned article.
+ */
+export const CHAMBER_ROSTER: readonly ChamberRosterEntry[] = [
+  {
+    name: 'operations',
+    agenda: 'Examines rig stability and operational readiness through the lens of advice',
+  },
+  {
+    name: 'intelligence',
+    agenda: 'Examines measurement completeness and evidence quality through the lens of metrics',
+  },
+  {
+    name: 'comptroller',
+    agenda: 'Examines budget consumption and cost tracking through the lens of restraint',
+  },
+  {
+    name: 'counsel',
+    agenda: 'Examines campaign intent and scope definition through the lens of perimeter',
+  },
+  {
+    name: 'inspector-general',
+    agenda: 'Examines transcript completeness and archive integrity through the lens of record',
+  },
+  {
+    name: 'president',
+    agenda: 'Renders the final decision on campaign closure or continuation',
+  },
+] as const;
+
+/**
+ * Lookup a roster entry by member name.
+ *
+ * Returns the matching entry if found, or undefined if the name is not recognized.
+ * Unlike buildGeneralSystemPrompt, this does not throw; callers render a fallback instead.
+ */
+export function rosterEntryFor(name: string): ChamberRosterEntry | undefined {
+  return CHAMBER_ROSTER.find(e => e.name === name);
+}
+
+/**
  * Article numbers shared by all generals and the president.
  *
  * These are the articles NOT claimed by any general\'s agenda:
