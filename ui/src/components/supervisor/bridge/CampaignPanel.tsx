@@ -8,7 +8,7 @@
  * and one row per probe showing id prefix, kind, environment and verdict.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { BridgeCampaign, BridgeCampaignLens, BridgeChamberEntry, ChamberRosterEntry } from '@/types/campaign';
 
@@ -23,6 +23,11 @@ export interface CampaignPanelProps {
  * (A probe whose evidence predates a day of trunk movement is no longer a live measurement.)
  */
 export const PROBE_EVIDENCE_STALE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Chamber entry bodies longer than this character count are clamped and can be expanded.
+ */
+export const CHAMBER_CLAMP_CHARS = 280;
 
 /** Frozen empty array to avoid re-render on every store write. */
 const EMPTY: BridgeCampaign[] = [];
@@ -47,6 +52,40 @@ const ChamberRole: React.FC<{ role: string; agenda: string | null }> = ({ role, 
     )}
   </div>
 );
+
+/**
+ * Render a chamber body with automatic clamping and expand control.
+ * Short bodies (≤ CHAMBER_CLAMP_CHARS) render unchanged.
+ * Long bodies render clamped by default with a Show more/Show less button.
+ */
+const ClampedBody: React.FC<{ text: string }> = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  if (text.length <= CHAMBER_CLAMP_CHARS) {
+    return <div className="text-gray-500 dark:text-gray-500">{text}</div>;
+  }
+
+  const truncated = text.slice(0, CHAMBER_CLAMP_CHARS) + '…';
+
+  return (
+    <>
+      <div
+        data-testid="chamber-body"
+        data-clamped={expanded ? 'false' : 'true'}
+        className="text-gray-500 dark:text-gray-500"
+      >
+        {expanded ? text : truncated}
+      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors text-2xs mt-1"
+      >
+        {expanded ? 'Show less' : 'Show more'}
+      </button>
+    </>
+  );
+};
 
 /**
  * Format a probe's last evidence timestamp into a relative-age label.
@@ -335,7 +374,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                        <ClampedBody text={entry.content} />
                       </div>
                     ))}
                   </div>
@@ -354,7 +393,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                        <ClampedBody text={entry.content} />
                       </div>
                     ))}
                   </div>
@@ -373,7 +412,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
                         <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                        <ClampedBody text={entry.content} />
                       </div>
                     ))}
                   </div>
@@ -392,7 +431,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                       {c.chamber.decision.map((entry, idx) => (
                         <div key={`${entry.phase}-${entry.createdAt}-${idx}`} className="space-y-0.5">
                           <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                          <div className="text-gray-500 dark:text-gray-500">{entry.content}</div>
+                          <ClampedBody text={entry.content} />
                         </div>
                       ))}
                     </div>
