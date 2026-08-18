@@ -36,6 +36,29 @@ describe('deploy-desktop-asar-step', () => {
       expect(packRegion).toBeTruthy();
       expect(packRegion?.[0]).toContain('die');
     });
+
+    it('deploy-desktop.sh prepends desktop/node_modules/.bin to PATH before the pack step', () => {
+      const scriptContent = readFileSync(
+        join(scriptDir, 'deploy-desktop.sh'),
+        'utf8',
+      );
+
+      const exportString = 'export PATH="$REPO/desktop/node_modules/.bin:$PATH"';
+      const packString = 'bun scripts/pack-app-asar.ts';
+
+      // Assert the export string exists
+      expect(scriptContent).toContain(exportString);
+
+      // Get indices and guard against -1
+      const exportIndex = scriptContent.indexOf(exportString);
+      const packIndex = scriptContent.indexOf(packString);
+
+      expect(exportIndex).toBeGreaterThanOrEqual(0);
+      expect(packIndex).toBeGreaterThanOrEqual(0);
+
+      // Assert the export precedes the pack invocation
+      expect(exportIndex).toBeLessThan(packIndex);
+    });
   });
 
   describe('pack core', () => {
