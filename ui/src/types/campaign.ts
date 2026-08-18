@@ -63,6 +63,12 @@ export interface BridgeCampaign {
   /** Set when the campaign was dropped. Optional so snapshots from an older server
    *  (no field) still parse; missing means live. */
   droppedAt?: number | null;
+  /** Count of missions linked to this campaign. Optional so snapshots from an older server
+   *  (no field) still parse; missing means 0. */
+  missionCount?: number;
+  /** Count of leaves linked to this campaign. Optional so snapshots from an older server
+   *  (no field) still parse; missing means 0. */
+  leafCount?: number;
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
 }
