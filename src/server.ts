@@ -117,12 +117,8 @@ try {
 // deliberately do NOT auto-watch every registered project, otherwise each restart
 // would re-flood the Bridge with every project the registry ever accumulated.
 try {
-  const { projectRegistry } = await import('./services/project-registry.js');
-  const { listWatchedProjects } = await import('./services/supervisor-store.js');
-  const registeredPaths = new Set((await projectRegistry.list()).map((p) => p.path));
-  for (const w of listWatchedProjects()) {
-    if (!registeredPaths.has(w.project)) await projectRegistry.register(w.project).catch(() => {});
-  }
+  const { reconcileWatchedProjectsIntoRegistry } = await import('./services/watched-project-reconcile.js');
+  await reconcileWatchedProjectsIntoRegistry();
 } catch (err) {
   console.error(`mermaid-collab: project-list reconcile failed — ${err instanceof Error ? err.message : String(err)}`);
 }
