@@ -345,4 +345,24 @@ describe('supervisorStore.hydrateWatchedSessions', () => {
     // knownServerIds is set
     expect(useSupervisorStore.getState().knownServerIds).toEqual(['srvA', 'srvB']);
   });
+
+  it('collapses three seeded serverIds (one live, two dead) to exactly one supervised row', async () => {
+    useSupervisorStore.setState({
+      supervised: [
+        sess('live-a', { serverId: 'srvLive', project: '/repo1' }),
+        sess('live-a', { serverId: 'srvLive', project: '/repo1' }),
+        sess('dead-a', { serverId: 'srvDeadA', project: '/repo1' }),
+        sess('dead-b', { serverId: 'srvDeadB', project: '/repo1' }),
+      ],
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(okRes({ supervised: [{ project: '/repo1', session: 'live-a', serverId: 'srvLive' }] })));
+
+    await useSupervisorStore.getState().hydrateWatchedSessions(['srvLive']);
+
+    const supervised = useSupervisorStore.getState().supervised;
+    expect(supervised).toHaveLength(1);
+    expect(supervised[0].serverId).toBe('srvLive');
+    expect(supervised.some((s) => s.serverId === 'srvDeadA' || s.serverId === 'srvDeadB')).toBe(false);
+  });
 });
