@@ -23,6 +23,8 @@ export interface SubscribedSession {
   /** Last-known status carried across a reopen but not yet confirmed by a live
    *  event — the card dims (lighter) instead of going gray. Cleared on any event. */
   stale?: boolean;
+  /** Server-derived per-session unseen-notification count, refreshed by the Bridge poll and driven to 0 by the inbox verb's drain. */
+  unseenCount?: number;
 }
 
 interface SubscribeOpts {
@@ -39,6 +41,7 @@ interface SubscriptionState {
   reorder: (order: string[]) => void;
   updateStatus: (serverId: string, claudeSessionId: string, status: string, project: string, session: string, claudePid?: number) => void;
   updateContextPercent: (serverId: string, project: string, session: string, pct: number) => void;
+  applyUnseenCounts: (counts: Record<string, number>) => void;
   migrateLegacyEntries: (defaultServerId: string | null) => void;
   reconcileServerIds: (servers: Array<{ id: string; host: string; port: number; source?: string }>) => void;
 }
@@ -198,6 +201,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const existing = state.subscriptions[key];
       if (!existing) return state;
       const next = { ...state.subscriptions, [key]: { ...existing, contextPercent: pct } };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return { subscriptions: next };
+    });
+  },
+
+  applyUnseenCounts: (counts) => {
+    set((state) => {
+      const next: Record<string, SubscribedSession> = {};
+      for (const [key, entry] of Object.entries(state.subscriptions)) {
+        next[key] = { ...entry, unseenCount: counts[entry.session] ?? 0 };
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       return { subscriptions: next };
     });
