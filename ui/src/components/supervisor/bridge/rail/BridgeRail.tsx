@@ -19,6 +19,10 @@ export interface BridgeRailProps {
   header?: React.ReactNode;
   /** Rail footer slot — PROJECT block. */
   footer?: React.ReactNode;
+  /** Callback to open the campaigns view. */
+  onOpenCampaigns?: () => void;
+  /** Callback to open the missions view. */
+  onOpenMissions?: () => void;
 }
 
 export const BridgeRail: React.FC<BridgeRailProps> = ({
@@ -28,6 +32,8 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
   onSelect,
   header,
   footer,
+  onOpenCampaigns,
+  onOpenMissions,
 }) => {
   const [inner, setInner] = useState<RailKey | null>(defaultSelected ?? null);
   const active = controlledSelected !== undefined ? controlledSelected : inner;
@@ -175,6 +181,28 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           {header}
         </div>
       )}
+      <div data-testid="bridge-rail-links" className="shrink-0 flex flex-col border-b border-gray-200 dark:border-gray-700">
+        <button
+          type="button"
+          data-testid="bridge-link-campaigns"
+          aria-label="Campaigns"
+          onClick={() => onOpenCampaigns?.()}
+          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 ${expanded ? 'justify-start' : 'justify-center'}`}
+        >
+          <span aria-hidden>◇</span>
+          {expanded && <span>Campaigns</span>}
+        </button>
+        <button
+          type="button"
+          data-testid="bridge-link-missions"
+          aria-label="Missions"
+          onClick={() => onOpenMissions?.()}
+          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 ${expanded ? 'justify-start' : 'justify-center'}`}
+        >
+          <span aria-hidden>✦</span>
+          {expanded && <span>Missions</span>}
+        </button>
+      </div>
       <div data-testid="bridge-rail-scroll" className="flex-1 min-h-0 overflow-y-auto">
         <RailNav sections={sections} selected={active} onSelect={handleSelect} expanded={expanded} />
       </div>
