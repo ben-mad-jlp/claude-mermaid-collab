@@ -1001,12 +1001,19 @@ export function ArtifactTree({ className, studio }: ArtifactTreeProps) {
 
   if (noSession) {
     return (
-      <div
-        data-testid="sidebar-empty"
-        className="p-4 text-sm text-gray-500"
-      >
-        Select a session
-      </div>
+      <>
+        <InboxSection
+          collapsed={collapsedSections.has('inbox')}
+          forceExpanded={forceExpandedSections.has('inbox')}
+          onToggle={() => toggleSection('inbox')}
+        />
+        <div
+          data-testid="sidebar-empty"
+          className="p-4 text-sm text-gray-500"
+        >
+          Select a session
+        </div>
+      </>
     );
   }
 
