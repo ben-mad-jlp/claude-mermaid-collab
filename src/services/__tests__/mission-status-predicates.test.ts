@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, test } from 'bun:test';
 import { proofForEpic, servingEpicLive, isHollowDone, countsTowardServeCap, servingLandIsNewerThanVerdict, servingWorkCompletedAfterVerdict, isRolledBackReplanGap } from '../mission-status-predicates.ts';
 import type { Todo } from '../todo-store.ts';
 import type { LeafRunSummary } from '../ledger-stats.ts';
@@ -115,6 +115,60 @@ describe('mission-status-predicates', () => {
       const result = proofForEpic('epic', childrenByParent, memo);
 
       expect(result.hasUnfinishedLeaf).toBe(false);
+    });
+
+    test('a dropped tagged leaf puts its criterion in undelivered even when a sibling leaf proved it', () => {
+      const deliveredLeaf = makeTodo('leaf-delivered', {
+        parentId: 'epic',
+        kind: 'leaf',
+        status: 'done',
+        acceptanceStatus: null,
+        servesCriterionIds: ['c1'],
+      });
+      const droppedLeaf = makeTodo('leaf-dropped', {
+        parentId: 'epic',
+        kind: 'leaf',
+        status: 'dropped',
+        servesCriterionIds: ['c1'],
+      });
+      const epic = makeTodo('epic', { kind: 'epic' });
+
+      const childrenByParent = new Map<string, Todo[]>([
+        ['epic', [deliveredLeaf, droppedLeaf]],
+      ]);
+
+      const memo = new Map();
+      const result = proofForEpic('epic', childrenByParent, memo);
+
+      expect(result.proven.has('c1')).toBe(true);
+      expect(result.undelivered.has('c1')).toBe(true);
+    });
+
+    test('an epic whose tagged leaves all delivered has an empty undelivered set', () => {
+      const leaf1 = makeTodo('leaf-1', {
+        parentId: 'epic',
+        kind: 'leaf',
+        status: 'done',
+        acceptanceStatus: null,
+        servesCriterionIds: ['c1'],
+      });
+      const leaf2 = makeTodo('leaf-2', {
+        parentId: 'epic',
+        kind: 'leaf',
+        status: 'done',
+        acceptanceStatus: null,
+        servesCriterionIds: ['c2'],
+      });
+      const epic = makeTodo('epic', { kind: 'epic' });
+
+      const childrenByParent = new Map<string, Todo[]>([
+        ['epic', [leaf1, leaf2]],
+      ]);
+
+      const memo = new Map();
+      const result = proofForEpic('epic', childrenByParent, memo);
+
+      expect(result.undelivered.size).toBe(0);
     });
   });
 
