@@ -335,4 +335,75 @@ describe('chamber-protocol', () => {
     expect(persistedDecision!.chosenCandidate).toBe(candidates[0].goal);
     expect(persistedDecision!.refiningGuidance).toBe('Proceed with careful monitoring');
   });
+
+  test('propose records the thrown error message in the failing general\'s transcript row', async () => {
+    // Create a campaign.
+    const campaign = createCampaign(project, {
+      title: 'Error Handling Test Campaign',
+      goal: 'Verify error capture in transcript',
+    });
+
+    const sessionId = 'session-test-error';
+    const errorMarker = 'boom-complete-failed';
+
+    // Stub factory that throws an error for one known role.
+    const stubFactory: ChamberLLMFactory = (role: string, phase: string) => ({
+      complete: async () => {
+        if (phase === 'propose' && role === 'operations') {
+          throw new Error(`${errorMarker}: operations threw`);
+        }
+
+        // All other roles succeed.
+        if (phase === 'propose') {
+          return JSON.stringify({
+            goal: `Closure candidate from ${role}`,
+            rationale: `${role} rationale`,
+          });
+        }
+
+        return JSON.stringify({});
+      },
+    });
+
+    const args = {
+      campaignId: campaign.id,
+      sessionId,
+      decidedAtSha: 'error-test-sha',
+      llm: stubFactory,
+      model: 'test-model',
+    };
+
+    // Run the propose phase.
+    const candidates = await propose(project, args);
+
+    // The operations general threw, so it should not be in the candidates list.
+    // All other generals should have succeeded.
+    const candidateGenerals = new Set(candidates.map((c) => c.general));
+    expect(candidateGenerals.has('operations')).toBe(false);
+    expect(candidates.length).toBe(CHAMBER_GENERALS.length - 1);
+
+    // Check the transcript.
+    const transcript = listChamberTranscript(project, campaign.id, sessionId);
+    const proposeRows = transcript.filter((t) => t.phase === 'propose');
+
+    // There should be exactly one row per general.
+    expect(proposeRows.length).toBe(CHAMBER_GENERALS.length);
+
+    // Find the operations row and verify it contains the error message.
+    const operationsRow = proposeRows.find((r) => r.role === 'operations');
+    expect(operationsRow).toBeDefined();
+    expect(operationsRow!.content).toMatch(/^\(failed:/);
+    expect(operationsRow!.content).toContain(errorMarker);
+
+    // Verify all other rows are successful (JSON objects, not '(failed:' or '(failed)').
+    for (const row of proposeRows) {
+      if (row.role === 'operations') {
+        // Already checked above
+        continue;
+      }
+      // Other rows should be successful JSON or plain '(failed)' if they failed.
+      // In this stub, all non-operations should succeed.
+      expect(row.content).toMatch(/^\{/);
+    }
+  });
 });

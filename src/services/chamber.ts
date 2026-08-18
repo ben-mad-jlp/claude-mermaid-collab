@@ -245,6 +245,7 @@ export async function propose(
     const system = [baseSystem, proposeContract].join('\n\n');
 
     let candidate: ChamberCandidate | null = null;
+    let failure: string | null = null;
 
     try {
       const llm = resolveLLM(project, args, general, 'propose', clientCache);
@@ -264,12 +265,14 @@ export async function propose(
           }
         }
       }
-    } catch {
+    } catch (err) {
       // Fall through: general failed, but continue with next
+      failure = err instanceof Error ? err.message : String(err);
     }
 
     // Always write a transcript row, even if the general failed or was dropped.
     const resolvedModel = args.model ?? resolveChamberRoleProfile(project, general).model;
+    const failureContent = failure ? `(failed: ${failure})` : '(failed)';
     recordChamberTranscript(project, {
       campaignId: args.campaignId,
       sessionId: args.sessionId,
@@ -278,7 +281,7 @@ export async function propose(
       model: resolvedModel,
       content: candidate
         ? JSON.stringify({ goal: candidate.goal, rationale: candidate.rationale })
-        : '(failed)',
+        : failureContent,
     });
   }
 
