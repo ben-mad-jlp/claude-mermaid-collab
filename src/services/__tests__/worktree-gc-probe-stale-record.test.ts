@@ -74,6 +74,10 @@ describe('worktree GC probe-stale records', () => {
     mkdirSync(agedPath, { recursive: true });
 
     try {
+      // Ensure the worktree base directory exists so gcLeafWorktrees can scan it
+      const wm = getWorktreeManager(repo);
+      mkdirSync(wm.baseDir(), { recursive: true });
+
       // Run the sweep at a future time so the file appears aged
       // now is set 1 minute in the future, so the file is definitely old enough
       const futureNow = Date.now() + 60_000;
@@ -89,13 +93,13 @@ describe('worktree GC probe-stale records', () => {
       // Verify the probe-stale records exist and have correct fields.
       // The sweep finds all aged collab-mutation-probe-* dirs in tmpRoot and emits records for each.
       const probeRecords = report.records.filter((r) => r.reasonClass === 'probe-stale');
-      if (probeRecords.length > 0) {
-        const probeRecord = probeRecords[0];
-        expect(probeRecord.epicId8).toBe(null);
-        expect(probeRecord.leafTodoId).toBe(null);
-        expect(probeRecord.trashDir).toBe(null);
-        expect(probeRecord.atIso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\./);
-      }
+      expect(probeRecords.length).toBe(1);
+      const probeRecord = probeRecords[0];
+      expect(probeRecord.epicId8).toBe(null);
+      expect(probeRecord.leafTodoId).toBe(null);
+      expect(probeRecord.trashDir).toBe(null);
+      expect(probeRecord.atIso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\./);
+
     } finally {
       rmSync(tmpRoot, { recursive: true, force: true });
     }
