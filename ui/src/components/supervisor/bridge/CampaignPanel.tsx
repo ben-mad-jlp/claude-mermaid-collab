@@ -148,6 +148,65 @@ export function rosterAgendaFor(roster: ChamberRosterEntry[] | undefined, role: 
   return entry?.agenda ?? null;
 }
 
+/**
+ * Parse a chamber entry content string to detect failed general calls.
+ * Returns { reason: string | null } when the content is (failed: <reason>) or (failed),
+ * or null when the content is ordinary deliberation prose.
+ * Returns defensive { reason: null } for any malformed (failed...) string.
+ */
+export function parseChamberFailure(content: string): { reason: string | null } | null {
+  if (!content.startsWith('(failed')) {
+    return null;
+  }
+
+  if (content === '(failed)') {
+    return { reason: null };
+  }
+
+  if (content.startsWith('(failed: ') && content.endsWith(')')) {
+    const reason = content.slice('(failed: '.length, -1);
+    return { reason };
+  }
+
+  // Malformed (failed...) string, treat defensively
+  return { reason: null };
+}
+
+/**
+ * Render a failed general call as a single compact line with its recorded reason.
+ * Shows the role and the recorded reason, or "no reason recorded" if reason is null.
+ */
+const ChamberFailureLine: React.FC<{ role: string; reason: string | null }> = ({ role, reason }) => (
+  <div
+    data-testid="chamber-failure"
+    className="text-gray-500 dark:text-gray-500"
+  >
+    {role} failed: {reason || 'no reason recorded'}
+  </div>
+);
+
+/**
+ * Route chamber entry rendering between a failure line (if content is a failed call)
+ * and the normal role + clamped body pair (for deliberation prose).
+ */
+const ChamberEntryBody: React.FC<{ entry: BridgeChamberEntry; agenda: string | null }> = ({
+  entry,
+  agenda,
+}) => {
+  const failureInfo = parseChamberFailure(entry.content);
+
+  if (failureInfo !== null) {
+    return <ChamberFailureLine role={entry.role} reason={failureInfo.reason} />;
+  }
+
+  return (
+    <>
+      <ChamberRole role={entry.role} agenda={agenda} />
+      <ClampedBody text={entry.content} />
+    </>
+  );
+};
+
 export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEntity, nowMs }) => {
   const campaigns = useSupervisorStore((s) => s.campaignsByProject[project]) ?? EMPTY;
   const now = nowMs ?? Date.now();
@@ -373,8 +432,10 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         data-testid="chamber-proposal"
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
-                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <ClampedBody text={entry.content} />
+                        <ChamberEntryBody
+                          entry={entry}
+                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -392,8 +453,10 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         data-testid="chamber-veto"
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
-                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <ClampedBody text={entry.content} />
+                        <ChamberEntryBody
+                          entry={entry}
+                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -411,8 +474,10 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                         data-testid="chamber-wargame"
                         className="text-3xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
                       >
-                        <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                        <ClampedBody text={entry.content} />
+                        <ChamberEntryBody
+                          entry={entry}
+                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
+                        />
                       </div>
                     ))}
                   </div>
@@ -430,8 +495,10 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
                     <div className="space-y-1">
                       {c.chamber.decision.map((entry, idx) => (
                         <div key={`${entry.phase}-${entry.createdAt}-${idx}`} className="space-y-0.5">
-                          <ChamberRole role={entry.role} agenda={rosterAgendaFor(c.chamberRoster, entry.role)} />
-                          <ClampedBody text={entry.content} />
+                          <ChamberEntryBody
+                            entry={entry}
+                            agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
+                          />
                         </div>
                       ))}
                     </div>
