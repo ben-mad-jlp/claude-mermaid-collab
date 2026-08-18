@@ -9,6 +9,7 @@ import {
   TURN_OUTLINE_RING_CAP,
   __resetForTest,
 } from '../turn-outlines-store.ts';
+import { handleTurnOutlinesAPI } from '../../routes/turn-outlines-api.js';
 
 const P1 = '/proj/a';
 const P2 = '/proj/b';
@@ -124,5 +125,91 @@ describe('turn outlines ring buffer', () => {
     for (let i = 0; i < 5; i++) {
       expect(aTurnIds).not.toContain(`a${i}`);
     }
+  });
+});
+
+describe('turn-outlines route seam', () => {
+  it('a posted outline is returned for its session', async () => {
+    const outline = {
+      nodes: [{ id: 'n1', label: 'Node 1' }, { id: 'n2', label: 'Node 2' }],
+      edges: [{ from: 'n1', to: 'n2', label: 'connects' }],
+      metadata: { timestamp: 1234567890, version: 2 },
+    };
+
+    const postReq = new Request('http://localhost:9002/api/turn-outlines', {
+      method: 'POST',
+      body: JSON.stringify({
+        project: P1,
+        session: 's1',
+        outline,
+      }),
+    });
+
+    const postRes = await handleTurnOutlinesAPI(postReq, new URL(postReq.url));
+    expect(postRes?.status).toBe(200);
+    const postBody = (await postRes?.json()) as Record<string, unknown>;
+    expect(postBody?.ok).toBe(true);
+    expect(postBody?.stored).toBe(1);
+    expect(postBody?.cap).toBe(TURN_OUTLINE_RING_CAP);
+
+    // GET the same (project, session)
+    const getReq = new Request(
+      `http://localhost:9002/api/turn-outlines?project=${encodeURIComponent(P1)}&session=s1`,
+      { method: 'GET' }
+    );
+    const getRes = await handleTurnOutlinesAPI(getReq, new URL(getReq.url));
+    expect(getRes?.status).toBe(200);
+    const getBody = (await getRes?.json()) as Record<string, unknown>;
+    expect((getBody?.outlines as any[])?.length).toBe(1);
+    expect((getBody?.outlines as any[])?.[0]?.outline).toEqual(outline);
+    expect(getBody?.cap).toBe(TURN_OUTLINE_RING_CAP);
+
+    // GET a different session and assert empty
+    const diffReq = new Request(
+      `http://localhost:9002/api/turn-outlines?project=${encodeURIComponent(P1)}&session=s2`,
+      { method: 'GET' }
+    );
+    const diffRes = await handleTurnOutlinesAPI(diffReq, new URL(diffReq.url));
+    expect(diffRes?.status).toBe(200);
+    const diffBody = (await diffRes?.json()) as Record<string, unknown>;
+    expect((diffBody?.outlines as any[])?.length).toBe(0);
+  });
+
+  it('the ring keeps the newest outlines at the declared cap', async () => {
+    // POST TURN_OUTLINE_RING_CAP + 5 distinct outlines to one session
+    for (let i = 0; i < TURN_OUTLINE_RING_CAP + 5; i++) {
+      const postReq = new Request('http://localhost:9002/api/turn-outlines', {
+        method: 'POST',
+        body: JSON.stringify({
+          project: P1,
+          session: 's1',
+          turn: `t${i}`,
+          outline: { i },
+        }),
+      });
+      const postRes = await handleTurnOutlinesAPI(postReq, new URL(postReq.url));
+      expect(postRes?.status).toBe(200);
+    }
+
+    // Assert the count equals the cap
+    const getReq = new Request(
+      `http://localhost:9002/api/turn-outlines?project=${encodeURIComponent(P1)}&session=s1`,
+      { method: 'GET' }
+    );
+    const getRes = await handleTurnOutlinesAPI(getReq, new URL(getReq.url));
+    const getBody = (await getRes?.json()) as Record<string, unknown>;
+    const outlines = getBody?.outlines as any[];
+    expect(outlines).toHaveLength(TURN_OUTLINE_RING_CAP);
+
+    // The newest outline (i = CAP + 4) is present
+    const newestTurn = `t${TURN_OUTLINE_RING_CAP + 4}`;
+    const newestOutline = outlines.find((o: any) => o.turn === newestTurn);
+    expect(newestOutline).toBeDefined();
+    expect(newestOutline?.outline?.i).toBe(TURN_OUTLINE_RING_CAP + 4);
+
+    // The oldest outline (i = 0) is gone
+    const oldestTurn = 't0';
+    const oldestOutline = outlines.find((o: any) => o.turn === oldestTurn);
+    expect(oldestOutline).toBeUndefined();
   });
 });

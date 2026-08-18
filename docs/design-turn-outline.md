@@ -32,12 +32,15 @@ transient, a research preview, and gated — output via a per-turn reply tool is
 non-idiomatic. Pipeline: plugin Stop hook → parse the outline block from the final
 message → POST {session, project, turn, outline} to :9002 (new route) → store.
 
-**D4 — Storage: LATEST ONLY, one outline per watched session.** A terminating
-message means the session is paused awaiting the human — it cannot produce a second
-outline until acted on, so an "unread backlog" cannot exist and nothing is ever
-missed. One row per (project, session), overwritten each turn with turn id +
-timestamp; the transcript remains the history. (An earlier ring-buffer +
-read-cursor-merge design was DELETED by this insight — do not resurrect it.)
+**D4 — Storage: a per-(project, session) RING, capped at TURN_OUTLINE_RING_CAP.** A terminating
+message means the session is paused awaiting the human, so a backlog of outlines
+cannot accumulate. The store is a ring buffer kept in `src/services/turn-outlines-store.ts`,
+capped at `TURN_OUTLINE_RING_CAP = 20` rows per (project, session). When the cap is
+reached, the oldest outline (by timestamp, then insertion order) is evicted, keeping
+only the newest ones. The latest-only decision was superseded on 2026-08-17 by the mission
+acceptance criterion requiring the ring; the pause-awaiting-human argument made
+latest-only sufficient; the ring is retained anyway so a session that emits several
+turns before the human looks loses nothing.
 
 **D5 — UI: the latest tree, expandable, with reply-in-place.** The Bridge renders
 each watched session's stored outline as an expandable tree. Node semantics from
@@ -147,8 +150,9 @@ renders greyed with its age), and format carries a version (```outline v1).
 - Hook: given a Stop payload with an outline block, POSTs exactly one record;
   absent block → no POST; server down → exit 0 (turn never blocked). Mutation
   probe: corrupt the block marker, assert no POST.
-- Store: overwrite semantics (second POST replaces the first); per-session
-  isolation.
+- Store: ring buffer capped at TURN_OUTLINE_RING_CAP, newest retained and oldest
+  evicted on overflow; per-session isolation (one session's overflow does not
+  affect another's rows).
 - UI: latest tree renders and expands; a needs-you node renders pinned regardless
   of depth; a reply POSTs to the channel route, and the reply box renders disabled
   with an explanatory tooltip when the session has no channel. (Component tests,
