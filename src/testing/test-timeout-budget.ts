@@ -21,6 +21,29 @@ export function deadlockGuardMs(): number {
 }
 
 /**
+ * Floor timeout for worktree GC operations. An operator raising BACKEND_TEST_TIMEOUT_MS
+ * widens the GC budget via worktreeGcTimeoutMs() but can never narrow it below 100000ms.
+ */
+export const WORKTREE_GC_TIMEOUT_FLOOR_MS = 100000;
+
+/**
+ * Fixed deadlock guard for worktree GC operations, strictly below WORKTREE_GC_TIMEOUT_FLOOR_MS.
+ * The guard fires with the labelled 'possible deadlock:' error from raceDeadlockGuard
+ * before bun kills the case.
+ */
+export const WORKTREE_GC_DEADLOCK_GUARD_MS = 60000;
+
+/**
+ * Resolves the timeout budget for worktree GC. The Math.max against harnessTimeoutMs()
+ * means an operator raising BACKEND_TEST_TIMEOUT_MS widens the GC budget and can never
+ * narrow it below 100000ms. WORKTREE_GC_DEADLOCK_GUARD_MS (60000ms) is strictly below
+ * this floor, so the guard fires before bun timeout.
+ */
+export function worktreeGcTimeoutMs(): number {
+  return Math.max(WORKTREE_GC_TIMEOUT_FLOOR_MS, harnessTimeoutMs());
+}
+
+/**
  * Races a promise against a timeout, rejecting with a labelled deadlock error
  * if the promise doesn't settle in time. The timer is cleared on settle to
  * prevent keeping the process alive.
