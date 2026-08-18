@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { act } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { BridgeCampaign } from '@/types/campaign';
@@ -315,5 +315,71 @@ describe('CampaignPanel chamber deliberation', () => {
     // Heading[3] (Decision) parentElement is the chamber-decision element itself
     const decisionBlock = screen.getByTestId('chamber-decision');
     expect(headings[3].parentElement).toBe(decisionBlock);
+  });
+
+  it('clamps a long proposal body and expands it on click', () => {
+    // Create a long string by repeating without trailing spaces to avoid whitespace issues
+    const baseSentence = 'We should adopt a comprehensive error handling strategy that covers all edge cases and improves robustness.';
+    const longBody = baseSentence + ' ' + baseSentence + ' ' + baseSentence;
+
+    const fixtureWithLongBody: BridgeCampaign[] = [
+      {
+        id: 'camp-clamp',
+        title: 'Campaign with Clamped Proposal',
+        goal: 'Test clamp/expand behavior',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-006',
+          outcome: 'decision',
+          chosenCandidate: null,
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'clamp123abc',
+          decidedAt: 1629802500000,
+          proposals: [
+            {
+              phase: 'propose',
+              role: 'lens-architect',
+              model: 'claude-opus-5',
+              content: longBody,
+              createdAt: 1629802000000,
+            },
+          ],
+          vetoes: [],
+          wargame: [],
+          decision: [],
+        },
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithLongBody },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    // Initially, the full body should not be in the DOM
+    expect(screen.queryByText(longBody)).toBeNull();
+
+    // The chamber-body element should have data-clamped="true"
+    const chamberBody = screen.getByTestId('chamber-body');
+    expect(chamberBody.getAttribute('data-clamped')).toBe('true');
+
+    // Click the Show more button
+    const button = screen.getByRole('button', { name: 'Show more' });
+    act(() => {
+      fireEvent.click(button);
+    });
+
+    // After expanding, the full body should be visible
+    expect(screen.getByText(longBody)).toBeTruthy();
+
+    // The chamber-body element should have data-clamped="false"
+    expect(chamberBody.getAttribute('data-clamped')).toBe('false');
   });
 });
