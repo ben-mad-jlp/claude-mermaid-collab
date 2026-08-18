@@ -100,4 +100,37 @@ describe('makeJudgmentLLM — claude (subscription) path', () => {
     const llm = makeJudgmentLLM({ provider: 'claude', model: 'sonnet', apiKey: '', cwd: '/tmp' });
     expect(typeof llm.complete).toBe('function');
   });
+
+  it('spawns the resolved CLAUDE_BIN path as argv[0], not the bare "claude"', async () => {
+    const stubPath = '/tmp/stub-claude-bin';
+    process.env.CLAUDE_BIN = stubPath;
+
+    const realSpawn = Bun.spawn;
+    let capturedSpawnArgv: string[] | undefined;
+
+    try {
+      // Stub Bun.spawn to capture the argv and return a fake proc with a valid stream-json response
+      Bun.spawn = ((argv: any[], opts: any) => {
+        capturedSpawnArgv = argv;
+        const jsonResponse = '{"type":"result","subtype":"success","result":"ok"}';
+        // Create a Blob that Response can consume
+        const blob = new Blob([jsonResponse]);
+        return {
+          stdin: { write() {}, end() {} },
+          stdout: blob.stream() as any,
+          exited: Promise.resolve(0),
+          kill() {},
+        } as any;
+      }) as any;
+
+      const llm = makeJudgmentLLM({ provider: 'claude', model: 'sonnet', apiKey: '', cwd: '/tmp' });
+      await llm.complete('system prompt', 'user prompt');
+
+      expect(capturedSpawnArgv).toBeDefined();
+      expect(capturedSpawnArgv?.[0]).toBe(stubPath);
+    } finally {
+      Bun.spawn = realSpawn;
+      delete process.env.CLAUDE_BIN;
+    }
+  });
 });

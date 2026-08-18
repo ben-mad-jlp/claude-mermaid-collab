@@ -13,7 +13,7 @@
  * DEFAULT behaviour is unchanged until a user picks a different provider.
  */
 
-import { buildNodeArgv, parseNodeJson } from '../agent/node-invoker.ts';
+import { buildNodeArgv, parseNodeJson, resolveClaudeBin } from '../agent/node-invoker.ts';
 
 export interface JudgmentLLM {
   complete(system: string, user: string): Promise<string>;
@@ -159,7 +159,9 @@ function makeClaudeSubscription(model: string | undefined, cwd: string, onUsage?
         model: model || undefined,
         permissionMode: 'bypassPermissions',
       });
-      const proc = Bun.spawn(argv, { cwd, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore' });
+      const claudeBin = resolveClaudeBin();
+      const spawnArgv = [claudeBin, ...argv.slice(1)];
+      const proc = Bun.spawn(spawnArgv, { cwd, stdin: 'pipe', stdout: 'pipe', stderr: 'ignore' });
       proc.stdin.write(user);
       proc.stdin.end();
       // Drain CONCURRENTLY, then BOUND the wait — same un-hangable pattern as the
