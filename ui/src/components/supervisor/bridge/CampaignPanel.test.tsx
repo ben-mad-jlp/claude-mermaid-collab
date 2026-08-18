@@ -23,6 +23,69 @@ describe('CampaignPanel chamber deliberation', () => {
     vi.unstubAllGlobals();
   });
 
+  it('renders a failed general call as a single line with its failure reason', () => {
+    const failureReason = 'model timed out after 120s';
+
+    const fixtureWithFailure: BridgeCampaign[] = [
+      {
+        id: 'camp-failure',
+        title: 'Campaign with Failed General Call',
+        goal: 'Test failure rendering',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-007',
+          outcome: 'decision',
+          chosenCandidate: null,
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'fail123abc',
+          decidedAt: 1629802500000,
+          proposals: [
+            {
+              phase: 'propose',
+              role: 'operations',
+              model: 'claude-opus-5',
+              content: `(failed: ${failureReason})`,
+              createdAt: 1629802000000,
+            },
+          ],
+          vetoes: [],
+          wargame: [],
+          decision: [],
+        },
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithFailure },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    // Assert the chamber section is rendered
+    expect(screen.getByTestId('campaign-chamber')).toBeTruthy();
+
+    // Assert the failure line is rendered with the correct data-testid
+    const failureLine = screen.getByTestId('chamber-failure');
+    expect(failureLine).toBeTruthy();
+
+    // Assert the failure line contains the failure reason and role
+    expect(failureLine.textContent).toContain(failureReason);
+    expect(failureLine.textContent).toContain('operations');
+
+    // Assert the failure line does NOT contain the literal (failed) placeholder text
+    expect(failureLine.textContent).not.toContain('(failed)');
+    expect(failureLine.textContent).not.toContain('(failed:');
+
+    // Assert there is no Show more button
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+  });
+
   it('renders a veto row with its written reason', () => {
     const vetoReason = 'This implementation does not handle the edge case where the input is null and the timeout expires simultaneously.';
 
