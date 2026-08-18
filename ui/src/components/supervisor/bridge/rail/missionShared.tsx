@@ -112,7 +112,7 @@ export const RatifiedBadge: React.FC = () => (
 export const MissionDropsIndicator: React.FC<{ dropped?: number }> = ({ dropped }) => {
   const count = dropped ?? 0;
   const title = count > 0
-    ? `${count} criterion${count === 1 ? '' : 'a'} dropped — converged with drops, not a clean convergence.`
+    ? `${count} ${count === 1 ? 'criterion' : 'criteria'} dropped — converged with drops, not a clean convergence.`
     : 'Converged with drops, not a clean convergence.';
 
   return (

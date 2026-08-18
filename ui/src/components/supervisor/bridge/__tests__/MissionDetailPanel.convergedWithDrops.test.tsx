@@ -107,4 +107,60 @@ describe('MissionDetailPanel -- convergedWithDrops honesty', () => {
       cleanRowContainer.querySelector('[data-testid="mission-drops-indicator"]'),
     ).toBeFalsy();
   });
+
+  it('renders "1 criterion dropped" in the drops indicator title for a single drop', async () => {
+    const user = userEvent.setup();
+    mockMissions = [
+      activeMission,
+      {
+        ...convergedWithDropsMission,
+        rollup: {
+          ...convergedWithDropsMission.rollup,
+          capability: { met: 3, total: 4, dropped: 1 },
+        },
+      },
+      cleanConvergedMission,
+    ];
+    global.fetch = (() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })) as any;
+    render(<MissionDetailPanel serverId="" project="/abs/p" session="design" />);
+    await waitFor(() => expect(screen.getByTestId('inspector-missions')).toBeTruthy());
+
+    const showCompletedCheckbox = screen.getByTestId('missions-show-completed');
+    await user.click(showCompletedCheckbox);
+
+    const dropsRow = await screen.findByText('land-path-integrity-landing-never');
+    const dropsRowContainer = dropsRow.closest('[data-testid="mission-switcher-row"]') as HTMLElement;
+    const indicator = dropsRowContainer.querySelector('[data-testid="mission-drops-indicator"]') as HTMLElement;
+    const titleAttr = indicator.getAttribute('title');
+    expect(titleAttr).toContain('1 criterion dropped');
+    expect(titleAttr).not.toContain('criteria');
+  });
+
+  it('renders "2 criteria dropped" in the drops indicator title for two drops', async () => {
+    const user = userEvent.setup();
+    mockMissions = [
+      activeMission,
+      {
+        ...convergedWithDropsMission,
+        rollup: {
+          ...convergedWithDropsMission.rollup,
+          capability: { met: 2, total: 4, dropped: 2 },
+        },
+      },
+      cleanConvergedMission,
+    ];
+    global.fetch = (() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })) as any;
+    render(<MissionDetailPanel serverId="" project="/abs/p" session="design" />);
+    await waitFor(() => expect(screen.getByTestId('inspector-missions')).toBeTruthy());
+
+    const showCompletedCheckbox = screen.getByTestId('missions-show-completed');
+    await user.click(showCompletedCheckbox);
+
+    const dropsRow = await screen.findByText('land-path-integrity-landing-never');
+    const dropsRowContainer = dropsRow.closest('[data-testid="mission-switcher-row"]') as HTMLElement;
+    const indicator = dropsRowContainer.querySelector('[data-testid="mission-drops-indicator"]') as HTMLElement;
+    const titleAttr = indicator.getAttribute('title');
+    expect(titleAttr).toContain('2 criteria dropped');
+    expect(titleAttr).not.toContain('criteriona');
+  });
 });
