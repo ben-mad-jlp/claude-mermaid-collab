@@ -40,7 +40,7 @@ import type {
 } from './leaf-parsing';
 import type { NodeInvoker, NodeResult, NodeSpec, AuthMode } from '../agent/node-invoker';
 import type { EffortLevel } from '../agent/contracts';
-import { getProjectEffort, listNodeProfileOverrides } from './orchestrator-config';
+import { getProjectEffort, listNodeProfileOverrides, resolveTierScopedNodeModel } from './orchestrator-config';
 import type { WorktreeManager, ReintegrateBaseResult } from '../agent/worktree-manager';
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor, classifyWorktreeAddFault, transientRetryAfterMs } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
@@ -1678,10 +1678,8 @@ export async function runLeaf(
     // can pin implement=sonnet for full-tier work while trialing a cheaper model on
     // small/test-pinned leaves — the measured-A/B lever for model economics. Escalation
     // (start-failure retry) still wins above: a failing cheap-model start retries strong.
-    const tierScoped = leaf.tier ? nodeOverrides[`${kind}@${leaf.tier}`]?.model : undefined;
-    if (tierScoped) return tierScoped;
-    const kindWide = nodeOverrides[kind]?.model;
-    if (kindWide) return kindWide;
+    const pinned = resolveTierScopedNodeModel(nodeOverrides, kind, leaf.tier);
+    if (pinned) return pinned;
     const provider = resolveNodeProvider(project, kind, allowedTools);
     return resolveNodeModel(project, kind, provider, NODE_PROFILE[kind].model);
   };

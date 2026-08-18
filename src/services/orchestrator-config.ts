@@ -527,6 +527,34 @@ export function listNodeProfileOverrides(project: string): Record<string, NodePr
   return out;
 }
 
+/** Resolve a node's model override with tier-scoped precedence.
+ *
+ *  Tier-scoped row (e.g. `implement@small`) beats kind-wide row for leaves of that tier,
+ *  enabling per-tier A/B testing of model economics. Precedence:
+ *  1. If tier is truthy and overrides[`${kind}@${tier}`]?.model is a non-empty string → return it
+ *  2. Otherwise, return overrides[kind]?.model ?? null (an empty-string model coalesces to null)
+ *  3. Never return undefined — always string | null
+ *
+ *  @param overrides - The result of listNodeProfileOverrides() or a hand-built override map
+ *  @param kind - Node kind (e.g. 'implement', 'review')
+ *  @param tier - Leaf tier ('small', 'test-pinned', null, undefined, etc.)
+ *  @returns The resolved model string, or null to inherit the node kind's default
+ */
+export function resolveTierScopedNodeModel(
+  overrides: Record<string, NodeProfileOverride>,
+  kind: string,
+  tier: string | null | undefined,
+): string | null {
+  // Tier-scoped lookup beats kind-wide
+  if (tier) {
+    const tierScoped = overrides[`${kind}@${tier}`]?.model;
+    if (tierScoped) return tierScoped;
+  }
+  // Fall through to kind-wide, coalesce empty string to null
+  const kindWide = overrides[kind]?.model;
+  return kindWide || null;
+}
+
 /** Set (or clear) a single node kind's model/effort/provider override for a project. A
  *  null field clears it (inherit); when ALL are null the row is deleted so the kind reads
  *  as a clean inherit. Invalid effort/provider coerce to null. */

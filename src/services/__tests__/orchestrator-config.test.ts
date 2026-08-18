@@ -23,6 +23,7 @@ import {
   setProjectEffort,
   listNodeProfileOverrides,
   setNodeProfileOverride,
+  resolveTierScopedNodeModel,
   copyNodeProfilesTo,
   emitAutoCollapseNotices,
   type CampaignLevel,
@@ -231,6 +232,63 @@ describe('per-(project,node-kind) model + effort overrides', () => {
   it('an invalid effort coerces to null', () => {
     setNodeProfileOverride('/proj/np-c', 'implement', 'haiku', 'turbo' as never);
     expect(listNodeProfileOverrides('/proj/np-c').implement).toEqual({ model: 'haiku', effort: null, provider: null });
+  });
+});
+
+describe('resolveTierScopedNodeModel', () => {
+  it('tier-scoped row beats the kind-wide row; kind-wide beats nothing', () => {
+    const overrides = {
+      'implement@small': { model: 'haiku', effort: null, provider: null },
+      'implement': { model: 'sonnet', effort: null, provider: null },
+    };
+
+    // tier-scoped wins for small tier
+    expect(resolveTierScopedNodeModel(overrides, 'implement', 'small')).toBe('haiku');
+
+    // kind-wide applies when no tier row
+    expect(resolveTierScopedNodeModel(overrides, 'implement', 'full')).toBe('sonnet');
+
+    // unknown kind returns null
+    expect(resolveTierScopedNodeModel(overrides, 'review', 'small')).toBeNull();
+  });
+
+  it('null/undefined tier ignores tier-scoped rows and falls through to kind-wide', () => {
+    const overrides = {
+      'implement@small': { model: 'haiku', effort: null, provider: null },
+      'implement': { model: 'sonnet', effort: null, provider: null },
+    };
+
+    // null tier ignores tier row, uses kind-wide
+    expect(resolveTierScopedNodeModel(overrides, 'implement', null)).toBe('sonnet');
+
+    // undefined tier ignores tier row, uses kind-wide
+    expect(resolveTierScopedNodeModel(overrides, 'implement', undefined)).toBe('sonnet');
+  });
+
+  it('a tier row with null model falls through to kind-wide row', () => {
+    const overrides = {
+      'review@small': { model: null, effort: null, provider: null },
+      'review': { model: 'opus', effort: null, provider: null },
+    };
+
+    expect(resolveTierScopedNodeModel(overrides, 'review', 'small')).toBe('opus');
+  });
+
+  it('an empty-string model coalesces to null (inherit)', () => {
+    const overrides = {
+      'blueprint': { model: '', effort: null, provider: null },
+    };
+
+    expect(resolveTierScopedNodeModel(overrides, 'blueprint', 'full')).toBeNull();
+  });
+
+  it('an unknown kind with no tier returns null', () => {
+    const overrides = {
+      'implement': { model: 'sonnet', effort: null, provider: null },
+    };
+
+    expect(resolveTierScopedNodeModel(overrides, 'unknown-kind', 'small')).toBeNull();
+    expect(resolveTierScopedNodeModel(overrides, 'unknown-kind', null)).toBeNull();
   });
 });
 
