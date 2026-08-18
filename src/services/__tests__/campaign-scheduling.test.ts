@@ -91,6 +91,7 @@ describe('campaign-scheduling', () => {
         deps: {
           listCampaigns: mockListCampaigns,
           runCampaignPass: mockRunCampaignPass,
+          runChamberCompletionArm: async () => ({ convened: false, verdict: null, raised: false, conditionKey: null }),
         },
       });
 
@@ -147,6 +148,7 @@ describe('campaign-scheduling', () => {
           deps: {
             listCampaigns: mockListCampaigns,
             runCampaignPass: mockRunCampaignPass,
+            runChamberCompletionArm: async () => ({ convened: false, verdict: null, raised: false, conditionKey: null }),
           },
         });
 

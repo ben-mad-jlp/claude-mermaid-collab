@@ -26,6 +26,7 @@ import { runRigReset } from './campaign-rig-reset.ts';
 import { ruleMissionProposal } from './campaign-mission-proposal.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
 import { resolveTriageRoute } from './config-service.ts';
+import { runChamber } from './chamber.ts';
 import type { JudgmentLLM } from './judgment-llm.ts';
 
 /** A probe's linked mission, or null if no link exists. */
@@ -74,6 +75,8 @@ export interface CampaignPassDeps {
   ruleMissionProposal?: typeof ruleMissionProposal;
   /** The LLM client for the proposal panel. Built lazily via makeJudgmentLLM if not provided. */
   llm?: JudgmentLLM;
+  /** Convene the chamber to decide which candidate to forge. Defaults to the live runChamber implementation. */
+  runChamber?: typeof runChamber;
 }
 
 const CAMPAIGN_PROBE_MISSION_DDL = `
@@ -391,15 +394,14 @@ export function probeCriterionText(probe: CampaignProbe): string {
  * 0. Derive the campaign front (probes with verdict !== 'pass' whose deps passed) and re-measure every one of them.
  * 1. Get the campaign front again and filter to failing probes.
  * 2. For each, skip if it already has an open linked mission.
- * 3. Group the remainder by failureSignature.
- * 4. Per group, forge one mission with criteria = group.probes.map(probeCriterionText).
- * 5. Link every probe in the group to the returned missionId.
+ * 3. Group the remainder by failureSignature and claim them for forging.
+ * 4. If claimed probes exist, convene the chamber once to decide on a candidate, then forge one mission and link all claimed probes to it.
  *
  * Fail-open at four levels: outermost try/catch for the whole operation, a per-stage
- * try/catch for re-execution, per-probe try/catch for verdict/link reads, and per-group
- * try/catch for forge+link.
+ * try/catch for re-execution, per-probe try/catch for verdict/link reads, and chamber/forge
+ * try/catch for the entire convene+forge block.
  *
- * Returns { groups, forged, skipped, executed } even when a forge throws (partial success).
+ * Returns { groups, forged, skipped, executed } even when a chamber or forge throws (partial success).
  */
 export async function runCampaignPass(
   project: string,
@@ -420,6 +422,7 @@ export async function runCampaignPass(
       return mission != null && !isMissionTerminal(mission);
     });
     const ruleProposalFn = deps.ruleMissionProposal ?? ruleMissionProposal;
+    const runChamberFn = deps.runChamber ?? runChamber;
     let llmInstance = deps.llm;
     const getLlm = (): JudgmentLLM => (llmInstance ??= makeJudgmentLLM(resolveTriageRoute({ project })));
 
@@ -538,73 +541,106 @@ export async function runCampaignPass(
     const groupResults = groups.map((g) => ({ signature: g.signature, probeIds: g.probes.map((p) => p.id) }));
     const forged: Array<{ signature: string; missionId: string; probeIds: string[] }> = [];
 
-    // 4. Per group, forge one mission and link probes.
-    for (const group of groups) {
+    // 4. Convene the chamber once if there are claimed probes, and forge the president-decided candidate.
+    if (claimed.length > 0) {
       try {
-        const title = `Probe failures: ${group.signature || '(empty)'}`.slice(0, 200);
-        const criteria = group.probes.map(probeCriterionText);
-        const proposedGoal = [title, ...criteria].join('\n');
-
-        // Check the proposal gate before forging.
-        const { record } = await ruleProposalFn(project, {
+        const chamberResult = await runChamberFn(project, {
           campaignId,
-          proposedGoal,
+          sessionId: session,
+          decidedAtSha: commitShaFn(),
           llm: getLlm(),
-          judge: 'campaign-proposal-panel',
-          ruledAtSha: commitShaFn(),
+        }, {
+          forgeMission: forgeReq,
         });
 
-        // If the proposal was rejected, release all claims in this group and skip the forge.
-        if (record.ruling !== 'approved') {
-          for (const probe of group.probes) {
+        const { decision } = chamberResult;
+
+        // Handle the chamber decision.
+        if (decision.outcome === 'decision' && decision.chosenCandidate) {
+          try {
+            // Build the proposed goal with the president's candidate as the title.
+            const title = decision.chosenCandidate.slice(0, 200);
+            const criteria = claimed.map(probeCriterionText);
+            const proposedGoal = [title, ...criteria].join('\n');
+
+            // Check the proposal gate before forging.
+            const { record } = await ruleProposalFn(project, {
+              campaignId,
+              proposedGoal,
+              llm: getLlm(),
+              judge: 'campaign-proposal-panel',
+              ruledAtSha: commitShaFn(),
+            });
+
+            // If the proposal was rejected, release all claims and return empty forged.
+            if (record.ruling !== 'approved') {
+              for (const probe of claimed) {
+                try {
+                  releaseProbeClaim(project, probe.id);
+                } catch {
+                  // Fail-open per-probe: one release failure doesn't prevent others.
+                }
+              }
+            } else {
+              // Forge once with the president-decided title and probe criteria.
+              const missionInput: ForgeMissionInput = {
+                session,
+                title,
+                criteria,
+                approved: true,
+              };
+
+              const result = await forgeReq(project, missionInput);
+              const missionId = result.missionId;
+
+              // Link every claimed probe to the forged mission.
+              for (const probe of claimed) {
+                try {
+                  linkProbeToMission(project, probe.id, missionId, campaignId);
+                } catch (err) {
+                  // Fail-open per-link: one link failure doesn't prevent others.
+                  console.warn(
+                    `[campaign-pass] campaign ${campaignId} probe ${probe.id} link to mission ${missionId} failed: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                }
+              }
+
+              // Record one forged entry containing all claimed probes and all signatures.
+              forged.push({
+                signature: groups.map((g) => g.signature).join(' | '),
+                missionId,
+                probeIds: claimed.map((p) => p.id),
+              });
+            }
+          } catch (err) {
+            // Fail-open: a throwing proposal gate or forge releases all claims.
+            console.warn(
+              `[campaign-pass] campaign ${campaignId} decision-fork forge failed for probes ${claimed.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            for (const probe of claimed) {
+              try {
+                releaseProbeClaim(project, probe.id);
+              } catch {
+                // Fail-open per-probe: one release failure doesn't prevent others.
+              }
+            }
+          }
+        } else {
+          // outcome === 'inaction' or blank chosenCandidate: release all claims and forge nothing.
+          for (const probe of claimed) {
             try {
               releaseProbeClaim(project, probe.id);
             } catch {
               // Fail-open per-probe: one release failure doesn't prevent others.
             }
           }
-          continue;
         }
-
-        const missionInput: ForgeMissionInput = {
-          session,
-          title,
-          criteria,
-          // Campaigns are derived from observations, so they're created unapproved.
-          // Approval happens separately in the mission-approval path.
-          approved: true,
-        };
-
-        const result = await forgeReq(project, missionInput);
-        const missionId = result.missionId;
-
-        // 5. Link every probe in the group.
-        for (const probe of group.probes) {
-          try {
-            linkProbeToMission(project, probe.id, missionId, campaignId);
-          } catch (err) {
-            // Fail-open per-link: one link failure doesn't prevent others.
-            // Log for debugging but continue.
-            console.warn(
-              `[campaign-pass] campaign ${campaignId} group "${group.signature}" probe ${probe.id} link to mission ${missionId} failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-
-        forged.push({
-          signature: group.signature,
-          missionId,
-          probeIds: group.probes.map((p) => p.id),
-        });
       } catch (err) {
-        // Fail-open per-group: one throwing forge leaves the other groups forged.
-        // The group remains in the groups array but not in forged.
-        // Log the failure with the campaign id, signature, all probe ids, and error message.
+        // Fail-open for the chamber convene: a throwing chamber call releases all claims.
         console.warn(
-          `[campaign-pass] campaign ${campaignId} group "${group.signature}" forge failed for probes ${group.probes.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
+          `[campaign-pass] campaign ${campaignId} chamber convene failed for probes ${claimed.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
         );
-        // Release the claims for this group's probes so they can be retried.
-        for (const probe of group.probes) {
+        for (const probe of claimed) {
           try {
             releaseProbeClaim(project, probe.id);
           } catch {

@@ -10,6 +10,7 @@
 
 import { listCampaigns } from './campaign-store.js';
 import { runCampaignPass, type CampaignPassResult, type CampaignPassDeps } from './campaign-pass.js';
+import { runChamberCompletionArm, type ChamberJudgeArmResult } from './chamber-judge.js';
 
 /** Minimum spacing between campaign passes for a single project. */
 export const CAMPAIGN_PASS_INTERVAL_MS = 300_000; // 5 min
@@ -51,6 +52,8 @@ export interface CampaignSchedulingDeps {
   runCampaignPass?: typeof runCampaignPass;
   /** Injectable dependencies for runCampaignPass. */
   passDepsFn?: (project: string, campaignId: string, session: string) => CampaignPassDeps;
+  /** Run the chamber completion arm for one campaign. Default: runChamberCompletionArm. */
+  runChamberCompletionArm?: typeof runChamberCompletionArm;
 }
 
 /**
@@ -79,6 +82,7 @@ export async function runCampaignPassForProject(
   const listCampaignsFn = deps.listCampaigns ?? listCampaigns;
   const runCampaignPassFn = deps.runCampaignPass ?? runCampaignPass;
   const passDepsFn = deps.passDepsFn ?? ((_p: string, _cid: string, _s: string) => ({}));
+  const runChamberArmFn = deps.runChamberCompletionArm ?? runChamberCompletionArm;
 
   const campaigns: string[] = [];
   const results: CampaignPassResult[] = [];
@@ -98,6 +102,16 @@ export async function runCampaignPassForProject(
         // Fail-open: one campaign's failure doesn't stop the loop.
         console.warn(
           `campaign pass failed for project ${project} campaign ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      // Run the chamber completion arm in a separate try/catch so its failure doesn't affect the pass or other campaigns.
+      try {
+        await runChamberArmFn(project, row.id, session);
+      } catch (err) {
+        // Fail-open: one arm's failure doesn't stop the loop or remove the campaign from results.
+        console.warn(
+          `chamber completion arm failed for project ${project} campaign ${row.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
