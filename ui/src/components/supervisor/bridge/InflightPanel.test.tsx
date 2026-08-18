@@ -56,6 +56,24 @@ describe('InflightPanel — daemon-authoritative set', () => {
     expect(screen.getByText('Build the cutlist')).toBeTruthy();
     expect(screen.getByText(/1 in flight/)).toBeTruthy();
   });
+
+  it('keeps the retained title when the todos snapshot stops containing the leaf', async () => {
+    daemonResponse = {
+      now, inflight: [leaf('todo-1')],
+      breaker: { open: false, openUntil: null }, paused: [],
+    };
+    const todos = [{ id: 'todo-1', title: 'Build the cutlist', status: 'in_progress', parentId: 'epicX' }] as unknown as SessionTodo[];
+    const { rerender } = render(<InflightPanel todos={todos} project="p" serverScope="s" />);
+    await waitFor(() => expect(screen.getByText('Build the cutlist')).toBeTruthy());
+
+    // Remove the todo from the snapshot, but the title should be retained in the cache.
+    rerender(<InflightPanel todos={[]} project="p" serverScope="s" />);
+
+    // The retained title should still be displayed.
+    expect(screen.getByText('Build the cutlist')).toBeTruthy();
+    // The fallback id should not appear.
+    expect(screen.queryByText('todo-1')).toBeNull();
+  });
 });
 
 describe('InflightPanel — base-gate wait visibility', () => {
