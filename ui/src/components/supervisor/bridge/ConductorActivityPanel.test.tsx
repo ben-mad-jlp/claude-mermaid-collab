@@ -217,7 +217,9 @@ describe('ConductorActivityPanel', () => {
     it('renders a live in-flight entry showing arm, outcome and humanized nickname when rawMode is off', async () => {
       const liveRow = mkGroupRow({
         id: 'p-live',
-        startedAt: 5000,
+        // A LIVE pass must be recent: isPassInflight gates on wall-clock age vs the node
+        // timeout, so an epoch-era startedAt reads as 'killed', never 'live'.
+        startedAt: Date.now() - 5_000,
         endedAt: null,
         arm: 'serve',
         outcome: 'in-flight',
