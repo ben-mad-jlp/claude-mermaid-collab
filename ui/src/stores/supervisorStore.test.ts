@@ -18,7 +18,7 @@ const sess = (session: string, extra?: Partial<SupervisedSession>): SupervisedSe
 
 describe('supervisorStore.setSupervisedLocal', () => {
   beforeEach(() => {
-    useSupervisorStore.setState({ supervised: [] });
+    useSupervisorStore.setState({ supervised: [], knownServerIds: [] });
   });
 
   it('adds a session optimistically', () => {
@@ -46,6 +46,32 @@ describe('supervisorStore.setSupervisedLocal', () => {
     useSupervisorStore.setState({ supervised: [sess('alpha', { project: '/repo' })] });
     useSupervisorStore.getState().setSupervisedLocal(sess('alpha', { project: '/other' }), true);
     expect(useSupervisorStore.getState().supervised).toHaveLength(2);
+  });
+
+  it('setSupervisedLocal(false) leaves no cached copy of that project+session on any server', () => {
+    // Seed with multiple copies of the same project+session across different servers
+    useSupervisorStore.setState({
+      supervised: [
+        sess('alpha', { project: '/repo', serverId: 'srvA' }),
+        sess('alpha', { project: '/repo', serverId: 'srvB' }),
+        sess('alpha', { project: '/repo', serverId: 'srvC' }),
+        sess('beta', { project: '/repo', serverId: 'srvA' }),
+      ],
+      knownServerIds: ['srvA', 'srvB', 'srvC'],
+    });
+
+    // Remove alpha from /repo (should remove all server copies)
+    useSupervisorStore.getState().setSupervisedLocal(sess('alpha', { project: '/repo' }), false);
+
+    const supervised = useSupervisorStore.getState().supervised;
+
+    // No copies of alpha should remain across any server
+    const alphaRows = supervised.filter((s) => s.session === 'alpha' && s.project === '/repo');
+    expect(alphaRows).toHaveLength(0);
+
+    // beta should still be there
+    const betaRows = supervised.filter((s) => s.session === 'beta' && s.project === '/repo');
+    expect(betaRows).toHaveLength(1);
   });
 });
 
@@ -246,7 +272,7 @@ describe('supervisorStore.hydrateSessionSummaries', () => {
 
 describe('supervisorStore.hydrateWatchedSessions', () => {
   beforeEach(() => {
-    useSupervisorStore.setState({ supervised: [] });
+    useSupervisorStore.setState({ supervised: [], knownServerIds: [] });
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -280,5 +306,43 @@ describe('supervisorStore.hydrateWatchedSessions', () => {
     expect(srvBRows).toHaveLength(1);
     expect(srvBRows[0].session).toBe('srvB-sess');
     expect(srvBRows[0].stale).toBe(true);
+  });
+
+  it('drops rows for serverIds absent from the known list and dedupes to one row per (serverId, project, session)', async () => {
+    // Seed with rows from srvA, srvB, and srvC, plus a duplicate of srvA
+    useSupervisorStore.setState({
+      supervised: [
+        sess('alpha', { serverId: 'srvA', project: '/repo1' }),
+        sess('alpha', { serverId: 'srvA', project: '/repo1' }), // duplicate
+        sess('beta', { serverId: 'srvB', project: '/repo1' }),
+        sess('gamma', { serverId: 'srvC', project: '/repo1' }), // will be pruned
+      ],
+    });
+
+    // Stub fetch: only hydrate srvA and srvB (srvC is absent from the known list)
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(okRes({ supervised: [{ project: '/repo1', session: 'alpha-new', serverId: 'srvA' }] }))
+      .mockResolvedValueOnce(okRes({ supervised: [{ project: '/repo1', session: 'beta-new', serverId: 'srvB' }] })));
+
+    await useSupervisorStore.getState().hydrateWatchedSessions(['srvA', 'srvB']);
+
+    const supervised = useSupervisorStore.getState().supervised;
+
+    // srvA row: fresh, deduplicated
+    const srvARows = supervised.filter((s) => s.serverId === 'srvA');
+    expect(srvARows).toHaveLength(1);
+    expect(srvARows[0].session).toBe('alpha-new');
+
+    // srvB row: fresh, not a duplicate
+    const srvBRows = supervised.filter((s) => s.serverId === 'srvB');
+    expect(srvBRows).toHaveLength(1);
+    expect(srvBRows[0].session).toBe('beta-new');
+
+    // srvC row: pruned (not in knownServerIds)
+    const srvCRows = supervised.filter((s) => s.serverId === 'srvC');
+    expect(srvCRows).toHaveLength(0);
+
+    // knownServerIds is set
+    expect(useSupervisorStore.getState().knownServerIds).toEqual(['srvA', 'srvB']);
   });
 });
