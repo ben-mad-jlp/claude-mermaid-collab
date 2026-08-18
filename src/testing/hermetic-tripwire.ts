@@ -42,14 +42,17 @@ function resolveAbsolutePath(p: string): string {
   return join(process.cwd(), p);
 }
 
-function assertHermeticWritePath(p: string): void {
-  const resolved = resolveAbsolutePath(p);
-  const tmpResolved = tmpdir();
+export function isHermeticAllowedPath(p: string): boolean {
+  return p === ':memory:' || resolveAbsolutePath(p).startsWith(tmpdir());
+}
 
-  // tmpdir check first — must short-circuit before checking forbidden dir
-  if (resolved.startsWith(tmpResolved)) {
+function assertHermeticWritePath(p: string): void {
+  if (isHermeticAllowedPath(p)) {
     return;
   }
+
+  const resolved = resolveAbsolutePath(p);
+  const tmpResolved = tmpdir();
 
   // Check forbidden home dir
   if (resolved.startsWith(FORBIDDEN_HOME_DIR)) {
@@ -196,18 +199,90 @@ if ((fs.writeFileSync as any).__hermeticTripwire !== true) {
 const sqlite: any = require('bun:sqlite');
 const OrigDatabase: any = sqlite.Database;
 if (!OrigDatabase.__hermeticTripwire) {
+  const WATCHED_PROJECT_INSERT_RE = /\bINSERT\b[\s\S]*\bwatched_project\b/i;
+  const DB_PATHS = new WeakMap<object, string>();
+
   // Create a Proxy that intercepts `new` calls, checks the path, then constructs with the original
   const DatabaseProxy = new Proxy(OrigDatabase, {
-    construct(target, args) {
+    construct(target, args, newTarget) {
       const [path, options] = args;
       if (typeof path === 'string' && path !== ':memory:') {
         assertHermeticWritePath(path);
       }
-      return Reflect.construct(target, args);
+      const inst = Reflect.construct(target, args, newTarget);
+      if (typeof path === 'string') {
+        DB_PATHS.set(inst, path);
+      }
+      return inst;
     }
   });
 
   (DatabaseProxy as any).__hermeticTripwire = true;
+
+  // Patch Database.prototype methods to guard watched_project INSERTs
+  if (!(OrigDatabase.prototype as any).prepare?.__hermeticTripwireWatchedGuard) {
+    const origPrepare = OrigDatabase.prototype.prepare;
+    (OrigDatabase.prototype.prepare as any) = function (this: any, sql?: any) {
+      if (typeof sql === 'string' && WATCHED_PROJECT_INSERT_RE.test(sql)) {
+        const path = DB_PATHS.get(this) ?? (typeof (this as any)?.filename === 'string' ? (this as any).filename : undefined);
+        if (path && !isHermeticAllowedPath(path)) {
+          throw new HermeticTripwireError(
+            `Hermetic violation: INSERT into watched_project table on non-tmpdir store (${path}). Watched project operations must use a tmpdir store.`,
+          );
+        }
+      }
+      return origPrepare.call(this, sql);
+    };
+    (OrigDatabase.prototype.prepare as any).__hermeticTripwireWatchedGuard = true;
+  }
+
+  if (!(OrigDatabase.prototype as any).query?.__hermeticTripwireWatchedGuard) {
+    const origQuery = OrigDatabase.prototype.query;
+    (OrigDatabase.prototype.query as any) = function (this: any, sql?: any) {
+      if (typeof sql === 'string' && WATCHED_PROJECT_INSERT_RE.test(sql)) {
+        const path = DB_PATHS.get(this) ?? (typeof (this as any)?.filename === 'string' ? (this as any).filename : undefined);
+        if (path && !isHermeticAllowedPath(path)) {
+          throw new HermeticTripwireError(
+            `Hermetic violation: INSERT into watched_project table on non-tmpdir store (${path}). Watched project operations must use a tmpdir store.`,
+          );
+        }
+      }
+      return origQuery.call(this, sql);
+    };
+    (OrigDatabase.prototype.query as any).__hermeticTripwireWatchedGuard = true;
+  }
+
+  if (!(OrigDatabase.prototype as any).run?.__hermeticTripwireWatchedGuard) {
+    const origRun = OrigDatabase.prototype.run;
+    (OrigDatabase.prototype.run as any) = function (this: any, sql?: any) {
+      if (typeof sql === 'string' && WATCHED_PROJECT_INSERT_RE.test(sql)) {
+        const path = DB_PATHS.get(this) ?? (typeof (this as any)?.filename === 'string' ? (this as any).filename : undefined);
+        if (path && !isHermeticAllowedPath(path)) {
+          throw new HermeticTripwireError(
+            `Hermetic violation: INSERT into watched_project table on non-tmpdir store (${path}). Watched project operations must use a tmpdir store.`,
+          );
+        }
+      }
+      return origRun.call(this, sql);
+    };
+    (OrigDatabase.prototype.run as any).__hermeticTripwireWatchedGuard = true;
+  }
+
+  if (!(OrigDatabase.prototype as any).exec?.__hermeticTripwireWatchedGuard) {
+    const origExec = OrigDatabase.prototype.exec;
+    (OrigDatabase.prototype.exec as any) = function (this: any, sql?: any) {
+      if (typeof sql === 'string' && WATCHED_PROJECT_INSERT_RE.test(sql)) {
+        const path = DB_PATHS.get(this) ?? (typeof (this as any)?.filename === 'string' ? (this as any).filename : undefined);
+        if (path && !isHermeticAllowedPath(path)) {
+          throw new HermeticTripwireError(
+            `Hermetic violation: INSERT into watched_project table on non-tmpdir store (${path}). Watched project operations must use a tmpdir store.`,
+          );
+        }
+      }
+      return origExec.call(this, sql);
+    };
+    (OrigDatabase.prototype.exec as any).__hermeticTripwireWatchedGuard = true;
+  }
 
   Object.defineProperty(sqlite, 'Database', {
     value: DatabaseProxy,
