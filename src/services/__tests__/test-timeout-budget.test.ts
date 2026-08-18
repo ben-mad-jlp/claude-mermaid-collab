@@ -4,6 +4,9 @@ import {
   harnessTimeoutMs,
   deadlockGuardMs,
   raceDeadlockGuard,
+  WORKTREE_GC_TIMEOUT_FLOOR_MS,
+  WORKTREE_GC_DEADLOCK_GUARD_MS,
+  worktreeGcTimeoutMs,
 } from '../../testing/test-timeout-budget';
 
 describe('test-timeout-budget', () => {
@@ -83,5 +86,31 @@ describe('test-timeout-budget', () => {
     const resolvePromise = raceDeadlockGuard(settled, 'test-settled');
     const result = await resolvePromise;
     expect(result).toBe(42);
+  });
+
+  it('worktreeGcTimeoutMs and WORKTREE_GC_DEADLOCK_GUARD_MS give the GC suite at least 60000ms', () => {
+    const saved = process.env.BACKEND_TEST_TIMEOUT_MS;
+    try {
+      // Test with default (floor)
+      delete process.env.BACKEND_TEST_TIMEOUT_MS;
+      expect(worktreeGcTimeoutMs()).toBeGreaterThanOrEqual(60000);
+      expect(worktreeGcTimeoutMs()).toBe(100000);
+      expect(WORKTREE_GC_DEADLOCK_GUARD_MS).toBeGreaterThanOrEqual(60000);
+      expect(WORKTREE_GC_DEADLOCK_GUARD_MS).toBeLessThan(worktreeGcTimeoutMs());
+
+      // Test with override that widens the timeout
+      process.env.BACKEND_TEST_TIMEOUT_MS = '150000';
+      expect(worktreeGcTimeoutMs()).toBe(150000);
+      expect(WORKTREE_GC_DEADLOCK_GUARD_MS).toBeLessThan(worktreeGcTimeoutMs());
+
+      // Verify the harness floor is preserved
+      expect(HARNESS_TIMEOUT_FLOOR_MS).toBe(30000);
+    } finally {
+      if (saved !== undefined) {
+        process.env.BACKEND_TEST_TIMEOUT_MS = saved;
+      } else {
+        delete process.env.BACKEND_TEST_TIMEOUT_MS;
+      }
+    }
   });
 });
