@@ -62,6 +62,7 @@ import { BridgeInspector } from './inspector/BridgeInspector';
 import { MissionDetailPanel } from './inspector/MissionDetailPanel';
 import { MissionStrip } from './MissionStrip';
 import { UnlandedStrip } from './UnlandedStrip';
+import { CampaignPanel } from './CampaignPanel';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
 // Escalations inbox and the worker roster refresh on the SAME clock — a
@@ -485,6 +486,7 @@ export const BridgeDashboard: React.FC = () => {
   // drawer (design 2026-07-13): clicking the MissionStrip swaps the stage to the
   // MissionDetailPanel, the same window where Plan/Stream/Escalations render.
   const [missionInStage, setMissionInStage] = useState(false);
+  const [campaignInStage, setCampaignInStage] = useState(false);
   const [railPanel, setRailPanel] = useState<RailKey | null>('escalations');
   // Per-project settings modal (gear button in the CommandBar header).
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -501,6 +503,15 @@ export const BridgeDashboard: React.FC = () => {
   // rail click swaps it back out (handleRailSelect clears missionInStage).
   const handleOpenMissions = useCallback(() => {
     setMissionInStage(true);
+    setCampaignInStage(false);
+  }, []);
+
+  // Clicking the campaign link shows the campaign panel in the stage; a subsequent
+  // rail click swaps it back out (handleRailSelect clears campaignInStage).
+  // The two stage takeovers are mutually exclusive.
+  const handleOpenCampaigns = useCallback(() => {
+    setMissionInStage(false);
+    setCampaignInStage(true);
   }, []);
 
   // crit 4: single dismiss path shared by the drawer's close button, a backdrop
@@ -564,10 +575,12 @@ export const BridgeDashboard: React.FC = () => {
   const missionStagePanel = (
     <MissionDetailPanel serverId={serverScope} project={project} session={currentSession?.name} />
   );
-  const activePanel = missionInStage ? missionStagePanel : railPanel ? panels[railPanel] : undefined;
+  const campaignStagePanel = <CampaignPanel project={project} />;
+  const activePanel = missionInStage ? missionStagePanel : campaignInStage ? campaignStagePanel : railPanel ? panels[railPanel] : undefined;
 
   const handleRailSelect = (k: RailKey | null) => {
     setMissionInStage(false);
+    setCampaignInStage(false);
     setRailPanel(k === 'plan' ? null : k);
   };
 
@@ -637,6 +650,8 @@ export const BridgeDashboard: React.FC = () => {
                 onSelectPanel={setRailPanel}
               />
             }
+            onOpenMissions={handleOpenMissions}
+            onOpenCampaigns={handleOpenCampaigns}
           />
         }
         unlandedStrip={
