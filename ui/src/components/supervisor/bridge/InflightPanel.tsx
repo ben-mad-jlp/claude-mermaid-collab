@@ -13,7 +13,7 @@
  * Click a row to open its detail tab for the full headless run strip (per-node cost,
  * outcome, review verdict, expandable output).
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { useLeafDaemon, NODE_LABEL, fmtElapsedPadded as fmtDuration, type InflightLeaf } from './leafDaemon';
 import { excludeEpics, bucketTodo } from './funnel';
@@ -33,6 +33,8 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
   onSelectTodo,
 }) => {
   const { daemon } = useLeafDaemon(project, serverScope);
+  // Session-lifetime cache for leaf titles to survive refresh cycles.
+  const titleByLeafIdRef = useRef<Map<string, string>>(new Map());
   // Tick so elapsed counters advance between polls.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -70,13 +72,26 @@ export const InflightPanel: React.FC<InflightPanelProps> = ({
   // todos (the "between nodes" case the ledger drops). Joined on leafId === todoId. Without
   // (a) an actively-building project read "0 in flight" while two leaves blueprinted.
   const rows = useMemo(() => {
+    // Resolver: current todo title → retained title → leafId.slice(0, 8)
+    const resolveTitle = (id: string, currentTitle: string | undefined): string => {
+      if (currentTitle && currentTitle !== id) {
+        titleByLeafIdRef.current.set(id, currentTitle);
+        return currentTitle;
+      }
+      const cached = titleByLeafIdRef.current.get(id);
+      if (cached) {
+        return cached;
+      }
+      return id.slice(0, 8);
+    };
+
     const m = new Map<string, { id: string; title: string; todo?: SessionTodo; leaf?: InflightLeaf }>();
-    for (const t of inflightTodos) m.set(t.id, { id: t.id, title: t.title ?? t.id, todo: t });
+    for (const t of inflightTodos) m.set(t.id, { id: t.id, title: resolveTitle(t.id, t.title), todo: t });
     for (const leaf of daemon?.inflight ?? []) {
       const ex = m.get(leaf.leafId);
       if (ex) { ex.leaf = leaf; continue; }
       const t = todos.find((x) => x.id === leaf.leafId);
-      m.set(leaf.leafId, { id: leaf.leafId, title: t?.title ?? leaf.leafId.slice(0, 8), todo: t, leaf });
+      m.set(leaf.leafId, { id: leaf.leafId, title: resolveTitle(leaf.leafId, t?.title), todo: t, leaf });
     }
     return [...m.values()];
   }, [inflightTodos, daemon, todos]);
