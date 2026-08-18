@@ -20,6 +20,7 @@ import {
 } from './session-subscriptions';
 import { snapshotTodos, diffTodos, planNotifications, type SnapshotMap } from './session-notification-router';
 import { fireStamp } from './nudge-stamp';
+import { makeChannelNudge, type ChannelTransport } from './channel-nudge-transport.js';
 
 /** Don't re-nudge a session more often than this (coalesces a burst into one wake). */
 export const MIN_NUDGE_INTERVAL_MS = 60_000;
@@ -77,6 +78,8 @@ export interface NotificationTickDeps {
   todosSnapshot?: Todo[];
   nudge?: (project: string, session: string, text: string) => Promise<'sent' | 'busy' | 'undeliverable'>;
   now?: () => number;
+  channelTransport?: ChannelTransport;
+  isIdle?: (project: string, session: string) => boolean;
 }
 
 interface NudgeState { count: number; at: number; reannounces: number }
@@ -97,8 +100,8 @@ export async function runNotificationTick(
   deps: NotificationTickDeps = {},
 ): Promise<{ enqueued: number; nudged: string[] }> {
   const load = deps.loadTodos ?? ((p) => listTodos(p, { includeCompleted: true }));
-  const nudge = deps.nudge ?? (async (_project: string, _session: string, _text: string) => 'undeliverable' as const);
   const now = deps.now ?? Date.now;
+  const nudge = deps.nudge ?? makeChannelNudge({ transport: deps.channelTransport, isIdle: deps.isIdle, now });
 
   // Reap dead-session subscriptions before matching: without this, every session that
   // ever subscribed haunts the watching list forever (observed: 66 ghost cards).
