@@ -461,10 +461,18 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
             if (!project || !kind) throw new Error('Missing required: project, kind');
             const oc = await import('../services/orchestrator-config.js');
             const { MATRIX_NODE_KINDS, kindRequiresMcp } = await import('../routes/orchestrator-routes.js');
-            if (!MATRIX_NODE_KINDS.includes(kind)) throw new Error(`kind must be one of: ${MATRIX_NODE_KINDS.join(', ')}`);
+
+            // Split kind on the first '@' to extract baseKind and tier
+            const atIndex = kind.indexOf('@');
+            const baseKind = atIndex === -1 ? kind : kind.substring(0, atIndex);
+            const tier = atIndex === -1 ? undefined : kind.substring(atIndex + 1);
+            const TIERS = ['full', 'small', 'test-pinned'] as const;
+
+            if (!MATRIX_NODE_KINDS.includes(baseKind)) throw new Error(`kind must be one of: ${MATRIX_NODE_KINDS.join(', ')}`);
+            if (tier !== undefined && !TIERS.includes(tier as any)) throw new Error(`tier must be one of: ${TIERS.join(', ')}`);
             if (effort != null && !(oc.EFFORT_LEVELS as string[]).includes(effort)) throw new Error(`effort must be null or one of: ${oc.EFFORT_LEVELS.join(', ')}`);
             if (provider != null && !(oc.NODE_PROVIDERS as readonly string[]).includes(provider)) throw new Error(`provider must be null or one of: ${oc.NODE_PROVIDERS.join(', ')}`);
-            if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(kind)) throw new Error(`node kind '${kind}' uses MCP tools and must run on claude`);
+            if ((provider === 'grok-build' || provider === 'grok-api') && kindRequiresMcp(baseKind)) throw new Error(`node kind '${kind}' uses MCP tools and must run on claude`);
             const effProvider = (provider ?? oc.getProjectNodeProvider(project) ?? 'claude') as import('../services/orchestrator-config.js').NodeProviderId;
             const { providerModelMismatch } = await import('../services/provider-model.js');
             const mismatch = providerModelMismatch(effProvider as any, model ?? null);
