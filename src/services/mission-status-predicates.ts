@@ -19,15 +19,21 @@ import type { LeafRunSummary } from './ledger-stats.ts';
  * AND every descendant leaf has settled (legacy fallback).
  *
  * Memoized by the caller's proofByEpic map.
+ *
+ * `undelivered` is an independent negative signal: the set of criterion ids
+ * that some tagged descendant leaf failed to deliver (dropped, rejected, or
+ * not yet finished). A criterion id may appear in both proven and undelivered
+ * if one tagged leaf delivered it and another dropped it.
  */
 export function proofForEpic(
   epicId: string,
   childrenByParent: Map<string, Todo[]>,
-  memo: Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>,
-): { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean } {
+  memo: Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean; undelivered: Set<string> }>,
+): { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean; undelivered: Set<string> } {
   const hit = memo.get(epicId);
   if (hit) return hit;
   const proven = new Set<string>();
+  const undelivered = new Set<string>();
   let tagsAnyLeaf = false;
   let hasUnfinishedLeaf = false;
   const walk = (parentId: string) => {
@@ -37,6 +43,9 @@ export function proofForEpic(
         if (tags.length > 0) {
           tagsAnyLeaf = true;
           if (t.status === 'done' && t.acceptanceStatus !== 'rejected') tags.forEach((id) => proven.add(id));
+          if (t.status === 'dropped' || t.acceptanceStatus === 'rejected' || (t.status !== 'done' && t.acceptanceStatus !== 'accepted')) {
+            tags.forEach((id) => undelivered.add(id));
+          }
         }
         if (t.status !== 'dropped' && t.status !== 'done' && t.acceptanceStatus !== 'accepted') {
           hasUnfinishedLeaf = true;
@@ -46,7 +55,7 @@ export function proofForEpic(
     }
   };
   walk(epicId);
-  const res = { proven, tagsAnyLeaf, hasUnfinishedLeaf };
+  const res = { proven, tagsAnyLeaf, hasUnfinishedLeaf, undelivered };
   memo.set(epicId, res);
   return res;
 }

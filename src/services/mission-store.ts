@@ -2019,7 +2019,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
     const arr = childrenByParent.get(t.parentId);
     if (arr) arr.push(t); else childrenByParent.set(t.parentId, [t]);
   }
-  const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean }>();
+  const proofByEpic = new Map<string, { proven: Set<string>; tagsAnyLeaf: boolean; hasUnfinishedLeaf: boolean; undelivered: Set<string> }>();
   const proofForEpic = (epicId: string) => predProofForEpic(epicId, childrenByParent, proofByEpic);
   const metById = new Map(criteria.map((cc) => [cc.id, cc.met]));
   // A land record depends only on the EPIC, never on the criterion — but the read sat inside
