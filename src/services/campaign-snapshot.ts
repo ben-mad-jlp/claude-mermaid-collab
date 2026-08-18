@@ -21,6 +21,7 @@ import {
   type ChamberPhase,
   type ChamberOutcome,
 } from './campaign-store.js';
+import { CHAMBER_ROSTER, type ChamberRosterEntry } from './chamber-constitution.js';
 import { listTodos, type Todo } from './todo-store.js';
 import { isLeaf, isEpic } from './todo-kind.js';
 
@@ -103,6 +104,8 @@ export interface BridgeCampaign {
   missionCount: number;
   /** Number of leaf todos whose parent chain reaches a linked mission. */
   leafCount: number;
+  /** Roster of chamber members (generals and president) with their agenda descriptions. */
+  chamberRoster: ChamberRosterEntry[];
 }
 
 /**
@@ -259,6 +262,7 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       chamber,
       missionCount,
       leafCount,
+      chamberRoster: [...CHAMBER_ROSTER],
     };
   });
 }
