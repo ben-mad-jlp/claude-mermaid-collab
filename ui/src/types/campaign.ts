@@ -21,6 +21,12 @@ export type ChamberPhase = 'propose' | 'veto' | 'wargame' | 'decide';
 /** Outcome of chamber deliberation. */
 export type ChamberOutcome = 'decision' | 'inaction';
 
+/** A roster entry for a chamber member with their agenda description. */
+export interface ChamberRosterEntry {
+  name: string;
+  agenda: string;
+}
+
 /** Per-lens completion verdict from a two-round panel deliberation. */
 export interface BridgeCampaignLens {
   lens: string;
@@ -104,4 +110,7 @@ export interface BridgeCampaign {
   /** Chamber deliberation transcript and outcome. Optional so snapshots from an older server
    *  (no field) still parse; missing means no deliberation. */
   chamber?: BridgeChamberDeliberation | null;
+  /** Roster of chamber members with their agenda descriptions. Optional so snapshots from an older server
+   *  (no field) still parse; missing means no roster available. */
+  chamberRoster?: ChamberRosterEntry[];
 }
