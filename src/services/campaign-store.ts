@@ -104,6 +104,59 @@ export interface MissionProposalInput {
   missionId?: string | null;
 }
 
+/** Closed union of chamber phases. */
+export type ChamberPhase = 'propose' | 'veto' | 'wargame' | 'decide';
+
+/** Closed union of chamber outcomes. */
+export type ChamberOutcome = 'decision' | 'inaction';
+
+/** A recorded chamber transcript entry: reasoning from one party during deliberation. */
+export interface ChamberTranscriptRecord {
+  id: number;
+  campaignId: string;
+  sessionId: string;
+  phase: ChamberPhase;
+  role: string;
+  model: string | null;
+  content: string;
+  createdAt: number;
+}
+
+/** Input shape for recording a chamber transcript entry. */
+export interface ChamberTranscriptInput {
+  campaignId: string;
+  sessionId: string;
+  phase: ChamberPhase;
+  role: string;
+  model?: string | null;
+  content: string;
+}
+
+/** A recorded chamber decision: the chamber's deliberation outcome and guidance. */
+export interface ChamberDecisionRecord {
+  id: number;
+  campaignId: string;
+  sessionId: string;
+  outcome: ChamberOutcome;
+  chosenCandidate: string | null;
+  strongestDissent: string | null;
+  refiningGuidance: string | null;
+  decidedAtSha: string;
+  createdAt: number;
+}
+
+/** Input shape for recording a chamber decision with optional accompanying transcript rows. */
+export interface ChamberDecisionInput {
+  campaignId: string;
+  sessionId: string;
+  outcome: ChamberOutcome;
+  chosenCandidate?: string | null;
+  strongestDissent?: string | null;
+  refiningGuidance?: string | null;
+  decidedAtSha: string;
+  transcript?: ChamberTranscriptInput[];
+}
+
 /** A recorded campaign completion verdict: provenance for a campaign's completion ruling. */
 export interface CampaignCompletionRecord {
   id: number;
@@ -272,6 +325,31 @@ const MISSION_PROPOSAL_OBJECTION_TABLE_DDL = `
   recordedAt INTEGER NOT NULL
 `;
 
+/** Factored DDL for chamber_transcript table (used in CAMPAIGN_SCHEMA and migration). */
+export const CHAMBER_TRANSCRIPT_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
+  sessionId TEXT NOT NULL,
+  phase TEXT NOT NULL CHECK (phase IN ('propose','veto','wargame','decide')),
+  role TEXT NOT NULL,
+  model TEXT,
+  content TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+`;
+
+/** Factored DDL for chamber_decision table (used in CAMPAIGN_SCHEMA and migration). */
+export const CHAMBER_DECISION_TABLE_DDL = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaignId TEXT NOT NULL REFERENCES campaign(id) ON DELETE CASCADE,
+  sessionId TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK (outcome IN ('decision','inaction')),
+  chosenCandidate TEXT,
+  strongestDissent TEXT,
+  refiningGuidance TEXT,
+  decidedAtSha TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+`;
+
 const CAMPAIGN_SCHEMA = `
 CREATE TABLE IF NOT EXISTS campaign (
   id TEXT PRIMARY KEY,
@@ -292,6 +370,10 @@ CREATE TABLE IF NOT EXISTS campaign_mission_proposal (${MISSION_PROPOSAL_TABLE_D
 CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_campaign ON campaign_mission_proposal(campaignId);
 CREATE TABLE IF NOT EXISTS campaign_mission_proposal_objection (${MISSION_PROPOSAL_OBJECTION_TABLE_DDL});
 CREATE INDEX IF NOT EXISTS idx_campaign_mission_proposal_objection_proposal ON campaign_mission_proposal_objection(proposalId);
+CREATE TABLE IF NOT EXISTS chamber_transcript (${CHAMBER_TRANSCRIPT_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_chamber_transcript_campaign_session ON chamber_transcript(campaignId, sessionId);
+CREATE TABLE IF NOT EXISTS chamber_decision (${CHAMBER_DECISION_TABLE_DDL});
+CREATE INDEX IF NOT EXISTS idx_chamber_decision_campaign ON chamber_decision(campaignId);
 `;
 
 /**
@@ -474,6 +556,20 @@ function ensureMissionProposalTables(db: Database): void {
 }
 
 /**
+ * Idempotent migration to create chamber_transcript and chamber_decision tables.
+ * Idempotent: re-execs the same DDL statements from the constants so a pre-existing
+ * campaign DB gains the tables via IF NOT EXISTS semantics.
+ */
+function ensureChamberTables(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chamber_transcript (${CHAMBER_TRANSCRIPT_TABLE_DDL});
+    CREATE INDEX IF NOT EXISTS idx_chamber_transcript_campaign_session ON chamber_transcript(campaignId, sessionId);
+    CREATE TABLE IF NOT EXISTS chamber_decision (${CHAMBER_DECISION_TABLE_DDL});
+    CREATE INDEX IF NOT EXISTS idx_chamber_decision_campaign ON chamber_decision(campaignId);
+  `);
+}
+
+/**
  * Idempotent migration to add round and changedVerdict columns to campaign_completion_lens table.
  * Uses PRAGMA table_info to check if the columns exist; adds them if missing.
  * Safe to call multiple times and on tables that already have the columns.
@@ -552,6 +648,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: create mission_proposal and mission_proposal_objection tables if missing.
   ensureMissionProposalTables(db);
+
+  // Idempotent migration: create chamber_transcript and chamber_decision tables if missing.
+  ensureChamberTables(db);
 
   prepared.add(project);
   return db;
@@ -1259,6 +1358,190 @@ export function listProposalObjections(project: string, proposalId: number): Pro
     objection: row.objection,
     reasoning: row.reasoning,
     recordedAt: row.recordedAt,
+  }));
+}
+
+/** Validate a chamber decision input: fail loud, no defaults. campaignId, sessionId, outcome, and decidedAtSha are required.
+ *  This is the FIRST wall; CHECK constraints in the schema are the SECOND, independent wall.
+ *  Also validates that if transcript rows are provided, each has non-empty role, content, and a legal phase. */
+function assertChamberDecisionInput(input: ChamberDecisionInput): void {
+  if (!input.campaignId || !input.campaignId.trim()) {
+    throw new Error('chamber decision campaignId is required');
+  }
+  if (!input.sessionId || !input.sessionId.trim()) {
+    throw new Error('chamber decision sessionId is required');
+  }
+  if (!input.decidedAtSha || !input.decidedAtSha.trim()) {
+    throw new Error('chamber decision decidedAtSha is required');
+  }
+  if (!input.outcome || !['decision', 'inaction'].includes(input.outcome)) {
+    throw new Error(`invalid chamber decision outcome: ${input.outcome}`);
+  }
+
+  // Validate transcript rows if provided.
+  const transcript = input.transcript ?? [];
+  if (!Array.isArray(transcript)) {
+    throw new Error('chamber decision transcript must be an array');
+  }
+  for (const entry of transcript) {
+    if (!entry.role || !entry.role.trim()) {
+      throw new Error('chamber transcript entry role is required');
+    }
+    if (!entry.content || !entry.content.trim()) {
+      throw new Error('chamber transcript entry content is required');
+    }
+    if (!entry.phase || !['propose', 'veto', 'wargame', 'decide'].includes(entry.phase)) {
+      throw new Error(`invalid chamber transcript entry phase: ${entry.phase}`);
+    }
+  }
+}
+
+/**
+ * Record a chamber transcript entry. Validates the input and throws on error before any INSERT.
+ * Returns the recorded transcript record.
+ */
+export function recordChamberTranscript(project: string, input: ChamberTranscriptInput): ChamberTranscriptRecord {
+  const db = openCampaignDb(project);
+  const ts = nowMs();
+
+  db.prepare(
+    'INSERT INTO chamber_transcript (campaignId, sessionId, phase, role, model, content, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    input.campaignId,
+    input.sessionId,
+    input.phase,
+    input.role,
+    input.model ?? null,
+    input.content,
+    ts,
+  );
+
+  // Get the id of the inserted transcript record.
+  const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+  return {
+    id: lastInsertRowid.id,
+    campaignId: input.campaignId,
+    sessionId: input.sessionId,
+    phase: input.phase,
+    role: input.role,
+    model: input.model ?? null,
+    content: input.content,
+    createdAt: ts,
+  };
+}
+
+/**
+ * Record a chamber decision with optional accompanying transcript rows. Validates the input
+ * and throws on error before any INSERT. Returns the recorded decision record. Transactional:
+ * all transcript rows are inserted within the same transaction as the parent decision row,
+ * so a refusal or transcript insert failure leaves zero rows.
+ */
+export function recordChamberDecision(project: string, input: ChamberDecisionInput): ChamberDecisionRecord {
+  assertChamberDecisionInput(input);
+
+  const db = openCampaignDb(project);
+  const ts = nowMs();
+
+  db.exec('BEGIN');
+  try {
+    // Insert the parent chamber decision record.
+    db.prepare(
+      'INSERT INTO chamber_decision (campaignId, sessionId, outcome, chosenCandidate, strongestDissent, refiningGuidance, decidedAtSha, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      input.campaignId,
+      input.sessionId,
+      input.outcome,
+      input.chosenCandidate ?? null,
+      input.strongestDissent ?? null,
+      input.refiningGuidance ?? null,
+      input.decidedAtSha,
+      ts,
+    );
+
+    // Get the id of the inserted decision record while still in the transaction.
+    const lastInsertRowid = db.prepare('SELECT last_insert_rowid() as id').get() as any;
+    const decisionId = lastInsertRowid.id;
+
+    // Insert transcript rows if provided.
+    const transcriptRows = input.transcript ?? [];
+    if (transcriptRows.length > 0) {
+      const transcriptInsertStmt = db.prepare(
+        'INSERT INTO chamber_transcript (campaignId, sessionId, phase, role, model, content, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      );
+      for (const entry of transcriptRows) {
+        transcriptInsertStmt.run(
+          input.campaignId,
+          input.sessionId,
+          entry.phase,
+          entry.role,
+          entry.model ?? null,
+          entry.content,
+          ts,
+        );
+      }
+    }
+
+    db.exec('COMMIT');
+
+    return {
+      id: decisionId,
+      campaignId: input.campaignId,
+      sessionId: input.sessionId,
+      outcome: input.outcome,
+      chosenCandidate: input.chosenCandidate ?? null,
+      strongestDissent: input.strongestDissent ?? null,
+      refiningGuidance: input.refiningGuidance ?? null,
+      decidedAtSha: input.decidedAtSha,
+      createdAt: ts,
+    };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * List all chamber transcript entries for a campaign and session, ordered by createdAt then id.
+ * Returns an empty array if the campaign or session id is unknown.
+ */
+export function listChamberTranscript(project: string, campaignId: string, sessionId: string): ChamberTranscriptRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM chamber_transcript WHERE campaignId = ? AND sessionId = ? ORDER BY createdAt, id')
+    .all(campaignId, sessionId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    campaignId: row.campaignId,
+    sessionId: row.sessionId,
+    phase: row.phase as ChamberPhase,
+    role: row.role,
+    model: row.model,
+    content: row.content,
+    createdAt: row.createdAt,
+  }));
+}
+
+/**
+ * List all chamber decisions for a campaign, ordered by createdAt then id.
+ * Returns an empty array if the campaign id is unknown.
+ */
+export function listChamberDecisions(project: string, campaignId: string): ChamberDecisionRecord[] {
+  const db = openCampaignDb(project);
+  const rows = db
+    .prepare('SELECT * FROM chamber_decision WHERE campaignId = ? ORDER BY createdAt, id')
+    .all(campaignId) as any[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    campaignId: row.campaignId,
+    sessionId: row.sessionId,
+    outcome: row.outcome as ChamberOutcome,
+    chosenCandidate: row.chosenCandidate,
+    strongestDissent: row.strongestDissent,
+    refiningGuidance: row.refiningGuidance,
+    decidedAtSha: row.decidedAtSha,
+    createdAt: row.createdAt,
   }));
 }
 
