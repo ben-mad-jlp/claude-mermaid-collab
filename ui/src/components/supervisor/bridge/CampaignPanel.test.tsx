@@ -123,4 +123,67 @@ describe('CampaignPanel chamber deliberation', () => {
     // Assert the refining guidance is rendered
     expect(screen.getByText(refiningGuidance)).toBeTruthy();
   });
+
+  it('renders the comptroller row with its agenda description from the snapshot roster', () => {
+    const comptrollerAgenda = 'Examines budget consumption and cost tracking through the lens of restraint';
+    const proposalContent = 'We should adopt a conservative approach to budget allocation.';
+
+    const fixtureWithRoster: BridgeCampaign[] = [
+      {
+        id: 'camp-roster',
+        title: 'Campaign with Chamber Roster',
+        goal: 'Test roster agenda rendering',
+        createdAt: 1629801600000,
+        probes: [],
+        ruling: null,
+        chamber: {
+          sessionId: 'session-003',
+          outcome: 'decision',
+          chosenCandidate: 'candidate-a',
+          strongestDissent: null,
+          refiningGuidance: null,
+          decidedAtSha: 'xyz789abc123xyz',
+          decidedAt: 1629802600000,
+          proposals: [
+            {
+              phase: 'propose',
+              role: 'comptroller',
+              model: 'claude-opus-5',
+              content: proposalContent,
+              createdAt: 1629802000000,
+            },
+          ],
+          vetoes: [],
+          wargame: [],
+          decision: [],
+        },
+        chamberRoster: [
+          {
+            name: 'comptroller',
+            agenda: comptrollerAgenda,
+          },
+        ],
+      },
+    ];
+
+    act(() => {
+      useSupervisorStore.setState({
+        campaignsByProject: { P: fixtureWithRoster },
+      });
+    });
+
+    vi.clearAllTimers();
+    render(<CampaignPanel project="P" />);
+
+    // Assert the comptroller role is rendered
+    expect(screen.getByText('comptroller')).toBeTruthy();
+
+    // Assert the comptroller agenda is rendered in the proposal row
+    const proposalRow = screen.getByTestId('chamber-proposal');
+    expect(proposalRow.textContent).toContain(comptrollerAgenda);
+
+    // Assert the agenda element has the correct test id
+    const agendaElement = screen.getByTestId('chamber-role-agenda');
+    expect(agendaElement.textContent).toContain(comptrollerAgenda);
+  });
 });
