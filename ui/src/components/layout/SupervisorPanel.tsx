@@ -30,7 +30,7 @@ import { ServerIcon } from '@/components/ServerIcon';
 import { useFleetShortcuts } from '@/components/layout/useFleetShortcuts';
 import { useBridgeOrderStore, applyBridgeOrder } from '@/stores/bridgeOrderStore';
 import { isOrchestratorSession } from '@/lib/liveness';
-import { buildById } from '@/lib/claimability';
+import { buildById, claimReason } from '@/lib/claimability';
 import { liveBucketTodo, excludeEpics, excludeMissions, excludeLandLeaves } from '@/components/supervisor/bridge/funnel';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { SupervisorOnboarding } from '@/components/supervisor/SupervisorOnboarding';
@@ -137,11 +137,12 @@ export function projectPlanStats(todos: SessionTodo[]): {
   blocked: number;
   ready: number;
   backlog: number;
+  claimable: number;
   idleWithWork: boolean;
 } {
   const survivors = excludeEpics(excludeMissions(excludeLandLeaves(todos)));
   const byId = buildById(todos);
-  let open = 0, inProgress = 0, blocked = 0, ready = 0, backlog = 0;
+  let open = 0, inProgress = 0, blocked = 0, ready = 0, backlog = 0, claimable = 0;
   for (const t of survivors) {
     if (TERMINAL_TODO.has(t.status)) continue;
     open += 1;
@@ -150,9 +151,10 @@ export function projectPlanStats(todos: SessionTodo[]): {
     else if (bucket === 'blocked') blocked += 1;
     else if (bucket === 'ready') ready += 1;
     else if (bucket === 'backlog') backlog += 1;
+    if (claimReason(t, byId) === 'claimable') claimable += 1;
   }
-  // Ready work queued but nothing actively running it → "parked".
-  return { open, inProgress, blocked, ready, backlog, idleWithWork: ready > 0 && inProgress === 0 };
+  // Daemon-claimable work queued but nothing actively running it → "parked".
+  return { open, inProgress, blocked, ready, backlog, claimable, idleWithWork: claimable > 0 && inProgress === 0 };
 }
 
 /** Compact relative age, e.g. 45s / 12m / 3h / 6d. Empty for unknown. */
@@ -775,7 +777,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                 stats.open > 0 ? `${stats.open}  open todo${stats.open === 1 ? '' : 's'}` : null,
                 stats.inProgress > 0 ? `${stats.inProgress} ▶  in progress` : null,
                 stats.blocked > 0 ? `${stats.blocked} ⊘  blocked` : null,
-                stats.idleWithWork ? `⚠ parked  ${stats.ready} ready todo${stats.ready === 1 ? '' : 's'} queued, but nothing is running them` : null,
+                stats.idleWithWork ? `⚠ parked  ${stats.claimable} claimable todo${stats.claimable === 1 ? '' : 's'} queued, but nothing is running them` : null,
                 critProgress ? `crit ${critProgress.met}/${critProgress.total} acceptance criteria met (active mission)` : null,
                 lastActive > 0 ? `last active ${relAge(lastActive, now)} ago (${new Date(lastActive).toLocaleString()})` : null,
               ]
@@ -894,7 +896,7 @@ export const SupervisorPanel: React.FC<SupervisorPanelProps> = ({ currentProject
                           {stats.open > 0 && <span>{stats.open} open</span>}
                           {stats.inProgress > 0 && <span className="text-info-700">{stats.inProgress}▶</span>}
                           {stats.blocked > 0 && <span className="text-warning-700">{stats.blocked}⊘</span>}
-                          {stats.idleWithWork && <span className="text-warning-700">⚠ parked</span>}
+                          {stats.idleWithWork && <span data-testid="supervisor-project-parked" data-claimable={stats.claimable} className="text-warning-700">⚠ parked {stats.claimable}</span>}
                           {critProgress && (
                             <span data-testid="supervisor-project-crit" className="text-success-700" title="Active mission: acceptance criteria met / total">
                               crit {critProgress.met}/{critProgress.total}
