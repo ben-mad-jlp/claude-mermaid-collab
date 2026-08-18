@@ -2008,11 +2008,13 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
   // PROVED that criterion — a delivered (done, non-rejected) descendant leaf carries this
   // criterion's id in servesCriterionId(s). Without it, an epic that lands with its proving leaf
   // dropped/orphaned still advertises EVERY criterion it served as verify-ready, and a generous
-  // verify can rubber-stamp the unproven one. LEGACY FALLBACK: an epic whose descendant leaves
-  // carry NO criterion tags at all (pre-leaf-tagging authoring) cannot be proof-checked, so trust
-  // the epic→criterion edge (prior behaviour) rather than wedge the criterion at 'discover' forever
-  // — but ONLY once every descendant leaf has settled (done/accepted/dropped); an untagged epic
-  // still holding an unfinished proof-leaf must not escape via this fallback.
+  // verify can rubber-stamp the unproven one. DROPPED-SIBLING CASE: a criterion proved by one
+  // tagged leaf and dropped by another is NOT verify-ready; it must re-serve to get a complete
+  // proof. LEGACY FALLBACK: an epic whose descendant leaves carry NO criterion tags at all
+  // (pre-leaf-tagging authoring) cannot be proof-checked, so trust the epic→criterion edge
+  // (prior behaviour) rather than wedge the criterion at 'discover' forever — but ONLY once
+  // every descendant leaf has settled (done/accepted/dropped); an untagged epic still holding an
+  // unfinished proof-leaf must not escape via this fallback.
   const childrenByParent = new Map<string, Todo[]>();
   for (const t of allTodos) {
     if (t.parentId == null) continue;
@@ -2090,7 +2092,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       const provingLanded = serving.filter((e) => {
         if (!resolveLanded(e)) return false;
         const pf = proofForEpic(e.id);
-        return pf.proven.has(c.id) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
+        return (pf.proven.has(c.id) && !pf.undelivered.has(c.id)) || (!pf.tagsAnyLeaf && !pf.hasUnfinishedLeaf);
       });
       const servingEpicState: 'landed' | 'open' | 'none' =
         servingEpicLive ? 'open'
@@ -2177,6 +2179,7 @@ export function collectMissionStatusFacts(project: string, m: MissionRow, now: n
       let servingWorkCompletedAt: number | null = null;
       for (const e of serving) {
         if (proofForEpic(e.id).hasUnfinishedLeaf) continue;
+        if (proofForEpic(e.id).undelivered.has(c.id)) continue;
         const m = leafSettledMax(e.id);
         if (m == null) continue;
         servingWorkCompletedAt = servingWorkCompletedAt == null ? m : Math.max(servingWorkCompletedAt, m);

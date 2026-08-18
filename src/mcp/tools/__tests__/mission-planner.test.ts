@@ -9,7 +9,7 @@ process.env.MERMAID_SUPERVISOR_DIR = SUP_DIR;
 import { planMissionCriterion, parseEpicSpec, buildPlannerPrompt, extractBalancedJsonObject, ServeIntegrityError } from '../mission-planner';
 import { forgeMission } from '../mission-forge';
 import { listCriteria, listCriteriaWithActions, CHILDLESS_SERVE_GRACE_MS, _resetMissionDbCache } from '../../../services/mission-store';
-import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, openDb as openTodoDb, type Todo } from '../../../services/todo-store';
+import { getTodo, listTodos, deriveTodoViews, updateTodo, _closeProject as closeTodos, openDb as openTodoDb, completeTodo, stampEpicLandedAt, type Todo } from '../../../services/todo-store';
 import { _closeProject as closeDecisions } from '../../../services/decision-record-store';
 import type { NodeSpec } from '../../../agent/node-invoker.js';
 
@@ -341,6 +341,51 @@ describe('planMissionCriterion — planner node → epic + leaves, ready', () =>
     const todos = listTodos(project, { includeCompleted: true });
     const epics = todos.filter((t) => t.kind === 'epic' && t.parentId === missionId);
     expect(epics.length).toBe(2);
+  });
+
+  test('terminal serving epic with a dropped tagged leaf re-derives discover and permits re-planning', async () => {
+    const { missionId, criterionId } = await approvedMission();
+
+    // First call: plan an epic to serve the criterion (creates epic with 2 leaves).
+    const r1 = await planMissionCriterion(
+      project,
+      { session: 's1', missionId, criterionIds: [criterionId] },
+      { invoke: mockInvoke() },
+    );
+
+    // Tag both leaves with the criterion.
+    await updateTodo(project, r1.leafIds[0], { servesCriterionIds: [criterionId] });
+    await updateTodo(project, r1.leafIds[1], { servesCriterionIds: [criterionId] });
+
+    // Settle leaf 0 (accepted/delivered), drop leaf 1 (undelivered).
+    await completeTodo(project, r1.leafIds[0], 'accepted');
+    await updateTodo(project, r1.leafIds[1], { status: 'dropped' });
+
+    // Land the epic (half-delivered: one leaf done, one dropped).
+    stampEpicLandedAt(project, r1.epicId, new Date(0).toISOString());
+
+    // Assert the derived action is 'discover' (not 'verify').
+    expect(listCriteriaWithActions(project, missionId).find(c => c.id === criterionId)!.action).toBe('discover');
+
+    // Backdate the epic's createdAt past CHILDLESS_SERVE_GRACE_MS so findRecentServingEpic doesn't block re-planning.
+    const past = new Date(Date.now() - CHILDLESS_SERVE_GRACE_MS - 60_000).toISOString();
+    openTodoDb(project).exec(`UPDATE todos SET createdAt = '${past}' WHERE id = '${r1.epicId}'`);
+
+    // Different spec for the second call to avoid sibling leaf-title collisions.
+    const altSpec = { title: 'Alternative approach', leaves: [{ title: 'alt leaf 1' }, { title: 'alt leaf 2', dependsOn: ['$0'] }] };
+
+    // Plan again for the same criterion with isEpicLandedInGit returning 'landed' (tmpdir non-git project).
+    const r2 = await planMissionCriterion(
+      project,
+      { session: 's1', missionId, criterionIds: [criterionId] },
+      {
+        invoke: mockInvoke(altSpec),
+        unlandedArmDeps: { isEpicLandedInGit: async () => 'landed' },
+      },
+    );
+
+    // Assert: a new epic is created (half-delivered epic re-derives discover, permitting re-planning).
+    expect(r2.epicId).not.toBe(r1.epicId);
   });
 
   test('creation-recency guard refuses a duplicate serve even when the derived action reads discover', async () => {
