@@ -20,9 +20,11 @@ import { createEscalation, listOpenEscalations, type EscalationOption } from './
 import { recordAutoAction } from './auto-action-audit.js';
 import { getConfig } from './config-service.js';
 import { classifyCriterion } from './criteria-citability.js';
+import { readBugfixSpec } from './bugfix-spec.js';
 
 export const REPAIR_MISSION_APPROVAL_KIND = 'repair-mission-approval';
 export const REPAIR_UNCITABLE_KIND = 'repair-request-uncitable';
+export const REPAIR_SPECLESS_KIND = 'repair-request-specless';
 
 /** Minimum spacing between repair-forge passes for a single project. */
 export const REPAIR_FORGE_INTERVAL_MS = 300_000; // 5 min
@@ -109,6 +111,8 @@ export interface RepairForgeResult {
   forged: { missionId: string; consumed: string[]; criteriaCount: number; budgetUsd: number } | null;
   reason: 'forged' | 'repair-mission-open' | 'no-batch' | 'no-citable-batch' | 'forge-rolled-back';
   staleApprovalCards: number;
+  /** Ids of open bugfix-bucket filings whose spec `readBugfixSpec` could not recover. */
+  unparseable: string[];
 }
 
 /**
@@ -205,7 +209,7 @@ export async function runRepairForgePass(
       outcome: 'capped',
       reason: `repair-mission-open: mission ${openMission.node.id} is still open`,
     });
-    return { forged: null, reason: 'repair-mission-open', staleApprovalCards };
+    return { forged: null, reason: 'repair-mission-open', staleApprovalCards, unparseable: [] };
   }
 
   // STEP 2: Resolve the bugfix bucket from the snapshot (ensureBucket does its own
@@ -229,10 +233,30 @@ export async function runRepairForgePass(
     createdAt: new Date(t.createdAt).toISOString(),
   }));
 
+  // Compute unparseable ids: filings whose spec readBugfixSpec could not recover.
+  const unparseable = requests.filter((r) => readBugfixSpec(r) === null).map((r) => r.id);
+
+  // Raise aggregated card for spec-less filings (fail-open).
+  if (unparseable.length > 0) {
+    try {
+      createEscalationFn({
+        project,
+        session: REPAIR_FORGE_SESSION,
+        kind: REPAIR_SPECLESS_KIND,
+        audience: 'human',
+        operatorGated: true,
+        conditionKey: 'repair-forge-specless',
+        questionText: `Bugfix filings with unrecoverable specs (${unparseable.length}): ${unparseable.join(', ')} — file a spec or drop them.`,
+      });
+    } catch (err) {
+      logFn(`[repair-forge] specless card creation failed: ${String(err).slice(0, 100)}`);
+    }
+  }
+
   // STEP 3: Select a batch using deterministic batch selection.
   const batch = selectRepairBatch(requests, { k: threshold, ageMs, now });
   if (!batch) {
-    return { forged: null, reason: 'no-batch', staleApprovalCards: 0 };
+    return { forged: null, reason: 'no-batch', staleApprovalCards: 0, unparseable };
   }
 
   // STEP 3.5: Partition the batch by citability and card uncitable items.
@@ -270,7 +294,7 @@ export async function runRepairForgePass(
 
   // If no citable items remain, return early with no-citable-batch reason.
   if (citableBatch.length === 0) {
-    return { forged: null, reason: 'no-citable-batch', staleApprovalCards };
+    return { forged: null, reason: 'no-citable-batch', staleApprovalCards, unparseable };
   }
 
   // Determine the trigger (size or age) for naming on the card and audit record.
@@ -347,7 +371,7 @@ export async function runRepairForgePass(
         outcome: 'refused',
         reason: `forge-rolled-back; mission ${missionId}; abandon-failed: ${String(rollbackErr).slice(0, 100)}`,
       });
-      return { forged: null, reason: 'forge-rolled-back', staleApprovalCards };
+      return { forged: null, reason: 'forge-rolled-back', staleApprovalCards, unparseable };
     }
 
     safeAudit({
@@ -356,7 +380,7 @@ export async function runRepairForgePass(
       outcome: 'refused',
       reason: `forge-rolled-back; mission ${missionId}; card-creation-error: ${String(err).slice(0, 100)}`,
     });
-    return { forged: null, reason: 'forge-rolled-back', staleApprovalCards };
+    return { forged: null, reason: 'forge-rolled-back', staleApprovalCards, unparseable };
   }
 
   // Emit performed audit row with trigger, batch size, and budget details.
@@ -381,6 +405,7 @@ export async function runRepairForgePass(
     },
     reason: 'forged',
     staleApprovalCards,
+    unparseable,
   };
 }
 
