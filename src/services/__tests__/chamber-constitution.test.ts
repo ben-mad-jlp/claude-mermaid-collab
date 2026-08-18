@@ -6,6 +6,8 @@ import {
   SHARED_ARTICLE_NUMBERS,
   buildPresidentSystemPrompt,
   buildGeneralSystemPrompt,
+  CHAMBER_ROSTER,
+  rosterEntryFor,
 } from '../chamber-constitution';
 
 describe('chamber constitution', () => {
@@ -43,5 +45,37 @@ describe('chamber constitution', () => {
       const agendaArticle = CHAMBER_CONSTITUTION.find(a => a.number === agendaNumber);
       expect(system.includes(agendaArticle!.text)).toBe(true);
     }
+  });
+
+  it('the roster entry for each general holds a non-empty agenda description matching its constitution article', () => {
+    // Check roster size
+    expect(CHAMBER_ROSTER.length).toBe(6);
+
+    // Check all five generals are in the roster
+    for (const general of CHAMBER_GENERALS) {
+      const entry = rosterEntryFor(general);
+      expect(entry).toBeDefined();
+      expect(entry!.name).toBe(general);
+
+      // Agenda must be non-empty
+      expect(entry!.agenda.trim().length).toBeGreaterThan(0);
+
+      // Agenda must contain the title of the assigned article (case-insensitive)
+      const agendaNumber = AGENDA_ARTICLE[general];
+      const agendaArticle = CHAMBER_CONSTITUTION.find(a => a.number === agendaNumber);
+      expect(agendaArticle).toBeDefined();
+
+      const agendaLower = entry!.agenda.toLowerCase();
+      const titleLower = agendaArticle!.title.toLowerCase();
+      expect(agendaLower).toContain(titleLower);
+    }
+
+    // Check president entry exists
+    const presidentEntry = rosterEntryFor('president');
+    expect(presidentEntry).toBeDefined();
+    expect(presidentEntry!.name).toBe('president');
+    expect(presidentEntry!.agenda.trim().length).toBeGreaterThan(0);
+    // President's agenda should contain "decision"
+    expect(presidentEntry!.agenda.toLowerCase()).toContain('decision');
   });
 });
