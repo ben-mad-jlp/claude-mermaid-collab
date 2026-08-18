@@ -12,12 +12,13 @@ import { filterExplorerHeld, EXPLORER_OFF_SUPPRESSION_REASON } from './explore-r
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint, listLeafInflight } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint, listLeafInflight, queryLedgerThin } from './worker-ledger';
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
 import { createEscalation, resolveEscalationsForTodo, recordSupervisorAudit, listSupervisorAudit, addWatchedProject, getEscalation, resolveEscalation, getProjectDigestEnabled } from './supervisor-store';
 import { coordinatorCondition, COORDINATOR_CONDITION_REASONS } from './coordinator-condition-keys';
+import { redispatchCapCardText, type RedispatchClaim } from './redispatch-cap-evidence';
 import { selectBudgetTrips, DEFAULT_BUDGET_CONFIG, type LaneBudgetRow } from './convergence-breaker';
 
 /** P1 breaker memory: lanes already SOFT-warned this process, so a soft (non-parking)
@@ -867,13 +868,29 @@ async function parkRedispatchCap(project: string, todoId: string, title: string,
     // resetTodo('blocked') → HOLD (heldAt set); it also auto-resolves stale escalations,
     // so raise the new blocker AFTER.
     await resetTodo(project, todoId, 'blocked');
+
+    // Build claim history from ledger evidence (grouped by session).
+    let claims: RedispatchClaim[] = [];
+    try {
+      const rows = queryLedgerThin({ todoId });
+      const claimsBySession = new Map<string, number>();
+      for (const row of rows) {
+        const spent = row.nodesSpent ?? 0;
+        claimsBySession.set(row.session, (claimsBySession.get(row.session) ?? 0) + spent);
+      }
+      claims = Array.from(claimsBySession.entries()).map(([s, nodesSpent]) => ({ session: s, nodesSpent }));
+    } catch {
+      // Ledger read failed; fall back to empty claims → unknown classification → loop text.
+      claims = [];
+    }
+
     createEscalation({
       project,
       session,
       todoId,
       kind: 'blocker',
       audience: 'human',
-      questionText: `Re-dispatch cap: "${title}" has been dispatched ${dispatches}× without reaching done/accepted — each dispatch re-runs (and re-pays) a full blueprint, so this is a LOOP, not progress. PARKED (held) to stop the re-blueprint burn. Investigate the root cause (\`leaf_inspect ${todoId.slice(0, 8)}\` for the failure/parseError), fix the leaf spec / a bad constraint or drop it, then \`reset_todo\` to grant a fresh attempt.`,
+      questionText: redispatchCapCardText({ title, todoId, dispatches, claims }),
       conditionKey: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionKey,
               conditionTuple: coordinatorCondition('blocker', todoId.slice(0, 8), COORDINATOR_CONDITION_REASONS.redispatchCap).conditionTuple,
     });
