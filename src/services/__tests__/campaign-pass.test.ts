@@ -397,7 +397,7 @@ describe('campaign-pass', () => {
       candidates: [], vetoes: [], wargamed: [],
       decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
         chosenCandidate: 'Probe failures: timeout', strongestDissent: null,
-        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now(), frontFingerprint: null },
       forged: null,
     });
 
@@ -512,7 +512,7 @@ describe('campaign-pass', () => {
       candidates: [], vetoes: [], wargamed: [],
       decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
         chosenCandidate: 'Fix both probe failures', strongestDissent: null,
-        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now(), frontFingerprint: null },
       forged: null,
     });
 
@@ -626,7 +626,7 @@ describe('campaign-pass', () => {
       candidates: [], vetoes: [], wargamed: [],
       decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
         chosenCandidate: 'Fix the probe failure', strongestDissent: null,
-        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now(), frontFingerprint: null },
       forged: null,
     });
 
@@ -733,7 +733,7 @@ describe('campaign-pass', () => {
       candidates: [], vetoes: [], wargamed: [],
       decision: { id: 1, campaignId: '', sessionId: 's1', outcome: 'decision' as const,
         chosenCandidate: 'Fix all probe failures', strongestDissent: null,
-        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now() },
+        refiningGuidance: null, decidedAtSha: 'abc123', createdAt: Date.now(), frontFingerprint: null },
       forged: null,
     });
 

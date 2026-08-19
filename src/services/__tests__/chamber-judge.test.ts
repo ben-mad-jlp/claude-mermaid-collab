@@ -63,6 +63,7 @@ describe('chamber-judge', () => {
           refiningGuidance: 'Campaign is ready to close',
           decidedAtSha: 'a'.repeat(40),
           createdAt: Date.now(),
+          frontFingerprint: null,
         },
         forged: null,
       };
@@ -128,6 +129,7 @@ describe('chamber-judge', () => {
           refiningGuidance: null,
           decidedAtSha: 'b'.repeat(40),
           createdAt: Date.now(),
+          frontFingerprint: null,
         },
         forged: null,
       };
