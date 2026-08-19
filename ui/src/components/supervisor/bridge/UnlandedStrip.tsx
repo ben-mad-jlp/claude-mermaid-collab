@@ -1,13 +1,22 @@
 import React, { useState } from 'react';
-import type { UnlandedEpic } from '@/stores/supervisorStore';
+import type { UnlandedEpic, LandInFlight } from '@/stores/supervisorStore';
 import type { RailKey } from './rail/RailNav';
 
 export interface UnlandedStripProps {
   unlandedEpics?: UnlandedEpic[];
+  landsInFlight?: LandInFlight[];
+  nowMs?: number;
   onSelectPanel?: (key: RailKey) => void;
 }
 
-export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, onSelectPanel }) => {
+function formatElapsed(ms: number): string {
+  const clamped = Math.max(0, ms);
+  const s = Math.floor(clamped / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
+export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, landsInFlight = [], nowMs = Date.now(), onSelectPanel }) => {
   const [collapsed, setCollapsed] = useState(false);
 
   // Distinguish "not yet fetched" (undefined) from "confirmed zero" (empty array)
@@ -60,12 +69,18 @@ export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, onS
         </button>
         {!collapsed && (
           <ul className="space-y-0.5">
-            {unlanded.map((e) => (
-              <li key={e.branch} className="flex items-center justify-between text-2xs text-gray-800 tabular-nums">
-                <span className="font-mono truncate">{e.branch}</span>
-                <span className="ml-2 shrink-0">+{e.ahead}</span>
-              </li>
-            ))}
+            {unlanded.map((e) => {
+              const inFlight = landsInFlight.find((row) => row.epicId.startsWith(e.epicId8));
+              return (
+                <li key={e.branch} className="flex items-center justify-between text-2xs text-gray-800 tabular-nums">
+                  <span className="font-mono truncate">{e.branch}</span>
+                  {inFlight && (
+                    <span data-testid="landing-now" className="ml-2 shrink-0">landing now · {formatElapsed(nowMs - inFlight.startedAtMs)}</span>
+                  )}
+                  <span className="ml-2 shrink-0">+{e.ahead}</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
