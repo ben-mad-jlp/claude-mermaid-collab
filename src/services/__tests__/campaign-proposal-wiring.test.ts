@@ -54,6 +54,13 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
+// The chamber now sits between the front and the forge: without a decision the pass
+// records inaction and never reaches the proposal gate or forgeMission. These tests
+// exercise the gate/forge stages, so the convene itself is stubbed to a decision.
+const chamberDecisionStub = (async () => ({
+  decision: { outcome: 'decision', chosenCandidate: 'Stub chamber candidate' },
+})) as any;
+
 describe('campaign-proposal-wiring', () => {
   const mockForgeMission = async (proj: string, input: any) => {
     // Create the mission todo first, then use its ID.
@@ -129,6 +136,7 @@ describe('campaign-proposal-wiring', () => {
     };
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       forgeMission: mockForgeMission,
       campaignFront: (proj: string, cid: string) => mockCampaignFront(proj, cid, [p1, p2]),
       listProbeVerdicts: mockListProbeVerdicts,
@@ -203,6 +211,7 @@ describe('campaign-proposal-wiring', () => {
     };
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       forgeMission: mockForge,
       campaignFront: (proj: string, cid: string) => mockCampaignFront(proj, cid, [p1, p2]),
       listProbeVerdicts: mockListProbeVerdicts,

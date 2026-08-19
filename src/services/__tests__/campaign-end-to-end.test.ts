@@ -55,6 +55,13 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
+// The chamber now sits between the front and the forge: without a decision the pass
+// records inaction and never reaches the proposal gate or forgeMission. These tests
+// exercise the gate/forge stages, so the convene itself is stubbed to a decision.
+const chamberDecisionStub = (async () => ({
+  decision: { outcome: 'decision', chosenCandidate: 'Stub chamber candidate' },
+})) as any;
+
 describe('campaign-end-to-end', () => {
   it('drives three probes through one campaign pass to the recorded counts', async () => {
     // (a) BASELINE: fresh tmpdir has no collab.db
@@ -141,6 +148,7 @@ describe('campaign-end-to-end', () => {
     };
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       forgeMission: forgeMissionStub,
       execProbe: async () => ({ verdict: 'fail' as const, evidence: identicalEvidence }),
       llm: approvingLlm,

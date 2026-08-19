@@ -23,6 +23,10 @@ export interface BridgeRailProps {
   onOpenCampaigns?: () => void;
   /** Callback to open the missions view. */
   onOpenMissions?: () => void;
+  /** True while the campaigns stage panel is showing — highlights the Campaigns link. */
+  campaignsActive?: boolean;
+  /** True while the missions stage panel is showing — highlights the Missions link. */
+  missionsActive?: boolean;
 }
 
 export const BridgeRail: React.FC<BridgeRailProps> = ({
@@ -34,6 +38,8 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
   footer,
   onOpenCampaigns,
   onOpenMissions,
+  campaignsActive = false,
+  missionsActive = false,
 }) => {
   const [inner, setInner] = useState<RailKey | null>(defaultSelected ?? null);
   const active = controlledSelected !== undefined ? controlledSelected : inner;
@@ -186,8 +192,9 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           type="button"
           data-testid="bridge-link-campaigns"
           aria-label="Campaigns"
+          data-active={campaignsActive}
           onClick={() => onOpenCampaigns?.()}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 ${expanded ? 'justify-start' : 'justify-center'}`}
+          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 data-[active=true]:bg-accent-50 dark:data-[active=true]:bg-accent-900/30 data-[active=true]:text-accent-700 dark:data-[active=true]:text-accent-300 ${expanded ? 'justify-start' : 'justify-center'}`}
         >
           <span aria-hidden>◇</span>
           {expanded && <span>Campaigns</span>}
@@ -196,8 +203,9 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           type="button"
           data-testid="bridge-link-missions"
           aria-label="Missions"
+          data-active={missionsActive}
           onClick={() => onOpenMissions?.()}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 ${expanded ? 'justify-start' : 'justify-center'}`}
+          className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 data-[active=true]:bg-accent-50 dark:data-[active=true]:bg-accent-900/30 data-[active=true]:text-accent-700 dark:data-[active=true]:text-accent-300 ${expanded ? 'justify-start' : 'justify-center'}`}
         >
           <span aria-hidden>✦</span>
           {expanded && <span>Missions</span>}

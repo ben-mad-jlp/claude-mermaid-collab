@@ -76,18 +76,26 @@ function readBaselineNamesLive(): string[] {
 
 /** Live default: run bun run scripts/test-backend.ts and extract failing test names */
 async function runSuiteFailingNamesLive(targetProject: string): Promise<string[]> {
+  // ASYNC spawn, never execSync: a full-suite run takes minutes, and a synchronous
+  // spawn would pin the daemon's main thread for its whole duration (the mainthread-pin
+  // class the no-sync-spawn audit exists to prevent). Non-zero exit is normal for a
+  // red suite — stdout still carries the failing names.
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  const SUITE_TIMEOUT_MS = 15 * 60 * 1000;
+  const MAX_BUFFER = 64 * 1024 * 1024;
   try {
-    const { execSync } = await import('node:child_process');
-    const output = execSync('bun run scripts/test-backend.ts', {
+    const { stdout } = await execFileAsync('bun', ['run', 'scripts/test-backend.ts'], {
       cwd: targetProject,
       encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: SUITE_TIMEOUT_MS,
+      maxBuffer: MAX_BUFFER,
     });
-    return extractFailingTests(output);
+    return extractFailingTests(stdout);
   } catch (e) {
-    // Exit code non-zero is normal for a red suite; capture stderr too
-    const output = (e as any)?.stderr ?? (e as any)?.stdout ?? '';
-    return extractFailingTests(String(output));
+    const output = `${(e as any)?.stdout ?? ''}\n${(e as any)?.stderr ?? ''}`;
+    return extractFailingTests(output);
   }
 }
 

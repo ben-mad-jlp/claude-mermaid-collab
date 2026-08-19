@@ -48,6 +48,14 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'campaign reconcile records a verdict, is wrapped in try/catch returning "unknown", ' +
       'and is injectable via deps.commitSha so tests never spawn at all.',
   },
+  'services/chamber-judge.ts': {
+    count: 2,
+    reason:
+      'Ruling provenance, same call as campaign-reconcile.ts: one execFileSync import + one ' +
+      '`git rev-parse HEAD` to pin the sha a completion ruling was recorded against. ' +
+      'Sub-second local-ref read, wrapped in try/catch, and judge-mode convenes are rare ' +
+      '(at most one per campaign front state), so it never rides the tick.',
+  },
   'services/campaign-pass.ts': {
     count: 3,
     reason:

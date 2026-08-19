@@ -635,7 +635,11 @@ export const BridgeDashboard: React.FC = () => {
         }
         rail={
           <BridgeRail
-            selected={railPanel ?? 'plan'}
+            // A stage view (missions/campaigns) owns the highlight — the rail must not
+            // keep the previous panel lit while the stage panel is what's showing.
+            selected={missionInStage || campaignInStage ? null : (railPanel ?? 'plan')}
+            campaignsActive={campaignInStage}
+            missionsActive={missionInStage}
             onSelect={handleRailSelect}
             counts={{
               escalations: blockerEscalations.length,

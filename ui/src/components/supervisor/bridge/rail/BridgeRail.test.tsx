@@ -194,4 +194,19 @@ describe('BridgeRail', () => {
       'false'
     );
   });
+
+  it('highlights the Campaigns link while the campaigns stage is showing and clears the rail selection', () => {
+    renderRail({ selected: null, campaignsActive: true });
+
+    expect(screen.getByTestId('bridge-link-campaigns')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('bridge-link-missions')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('rail-item-plan')).toHaveAttribute('data-active', 'false');
+  });
+
+  it('highlights the Missions link while the missions stage is showing', () => {
+    renderRail({ selected: null, missionsActive: true });
+
+    expect(screen.getByTestId('bridge-link-missions')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('bridge-link-campaigns')).toHaveAttribute('data-active', 'false');
+  });
 });
