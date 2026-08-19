@@ -32,6 +32,7 @@ export interface EpicLandRecord {
   postLandStatusClean?: number | null;
   postLandResidue?: string | null;
   landPath?: string | null;
+  gateVerdictReuse?: string | null;
 }
 
 const DDL = `
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS epic_land_record (
   postLandStatusClean INTEGER,
   postLandResidue TEXT,
   landPath TEXT,
+  gateVerdictReuse TEXT,
   PRIMARY KEY (project, epicId)
 );
 `;
@@ -89,6 +91,7 @@ function openDb(project: string): Database {
   addColumnIfMissing(db, 'epic_land_record', 'postLandStatusClean', 'INTEGER');
   addColumnIfMissing(db, 'epic_land_record', 'postLandResidue', 'TEXT');
   addColumnIfMissing(db, 'epic_land_record', 'landPath', 'TEXT');
+  addColumnIfMissing(db, 'epic_land_record', 'gateVerdictReuse', 'TEXT');
   addColumnIfMissing(db, 'epic_land_attempt', 'typecheckCommand', 'TEXT');
   addColumnIfMissing(db, 'epic_land_attempt', 'typecheckExitCode', 'INTEGER');
   addColumnIfMissing(db, 'epic_land_attempt', 'typecheckFirstError', 'TEXT');
@@ -101,8 +104,8 @@ function openDb(project: string): Database {
 export function recordEpicLand(project: string, rec: Omit<EpicLandRecord, 'project'>): void {
   const db = openDb(project);
   db.query(
-    `INSERT INTO epic_land_record (project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO epic_land_record (project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath, gateVerdictReuse)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(project, epicId) DO UPDATE SET
        epicTipSha = excluded.epicTipSha,
        landedMergeSha = excluded.landedMergeSha,
@@ -111,7 +114,8 @@ export function recordEpicLand(project: string, rec: Omit<EpicLandRecord, 'proje
        nonTerminalServingLeafCount = excluded.nonTerminalServingLeafCount,
        postLandStatusClean = excluded.postLandStatusClean,
        postLandResidue = excluded.postLandResidue,
-       landPath = excluded.landPath`,
+       landPath = excluded.landPath,
+       gateVerdictReuse = excluded.gateVerdictReuse`,
   ).run(
     project,
     rec.epicId,
@@ -123,6 +127,7 @@ export function recordEpicLand(project: string, rec: Omit<EpicLandRecord, 'proje
     rec.postLandStatusClean ?? null,
     rec.postLandResidue ?? null,
     rec.landPath ?? null,
+    rec.gateVerdictReuse ?? null,
   );
 }
 
@@ -132,7 +137,7 @@ export function getEpicLandRecord(project: string, epicId: string): EpicLandReco
   try {
     const db = openDb(project);
     const row = db.query(
-      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath
+      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath, gateVerdictReuse
        FROM epic_land_record
        WHERE project = ? AND epicId = ?`,
     ).get(project, epicId) as (Omit<EpicLandRecord, 'nonTerminalServingLeafIds'> & { nonTerminalServingLeafIds: string | null }) | undefined;
@@ -160,7 +165,7 @@ export function getEpicLandRecords(project: string, epicIds: string[]): Map<stri
     const db = openDb(project);
     const placeholders = ids.map(() => '?').join(',');
     const rows = db.query(
-      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath
+      `SELECT project, epicId, epicTipSha, landedMergeSha, landedAt, nonTerminalServingLeafIds, nonTerminalServingLeafCount, postLandStatusClean, postLandResidue, landPath, gateVerdictReuse
        FROM epic_land_record
        WHERE project = ? AND epicId IN (${placeholders})`,
     ).all(project, ...ids) as (Omit<EpicLandRecord, 'nonTerminalServingLeafIds'> & { nonTerminalServingLeafIds: string | null })[];
@@ -207,6 +212,7 @@ export interface LandCycleInput {
   nonTerminalServingLeafIds?: string[] | null;
   postLandClean?: { clean: boolean; residue: string | null } | null;
   landPath?: string;
+  gateVerdictReuse?: string | null;
 }
 
 export interface LandCycleResult {
@@ -391,6 +397,7 @@ export async function recordLandCycle(project: string, input: LandCycleInput): P
         postLandStatusClean: input.postLandClean?.clean ? 1 : (input.postLandClean?.clean === false ? 0 : null),
         postLandResidue: input.postLandClean?.residue ?? null,
         landPath,
+        gateVerdictReuse: input.gateVerdictReuse ?? null,
       });
       return { recorded: true, usedFallback };
     } catch (err) {
