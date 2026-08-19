@@ -32,6 +32,7 @@ export interface SplitDeckProps {
   rail: React.ReactNode;       // BridgeRail — fixed 296px, sizes itself
   unlandedStrip?: React.ReactNode;  // unlandedStrip slot (optional)
   missionStrip?: React.ReactNode;   // missionStrip slot (optional)
+  campaignStrip?: React.ReactNode;  // campaignStrip slot (optional)
   stage: React.ReactNode;      // BridgeStage
   inspector: React.ReactNode;  // BridgeInspector
   inspectorOpen: boolean;      // Gates inspector drawer visibility
@@ -44,6 +45,7 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
   rail,
   unlandedStrip,
   missionStrip,
+  campaignStrip,
   stage,
   inspector,
   inspectorOpen,
@@ -88,6 +90,7 @@ export const SplitDeck: React.FC<SplitDeckProps> = ({
         <div className="flex-1 min-w-0 min-h-0 relative flex flex-col">
           {unlandedStrip && <div data-testid="split-unlanded-strip" className="shrink-0">{unlandedStrip}</div>}
           {missionStrip && <div data-testid="split-mission-strip" className="shrink-0">{missionStrip}</div>}
+          {campaignStrip && <div data-testid="split-campaign-strip" className="shrink-0">{campaignStrip}</div>}
           <div data-testid="split-stage" className="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">{stage}</div>
           {inspectorOpen && (
             <>
