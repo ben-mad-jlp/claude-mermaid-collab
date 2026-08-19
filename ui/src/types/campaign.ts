@@ -99,6 +99,9 @@ export interface BridgeCampaign {
   /** Set when the campaign was dropped. Optional so snapshots from an older server
    *  (no field) still parse; missing means live. */
   droppedAt?: number | null;
+  /** Missions linked to this campaign with their nicknames. Optional so snapshots from an older
+   *  server (no field) still parse; missing means none. */
+  linkedMissions?: Array<{ id: string; nickname: string | null }>;
   /** Count of missions linked to this campaign. Optional so snapshots from an older server
    *  (no field) still parse; missing means 0. */
   missionCount?: number;
