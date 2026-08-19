@@ -16,6 +16,7 @@ import {
   listProbeVerdicts,
   listProbes,
   recordProbeVerdict,
+  listChamberDecisions,
   type CampaignProbe,
   type ProbeVerdictRecord,
   type RecordedVerdict,
@@ -27,6 +28,7 @@ import { ruleMissionProposal } from './campaign-mission-proposal.ts';
 import { makeJudgmentLLM } from './judgment-llm.ts';
 import { resolveTriageRoute } from './config-service.ts';
 import { runChamber } from './chamber.ts';
+import { computeFrontFingerprint } from './campaign-front.ts';
 import type { JudgmentLLM } from './judgment-llm.ts';
 
 /** A probe's linked mission, or null if no link exists. */
@@ -77,6 +79,8 @@ export interface CampaignPassDeps {
   llm?: JudgmentLLM;
   /** Convene the chamber to decide which candidate to forge. Defaults to the live runChamber implementation. */
   runChamber?: typeof runChamber;
+  /** List chamber decisions for a campaign. Defaults to the live listChamberDecisions implementation. */
+  listChamberDecisions?: typeof listChamberDecisions;
 }
 
 const CAMPAIGN_PROBE_MISSION_DDL = `
@@ -423,6 +427,7 @@ export async function runCampaignPass(
     });
     const ruleProposalFn = deps.ruleMissionProposal ?? ruleMissionProposal;
     const runChamberFn = deps.runChamber ?? runChamber;
+    const listDecisionsFn = deps.listChamberDecisions ?? listChamberDecisions;
     let llmInstance = deps.llm;
     const getLlm = (): JudgmentLLM => (llmInstance ??= makeJudgmentLLM(resolveTriageRoute({ project })));
 
@@ -474,6 +479,17 @@ export async function runCampaignPass(
     // 1. Get the campaign front again and filter to failing probes.
     const front = frontFn(project, campaignId);
     const failing = front.filter((p) => p.verdict === 'fail');
+
+    // 1a. Compute the front fingerprint and debounce on an unchanged front.
+    const fingerprint = computeFrontFingerprint(failing, (id) => {
+      const vs = verdictsFn(project, id);
+      return vs.length > 0 ? vs[vs.length - 1].commitSha : null;
+    });
+    const decisions = listDecisionsFn(project, campaignId);
+    const latest = decisions.length > 0 ? decisions[decisions.length - 1] : undefined;
+    if (latest && latest.frontFingerprint != null && latest.frontFingerprint === fingerprint) {
+      return { groups: [], forged: [], skipped: failing.map((p) => p.id), executed };
+    }
 
     // 2. Skip probes that already have open linked missions.
     const skipped: string[] = [];
@@ -549,6 +565,7 @@ export async function runCampaignPass(
           sessionId: session,
           decidedAtSha: commitShaFn(),
           llm: getLlm(),
+          frontFingerprint: fingerprint,
         }, {
           forgeMission: forgeReq,
         });
