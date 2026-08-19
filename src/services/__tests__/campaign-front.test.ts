@@ -1,6 +1,7 @@
 // Runs via `bun test` (uses bun:test) — excluded from vitest (Node) in vitest.config.ts.
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, it } from 'bun:test';
 import { deriveFront, type CampaignProbe } from '../campaign-store';
+import { computeFrontFingerprint } from '../campaign-front';
 
 /**
  * Factory to build a full CampaignProbe from minimal input.
@@ -66,5 +67,88 @@ describe('deriveFront', () => {
     const ids = front.map((p) => p.id);
     expect(ids).toContain('A');
     expect(ids).not.toContain('B');
+  });
+});
+
+describe('computeFrontFingerprint', () => {
+  it('computeFrontFingerprint is stable under input order', () => {
+    const probes = [
+      makeProbe({ id: 'A', verdict: 'fail' }),
+      makeProbe({ id: 'B', verdict: 'fail' }),
+      makeProbe({ id: 'C', verdict: 'fail' }),
+    ];
+
+    const shaFn = (id: string) => {
+      const shas: Record<string, string> = {
+        A: 'sha1',
+        B: 'sha2',
+        C: 'sha3',
+      };
+      return shas[id] ?? null;
+    };
+
+    // Same probes in different order should yield the same fingerprint.
+    const result1 = computeFrontFingerprint(probes, shaFn);
+    const reorderedProbes = [probes[2]!, probes[0]!, probes[1]!];
+    const result2 = computeFrontFingerprint(reorderedProbes, shaFn);
+
+    expect(result1).toBe('A@sha1|B@sha2|C@sha3');
+    expect(result2).toBe('A@sha1|B@sha2|C@sha3');
+    expect(result1).toBe(result2);
+  });
+
+  it('computeFrontFingerprint changes when a probe latest verdict sha changes', () => {
+    const probes = [
+      makeProbe({ id: 'A', verdict: 'fail' }),
+      makeProbe({ id: 'B', verdict: 'fail' }),
+    ];
+
+    const shaFn1 = (id: string) => {
+      const shas: Record<string, string> = {
+        A: 'sha1',
+        B: 'sha2',
+      };
+      return shas[id] ?? null;
+    };
+
+    const shaFn2 = (id: string) => {
+      const shas: Record<string, string> = {
+        A: 'sha1-new',
+        B: 'sha2',
+      };
+      return shas[id] ?? null;
+    };
+
+    const result1 = computeFrontFingerprint(probes, shaFn1);
+    const result2 = computeFrontFingerprint(probes, shaFn2);
+
+    expect(result1).toBe('A@sha1|B@sha2');
+    expect(result2).toBe('A@sha1-new|B@sha2');
+    expect(result1).not.toBe(result2);
+  });
+
+  it('computeFrontFingerprint changes when a probe leaves the failing set', () => {
+    const probes = [
+      makeProbe({ id: 'A', verdict: 'fail' }),
+      makeProbe({ id: 'B', verdict: 'fail' }),
+    ];
+
+    const shaFn = (id: string) => {
+      const shas: Record<string, string | null> = {
+        A: 'sha1',
+        B: null,
+      };
+      return shas[id] ?? null;
+    };
+
+    // With both probes.
+    const result1 = computeFrontFingerprint(probes, shaFn);
+
+    // With only the first probe.
+    const result2 = computeFrontFingerprint([probes[0]!], shaFn);
+
+    expect(result1).toBe('A@sha1|B@none');
+    expect(result2).toBe('A@sha1');
+    expect(result1).not.toBe(result2);
   });
 });

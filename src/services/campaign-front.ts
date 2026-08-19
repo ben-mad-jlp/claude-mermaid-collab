@@ -49,3 +49,34 @@ export function deriveFront(probes: CampaignProbe[]): CampaignProbe[] {
 export function campaignFront(project: string, campaignId: string): CampaignProbe[] {
   return deriveFront(listProbes(project, campaignId));
 }
+
+/**
+ * Compute a deterministic fingerprint of the failing probes and their verdict shas.
+ *
+ * The fingerprint is used to debounce campaign convenes: if the failing set or any
+ * probe's latest verdict sha changes, the fingerprint changes. The fingerprint is
+ * computed from probe ids and verdict shas only; it never includes wall-clock or
+ * insertion-order components.
+ *
+ * Empty input yields an empty string.
+ *
+ * @param failing The set of failing probes.
+ * @param latestVerdictSha Callback to retrieve the latest verdict sha for a probe.
+ *   Returns null if no verdict sha exists; this is rendered as 'none'.
+ * @returns A pipe-delimited fingerprint string, lexicographically sorted by probe id.
+ */
+export function computeFrontFingerprint(
+  failing: CampaignProbe[],
+  latestVerdictSha: (probeId: string) => string | null,
+): string {
+  if (failing.length === 0) {
+    return '';
+  }
+
+  // Sort a copy by id lexicographically.
+  const sorted = [...failing].sort((a, b) => a.id.localeCompare(b.id));
+
+  // Map each probe to `${id}@${sha ?? 'none'}` and join with |.
+  const tokens = sorted.map((p) => `${p.id}@${latestVerdictSha(p.id) ?? 'none'}`);
+  return tokens.join('|');
+}
