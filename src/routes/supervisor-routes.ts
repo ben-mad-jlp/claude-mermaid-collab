@@ -55,7 +55,7 @@ import { specCoverage, decideRequirement, type RequirementDecision } from '../se
 import { landEpic, getWorktreeManager } from '../services/coordinator-live.ts';
 import { landReadiness, landAuthority, type LandActor } from '../services/land-authority.ts';
 import { isEpicTodo } from '../services/invariant-check.ts';
-import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus } from '../services/deploy-service.ts';
+import { requestSelfDeploy, selfDeployEligibility, getLastSelfLandAt, readSelfDeployStatus, deployStaleness } from '../services/deploy-service.ts';
 import { systemStatus } from '../services/system-status.ts';
 import { modifiedTrackedCount as probeModifiedTrackedCount } from '../services/git-status-probe.ts';
 import { SUPERVISOR_PROJECT, SUPERVISOR_SESSION } from '../config.ts';
@@ -819,7 +819,13 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         status.deploy.repoVersion != null &&
         status.deploy.liveVersion !== status.deploy.repoVersion;
       const modifiedTrackedCount = await probeModifiedTrackedCount(project);
-      const stale = versionDrift || selfLandPending || modifiedTrackedCount > 0;
+      const { stale, notSelfProject } = deployStaleness({
+        project,
+        repoVersion: status.deploy.repoVersion,
+        versionDrift,
+        selfLandPending,
+        modifiedTrackedCount,
+      });
       // Outcome of the LAST deploy (deploy sidecar-death fix): surfaces a cosmetic
       // deploy that used to be silent — shadow-owned :9002 (ok:false/shadow) or a
       // hot-swap that had to escalate past a wedged Electron main (escalated), or a
@@ -832,6 +838,7 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
         versionDrift,
         modifiedTrackedCount,
         stale,
+        notSelfProject,
         canDeploy: gate.eligible,
         deployBlockedReason: gate.eligible ? null : gate.reason,
         lastDeploy,
