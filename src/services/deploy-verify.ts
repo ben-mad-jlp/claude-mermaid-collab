@@ -28,6 +28,16 @@ export type DeployMismatch =
   | 'main-build-sha-mismatch'
   | 'manifest-missing';
 
+/** Which side(s) of a hash comparison are unresolved. */
+export type HashSide = 'expected' | 'actual' | 'both';
+
+/** Indeterminate verification result when one or both sides cannot be resolved. */
+export interface DeployIndeterminate {
+  check: 'ui-bundle';
+  reason: string;
+  unresolvedSide: HashSide;
+}
+
 /** Injected deps for buildManifest (pure function, no fs/git/clock calls in the unit path). */
 export interface BuildManifestDeps {
   /** Current HEAD commit SHA. */
@@ -61,6 +71,39 @@ export function buildManifest(deps: BuildManifestDeps): BuildManifest {
 export function parseUiBundle(html: string): string | null {
   const match = html.match(/index-[a-f0-9]+\.js/);
   return match ? match[0] : null;
+}
+
+/**
+ * Compare two bundle hashes, handling the case where one or both are unresolved.
+ * A side is considered unresolved if it is null, undefined, empty string, or the literal 'unknown'.
+ * Returns a three-way result: match, mismatch (both resolved and different), or indeterminate.
+ */
+export function compareBundleHashes(
+  expected: string | null | undefined,
+  actual: string | null | undefined,
+  check: 'ui-bundle',
+): { kind: 'match' } | { kind: 'mismatch' } | { kind: 'indeterminate'; reason: string; unresolvedSide: HashSide } {
+  // Determine if each side is resolved.
+  const expectedResolved = expected && expected !== '' && expected !== 'unknown';
+  const actualResolved = actual && actual !== '' && actual !== 'unknown';
+
+  // Both unresolved.
+  if (!expectedResolved && !actualResolved) {
+    return { kind: 'indeterminate', reason: 'both-bundles-unresolved', unresolvedSide: 'both' };
+  }
+
+  // Expected only unresolved.
+  if (!expectedResolved && actualResolved) {
+    return { kind: 'indeterminate', reason: 'expected-bundle-unresolved', unresolvedSide: 'expected' };
+  }
+
+  // Actual only unresolved.
+  if (expectedResolved && !actualResolved) {
+    return { kind: 'indeterminate', reason: 'actual-bundle-unresolved', unresolvedSide: 'actual' };
+  }
+
+  // Both resolved; compare them.
+  return expected === actual ? { kind: 'match' } : { kind: 'mismatch' };
 }
 
 /** Absolute path of the build manifest in the Resources dir. */
@@ -134,8 +177,9 @@ export function servedOwnerOk(exePath: string | undefined, opts: { resourcesPath
 }
 
 /** Verify that the deployed build matches the manifest. */
-export async function verifyDeployedBuild(deps: VerifyDeployDeps): Promise<{ ok: boolean; mismatches: DeployMismatch[] }> {
+export async function verifyDeployedBuild(deps: VerifyDeployDeps): Promise<{ ok: boolean; mismatches: DeployMismatch[]; indeterminate: DeployIndeterminate[] }> {
   const mismatches: DeployMismatch[] = [];
+  const indeterminate: DeployIndeterminate[] = [];
 
   // 1. Manifest present.
   const readManifest = deps.readManifest ?? readBuildManifest;
@@ -164,11 +208,14 @@ export async function verifyDeployedBuild(deps: VerifyDeployDeps): Promise<{ ok:
     try {
       const served = await deps.servedIndexHtml();
       const servedBundle = parseUiBundle(served || '');
-      if (servedBundle !== manifest.uiBundle) {
+      const comparison = compareBundleHashes(manifest.uiBundle, servedBundle, 'ui-bundle');
+      if (comparison.kind === 'mismatch') {
         mismatches.push('ui-bundle-mismatch');
+      } else if (comparison.kind === 'indeterminate') {
+        indeterminate.push({ check: 'ui-bundle', reason: comparison.reason, unresolvedSide: comparison.unresolvedSide });
       }
-    } catch {
-      mismatches.push('ui-bundle-mismatch');
+    } catch (err) {
+      indeterminate.push({ check: 'ui-bundle', reason: 'served-index-html-threw', unresolvedSide: 'actual' });
     }
 
     // 5. Asar hash matches.
@@ -206,5 +253,5 @@ export async function verifyDeployedBuild(deps: VerifyDeployDeps): Promise<{ ok:
     mismatches.push('served-owner-not-app');
   }
 
-  return { ok: mismatches.length === 0, mismatches };
+  return { ok: mismatches.length === 0, mismatches, indeterminate };
 }
