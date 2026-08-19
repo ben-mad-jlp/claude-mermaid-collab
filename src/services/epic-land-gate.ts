@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { LandActor } from './land-authority';
 import { lastLines, extractFailingTests, SPEC_FILE_RE } from './gate-runner';
-import type { LeafGateConfig, GateTestLane, GateSpawn, GateFloorLane } from './leaf-gate';
+import type { LeafGateConfig, GateTestLane, GateSpawn, GateFloorLane, GateTypecheckLane } from './leaf-gate';
 import { resolveLanes, routeSpecsToLanes, expandLaneCommands } from './leaf-gate';
 import type { GateDeclaration } from './leaf-gate';
 import { resolveGateDeclaration } from './leaf-gate';
@@ -288,6 +288,14 @@ function foldSweepIntoResult(res: EpicLandGateResult, sweep: SourceGuardSweepRes
   return res;
 }
 
+/** Filter cfg.typechecks to lanes whose match pattern tests against any changed file. */
+export function matchedTypecheckLanes(
+  cfg: LeafGateConfig,
+  changedFiles: string[],
+): GateTypecheckLane[] {
+  return (cfg.typechecks ?? []).filter((l) => changedFiles.some((p) => l.match.test(p)));
+}
+
 function parseFloorFailingNames(output: string): string[] {
   const seen = new Set<string>();
   const matches = output.matchAll(/─{4,}\s+(.+?)\s+─{4,}/g);
@@ -515,50 +523,6 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
     }
   }
 
-  // --- typecheck ---
-  let typecheck: EpicLandGateResult['typecheck'] | undefined;
-  if (cfg.typecheck) {
-    // Durable tree-keyed consult (tsc-memo.ts): a clean tree already type-checked by any
-    // runner (base gate, steward tscClean, floor, test-backend preamble) serves here with
-    // zero spawns; a memo-served FAIL carries its recorded output tail.
-    const r = await memoizedTsc(o.epicWorktreeCwd, cfg.typecheck, { runner: spawn });
-    if (!r.ran) {
-      return {
-        status: 'error',
-        declared: true,
-        manifestPath: decl.manifestPath,
-        typecheck: { command: cfg.typecheck, status: 'error', output: r.output },
-        units: [],
-        regressions: [],
-        inherited: [],
-        incidents: [],
-        reasons: ['land gate: typecheck could not run'],
-        specFiles: [],
-        epicTipSha,
-        baseSha,
-      };
-    }
-    if (r.code !== 0) {
-      const res: EpicLandGateResult = {
-        status: 'fail',
-        declared: true,
-        manifestPath: decl.manifestPath,
-        typecheck: { command: cfg.typecheck, status: 'fail', output: r.output },
-        units: [],
-        regressions: [],
-        inherited: [],
-        incidents: [],
-        reasons: [`land gate: typecheck failed on ${o.epicBranch}`, lastLines(r.output, 20)],
-        specFiles: [],
-        epicTipSha,
-        baseSha,
-      };
-      recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
-      return res;
-    }
-    typecheck = { command: cfg.typecheck, status: 'pass', output: '' };
-  }
-
   // --- change-set ---
   const mergeBaseRes = git(o.epicWorktreeCwd, ['merge-base', baseSha ?? baseRef, epicTipSha ?? 'HEAD']);
   if (mergeBaseRes.code !== 0) {
@@ -566,7 +530,6 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       status: 'error',
       declared: true,
       manifestPath: decl.manifestPath,
-      typecheck,
       units: [],
       regressions: [],
       inherited: [],
@@ -587,7 +550,6 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
       status: 'fail',
       declared: true,
       manifestPath: decl.manifestPath,
-      typecheck,
       units: [],
       regressions: [],
       inherited: [],
@@ -604,6 +566,98 @@ export async function runEpicLandGate(o: EpicLandGateOpts): Promise<EpicLandGate
   const diffRes = git(o.epicWorktreeCwd, ['diff', '--name-only', '--diff-filter=d', mergeBase, 'HEAD']);
   const changedFiles = diffRes.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   const specFiles = changedFiles.filter((p) => SPEC_FILE_RE.test(p));
+
+  // --- typecheck ---
+  let typecheck: EpicLandGateResult['typecheck'] | undefined;
+  const typecheckCommands: string[] = [];
+
+  if (cfg.typecheck) {
+    // Durable tree-keyed consult (tsc-memo.ts): a clean tree already type-checked by any
+    // runner (base gate, steward tscClean, floor, test-backend preamble) serves here with
+    // zero spawns; a memo-served FAIL carries its recorded output tail.
+    const r = await memoizedTsc(o.epicWorktreeCwd, cfg.typecheck, { runner: spawn });
+    if (!r.ran) {
+      return {
+        status: 'error',
+        declared: true,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: cfg.typecheck, status: 'error', output: r.output },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: ['land gate: typecheck could not run'],
+        specFiles,
+        epicTipSha,
+        baseSha,
+      };
+    }
+    if (r.code !== 0) {
+      const res: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: cfg.typecheck, status: 'fail', output: r.output },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [`land gate: typecheck failed on ${o.epicBranch}`, lastLines(r.output, 20)],
+        specFiles,
+        epicTipSha,
+        baseSha,
+      };
+      recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+      return res;
+    }
+    typecheckCommands.push(cfg.typecheck);
+  }
+
+  // Run each matched cfg.typechecks[] lane through memoizedTsc
+  const matchedLanes = matchedTypecheckLanes(cfg, changedFiles);
+  for (const lane of matchedLanes) {
+    const laneCwd = lane.cwd ? join(o.epicWorktreeCwd, lane.cwd) : o.epicWorktreeCwd;
+    const r = await memoizedTsc(laneCwd, lane.command, { runner: spawn });
+    if (!r.ran) {
+      return {
+        status: 'error',
+        declared: true,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: lane.command, status: 'error', output: r.output },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: ['land gate: typecheck could not run'],
+        specFiles,
+        epicTipSha,
+        baseSha,
+      };
+    }
+    if (r.code !== 0) {
+      const res: EpicLandGateResult = {
+        status: 'fail',
+        declared: true,
+        manifestPath: decl.manifestPath,
+        typecheck: { command: lane.command, status: 'fail', output: r.output },
+        units: [],
+        regressions: [],
+        inherited: [],
+        incidents: [],
+        reasons: [`land gate: typecheck failed on ${o.epicBranch}`, lastLines(r.output, 20)],
+        specFiles,
+        epicTipSha,
+        baseSha,
+      };
+      recordEpicLandGate({ epicId: o.epicId, project: o.project, epicTipSha, baseSha, status: 'fail', result: JSON.stringify(res) });
+      return res;
+    }
+    typecheckCommands.push(lane.command);
+  }
+
+  if (typecheckCommands.length > 0) {
+    typecheck = { command: typecheckCommands.join('; '), status: 'pass', output: '' };
+  }
 
   // Floor failures that are pre-existing at the base: carried into every downstream
   // result as `inherited` so the land is reported inheritedRed rather than blocked.
