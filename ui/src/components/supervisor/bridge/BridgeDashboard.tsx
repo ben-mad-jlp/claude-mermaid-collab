@@ -126,6 +126,7 @@ export const BridgeDashboard: React.FC = () => {
   const watchedProjects = useSupervisorStore((s) => s.watchedProjects);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
   const unlandedEpicsByProject = useSupervisorStore((s) => s.unlandedEpicsByProject);
+  const landsInFlightByProject = useSupervisorStore((s) => s.landsInFlightByProject);
   const loadBridgeSnapshot = useSupervisorStore((s) => s.loadBridgeSnapshot);
   const loadUnlandedEpics = useSupervisorStore((s) => s.loadUnlandedEpics);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
@@ -662,6 +663,7 @@ export const BridgeDashboard: React.FC = () => {
         unlandedStrip={
           <UnlandedStrip
             unlandedEpics={unlandedEpicsByProject[project]}
+            landsInFlight={landsInFlightByProject[project]}
             onSelectPanel={setRailPanel}
           />
         }

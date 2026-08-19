@@ -3,8 +3,15 @@ import { listTodos, type Todo } from './todo-store.js';
 import { listMissions, type MissionSummary } from './mission-store.js';
 import { specCoverage, type CoverageRollup } from './spec-coverage.js';
 import { listCampaignsForSnapshot, type BridgeCampaign } from './campaign-snapshot.js';
+import { listJobs, type AsyncJobRow } from './async-job-store.js';
 
 export type BridgeSnapshotView = 'full' | 'core';
+
+export interface LandInFlight {
+  jobId: string;
+  epicId: string;
+  startedAtMs: number;
+}
 
 export interface BridgeSnapshotOptions {
   view?: BridgeSnapshotView;
@@ -22,6 +29,7 @@ export interface BridgeSnapshotOptions {
     specCoverage?: typeof specCoverage;
     listCampaignsForSnapshot?: typeof listCampaignsForSnapshot;
     snapshotSummaryMessages?: () => Array<Record<string, unknown>>;
+    listJobs?: typeof listJobs;
   };
 }
 
@@ -33,6 +41,7 @@ export interface BridgeSnapshot {
   coverage: CoverageRollup | null;
   summaries: Array<Record<string, unknown>>;
   campaigns: BridgeCampaign[];
+  landsInFlight: LandInFlight[];
 }
 
 const DEFAULT_BRIDGE_TODOS_LIMIT = 200;
@@ -57,6 +66,7 @@ export async function buildBridgeSnapshot(
   const _specCoverage = deps?.specCoverage ?? specCoverage;
   const _listCampaignsForSnapshot = deps?.listCampaignsForSnapshot ?? listCampaignsForSnapshot;
   const _snapshotSummaryMessages = deps?.snapshotSummaryMessages;
+  const _listJobs = deps?.listJobs ?? listJobs;
 
   const result: BridgeSnapshot = {
     projects: [],
@@ -66,6 +76,7 @@ export async function buildBridgeSnapshot(
     coverage: null,
     summaries: [],
     campaigns: [],
+    landsInFlight: [],
   };
 
   // Read projects
@@ -122,6 +133,20 @@ export async function buildBridgeSnapshot(
   // Read campaigns
   try {
     result.campaigns = _listCampaignsForSnapshot(project);
+  } catch {
+    // Degrade to []
+  }
+
+  // Read lands in flight
+  try {
+    const jobs = _listJobs(project, { status: 'running', kind: 'land-epic' });
+    result.landsInFlight = jobs
+      .filter((row) => row.targetId !== null && row.targetId !== '')
+      .map((row) => ({
+        jobId: row.id,
+        epicId: row.targetId!,
+        startedAtMs: row.createdAt,
+      }));
   } catch {
     // Degrade to []
   }
