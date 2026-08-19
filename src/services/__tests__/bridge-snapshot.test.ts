@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { describe, test, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import { createTodo, _closeProject } from '../todo-store';
 import { createEscalation, _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import { _closeLedgerDb } from '../worker-ledger';
 import { _closeAllCollabDbs } from '../collab-db';
+import { type AsyncJobRow } from '../async-job-store';
 import {
   _resetCampaignDbCache,
   createCampaign,
@@ -42,10 +43,10 @@ afterEach(() => {
 });
 
 describe('buildBridgeSnapshot', () => {
-  test('exposes exactly the seven snapshot keys regardless of failures', async () => {
+  test('exposes exactly the eight snapshot keys regardless of failures', async () => {
     const result = await buildBridgeSnapshot(project);
     expect(Object.keys(result).sort()).toEqual(
-      ['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
+      ['campaigns', 'coverage', 'landsInFlight', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
     );
   });
 
@@ -333,7 +334,7 @@ describe('buildBridgeSnapshot', () => {
     });
 
     expect(Object.keys(result).sort()).toEqual(
-      ['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
+      ['campaigns', 'coverage', 'landsInFlight', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
     );
     expect(result.projects).toEqual([]);
     expect(result.todos).toEqual([]);
@@ -342,6 +343,7 @@ describe('buildBridgeSnapshot', () => {
     expect(result.coverage).toBeNull();
     expect(result.campaigns).toEqual([]);
     expect(result.summaries).toEqual([]);
+    expect(result.landsInFlight).toEqual([]);
   });
 
   test('a campaign with two probes and a two-lens completion round-trips onto the snapshot', async () => {
@@ -427,5 +429,73 @@ describe('buildBridgeSnapshot', () => {
     expect(result.missions).toEqual([]);
     expect(result.coverage).not.toBeNull();
     expect(result.summaries).toEqual([]);
+  });
+
+  it('exposes running land-epic jobs as landsInFlight rows', async () => {
+    const stubListJobs = () => [
+      {
+        id: 'job-1',
+        project,
+        kind: 'land-epic',
+        status: 'running',
+        targetId: 'epic-a',
+        error: null,
+        bootId: 'boot-1',
+        pid: 1000,
+        createdAt: 1000,
+        updatedAt: 1000,
+        resultJson: null,
+        phase: null,
+      } as unknown as AsyncJobRow,
+      {
+        id: 'job-2',
+        project,
+        kind: 'land-epic',
+        status: 'running',
+        targetId: null,
+        error: null,
+        bootId: 'boot-1',
+        pid: 1001,
+        createdAt: 2000,
+        updatedAt: 2000,
+        resultJson: null,
+        phase: null,
+      } as unknown as AsyncJobRow,
+    ];
+
+    const result = await buildBridgeSnapshot(project, {
+      deps: {
+        listJobs: stubListJobs,
+      },
+    });
+
+    expect(result.landsInFlight).toEqual([
+      {
+        jobId: 'job-1',
+        epicId: 'epic-a',
+        startedAtMs: 1000,
+      },
+    ]);
+    expect(stubListJobs).toBeDefined();
+  });
+
+  it('degrades landsInFlight to an empty array when the job-store read throws', async () => {
+    await createTodo(project, {
+      allowOrphan: true,
+      ownerSession: 's1',
+      title: 'Test todo',
+      kind: 'leaf',
+    });
+
+    const result = await buildBridgeSnapshot(project, {
+      deps: {
+        listJobs: () => {
+          throw new Error('boom');
+        },
+      },
+    });
+
+    expect(result.landsInFlight).toEqual([]);
+    expect(result.todos.length).toBeGreaterThan(0);
   });
 });
