@@ -94,6 +94,7 @@ const BUILD_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — awaits leaf run(s)
 const RECONCILE_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — reconcile harness
 const ARCHIVAL_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — archival sweep
 const LANDED_EPIC_SWEEP_PASS_TIMEOUT_MS = 5 * 60_000; // 5min — landed-epic sweep
+export const CAMPAIGN_PASS_TIMEOUT_MS = 30 * 60_000; // 30min — full chamber convene (LLM deliberation), not a git-diff probe; deliberation depth is never shortened to fit a deadline
 
 /** Race a pass against a backstop deadline. Rejects with a labelled error on timeout so
  *  the caller's existing try/catch logs it and the tick proceeds. The underlying work is
@@ -713,7 +714,7 @@ export async function runOrchestratorTick(deps: TickDeps = {}): Promise<void> {
     if (watched.has(project) && campaignEnabled(project) && shouldRunCampaign(project)) {
       try {
         currentPhase = `${project}:campaign-pass`;
-        await withPassTimeout(campaignPass(project), NOTIFY_PASS_TIMEOUT_MS, `${project}:campaign-pass`);
+        await withPassTimeout(campaignPass(project), CAMPAIGN_PASS_TIMEOUT_MS, `${project}:campaign-pass`);
       } catch (err) {
         console.warn(`[orchestrator] campaign-pass failed for ${project}:`, err);
         invalidateSnapshot(); // unknown write state after a failure — fail safe, re-read
