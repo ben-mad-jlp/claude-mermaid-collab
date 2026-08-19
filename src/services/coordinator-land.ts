@@ -43,6 +43,7 @@ import { teardownEpic } from './epic-teardown';
 import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot } from './land-workgraph-guard';
 import { listCampaigns } from './campaign-store';
 import { resetProbesForLand } from './campaign-probe-rerun';
+import { runPostLandTestSweep } from './post-land-test-sweep.js';
 
 /** Timeout honesty: how long an 'epic-ready-to-land' card is PROMISED to live before
  *  the reconcile stale sweep may reap it. Before expiresAt existed, the sweep killed
@@ -1392,6 +1393,7 @@ export interface LandStageDeps {
   finalizeLandRecord: typeof finalizeLandRecord;
   teardownEpic: typeof teardownEpic;
   runPostLandGuard: typeof runPostLandGuard;
+  runPostLandTestSweep: typeof runPostLandTestSweep;
 }
 
 /**
@@ -1413,6 +1415,7 @@ export const defaultLandStageDeps: LandStageDeps = {
   finalizeLandRecord,
   teardownEpic,
   runPostLandGuard,
+  runPostLandTestSweep,
 };
 
 /**
@@ -1708,6 +1711,9 @@ export async function landEpic(
       try {
         await resetCampaignProbesForLandedPaths(project, land.landedPaths ?? []);
       } catch { /* advisory — a probe reset must never fail a completed land */ }
+      try {
+        await deps.runPostLandTestSweep(project, { epicId, landSha: land.masterSha!, targetProject });
+      } catch { /* advisory — a post-land sweep must never fail a completed land */ }
       const selfLand = isSelfProject(targetProject);
       if (selfLand) recordSelfLand(Date.now());
       recordSupervisorAudit({ kind: 'reconcile', project, session: resolvingSession, detail: JSON.stringify({ escalationId, epicId, epicBranch, land: 'landed', masterSha: land.masterSha, selfLand }) });
