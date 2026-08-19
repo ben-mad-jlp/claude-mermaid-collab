@@ -149,6 +149,30 @@ export function isSelfProject(project: string): boolean {
   }
 }
 
+/** Decide staleness and self-project membership for deploy-status reporting.
+ *  Decision order is fixed and must not be reordered:
+ *  1. Non-self projects always return stale:false, notSelfProject:true
+ *  2. Self projects with null repoVersion return stale:false, notSelfProject:false
+ *  3. Otherwise, stale is computed from versionDrift || selfLandPending || modifiedTrackedCount > 0 */
+export function deployStaleness(input: {
+  project: string;
+  repoVersion: string | null;
+  versionDrift: boolean;
+  selfLandPending: boolean;
+  modifiedTrackedCount: number;
+}): { stale: boolean; notSelfProject: boolean } {
+  if (!isSelfProject(input.project)) {
+    return { stale: false, notSelfProject: true };
+  }
+  if (input.repoVersion == null) {
+    return { stale: false, notSelfProject: false };
+  }
+  return {
+    stale: input.versionDrift || input.selfLandPending || input.modifiedTrackedCount > 0,
+    notSelfProject: false,
+  };
+}
+
 export interface DeployRequestResult {
   /** True when a detached deploy was actually launched. */
   ok: boolean;
