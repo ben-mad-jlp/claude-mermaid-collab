@@ -30,7 +30,7 @@ export const BridgeStage: React.FC<BridgeStageProps> = ({
 }) => {
   return (
     <section data-testid="bridge-stage" className="flex-1 min-h-0 flex flex-col">
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {activePanel ?? (
           <PlanPanel
             serverId={serverId}

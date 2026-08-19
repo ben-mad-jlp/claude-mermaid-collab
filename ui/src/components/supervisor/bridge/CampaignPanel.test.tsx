@@ -286,7 +286,9 @@ describe('CampaignPanel chamber deliberation', () => {
 
     const transcript = screen.getByTestId('chamber-transcript');
     expect(transcript).toBeTruthy();
-    expect(transcript.className).toMatch(/max-h-/);
+    expect(transcript.className).toContain('flex-1');
+    expect(transcript.className).toContain('min-h-0');
+    expect(transcript.className).not.toContain('max-h-96');
     expect(transcript.className).toContain('overflow-y-auto');
   });
 
