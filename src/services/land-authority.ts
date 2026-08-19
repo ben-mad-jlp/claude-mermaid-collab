@@ -23,6 +23,8 @@ import { getMission, isMissionTerminal } from './mission-store';
 import { realRunners, compileGateWouldAbstain } from './steward-proof';
 import { hasLandStamp } from './epic-landedness';
 import { epicGatingChildren } from './coordinator-live';
+import { resolveMergedTreeSha } from './merged-tree-sha';
+import { getGreenTreeVerdict } from './worker-ledger';
 
 /** Actor types for land authority checking */
 export type LandActor =
@@ -53,6 +55,13 @@ export interface LandBlocker {
   detail?: string;
 }
 
+/** Reuse signal from a previously-measured identical merged tree. */
+export interface LandVerdictReuse {
+  treeSha: string;
+  verdictKey: string;
+  measuredAt: number;
+}
+
 /** The land readiness verdict — safety proof (actor-independent) */
 export interface LandReadinessVerdict {
   project: string;
@@ -72,6 +81,7 @@ export interface LandReadinessVerdict {
    *  solution built green in ~63s once it was reachable. */
   compileGateAbstained: boolean;
   summary: string;
+  verdictReuse?: LandVerdictReuse;
 }
 
 /** Land authority verdict — adds actor and authorization check */
@@ -124,6 +134,10 @@ export interface LandProbes {
   todos?: (project: string) => Todo[];
   /** Resolves the epic accumulation worktree cwd; tsc + merge run HERE, not the repo root. */
   worktreeCwd?: (project: string, epicId: string) => Promise<string> | string;
+  /** Resolves the merged tree sha for an epic land. Defaults to resolveMergedTreeSha. */
+  mergedTree?: (o: { repo: string; baseSha: string; epicTipSha: string }) => string | null;
+  /** Consults a previous green-tree verdict. Defaults to getGreenTreeVerdict. */
+  greenTreeVerdict?: (project: string, treeSha: string) => { key: string; measuredAt: number } | null;
 }
 
 /** The canonical singleton bucket epics — durable intake roots, never landable.
@@ -409,13 +423,23 @@ async function resolveEpicWorktreeCwd(project: string, epicId: string): Promise<
 }
 
 /**
+ * Resolve base and epic-tip shas from the provided snapshot.
+ * Returns { baseSha, epicTipSha } or null if resolution fails.
+ */
+function resolveLandShas(
+  snapshot?: { baseSha: string; epicTipSha: string },
+): { baseSha: string; epicTipSha: string } | null {
+  return snapshot ?? null;
+}
+
+/**
  * The single land readiness proof.
  * Collects ALL blockers before returning, never early-exits except for branch-missing.
  */
 export async function landReadiness(
   project: string,
   epicId: string,
-  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor } & ThreadedStewardMeasurements,
+  opts?: { probes?: LandProbes; todos?: Todo[]; snapshot?: { baseSha: string; epicTipSha: string }; actor?: LandActor; skipCache?: boolean } & ThreadedStewardMeasurements,
 ): Promise<LandReadinessVerdict> {
   const probes = opts?.probes ?? {};
   const allTodos = opts?.todos ?? (probes.todos ? probes.todos(project) : listTodos(project, { includeCompleted: true }));
@@ -516,7 +540,63 @@ export async function landReadiness(
     actor: opts?.actor,
   };
 
-  gate = await gateProbe(gateOpts);
+  let verdictReuse: LandVerdictReuse | undefined;
+
+  // Verdict reuse: when the merged tree matches a previously-measured green verdict,
+  // skip the gate runner and synthesise an abstain result.
+  if (!opts?.skipCache && opts?.actor?.kind !== 'human') {
+    try {
+      const shas = resolveLandShas(opts?.snapshot);
+      if (shas) {
+        const mergedTreeProbe = probes.mergedTree || resolveMergedTreeSha;
+        const treeSha = mergedTreeProbe({ repo: project, baseSha: shas.baseSha, epicTipSha: shas.epicTipSha });
+        if (treeSha) {
+          const greenVerdictProbe = probes.greenTreeVerdict || getGreenTreeVerdict;
+          const greenRow = greenVerdictProbe(project, treeSha);
+          if (greenRow) {
+            verdictReuse = { treeSha, verdictKey: greenRow.key, measuredAt: greenRow.measuredAt };
+            gate = {
+              status: 'abstain',
+              declared: true,
+              manifestPath: '',
+              units: [],
+              regressions: [],
+              inherited: [],
+              incidents: [],
+              reasons: [`verdict-reused tree=${treeSha.slice(0, 8)} measuredAt=${new Date(greenRow.measuredAt).toISOString()}`],
+              specFiles: [],
+              epicTipSha: shas.epicTipSha,
+              baseSha: shas.baseSha,
+            };
+          }
+        }
+      }
+    } catch {
+      // Fall through to gateProbe on any error — fail-closed to the expensive path
+    }
+  }
+
+  // Run the real gate only if reuse didn't hit
+  if (!verdictReuse) {
+    gate = await gateProbe(gateOpts);
+  }
+
+  // At this point, gate must be non-null (either from gateProbe or from reuse synthesis)
+  if (!gate) {
+    gate = {
+      status: 'error',
+      declared: false,
+      manifestPath: '',
+      units: [],
+      regressions: [],
+      inherited: [],
+      incidents: [],
+      reasons: ['gate probe returned null'],
+      specFiles: [],
+      epicTipSha: opts?.snapshot?.epicTipSha ?? null,
+      baseSha: opts?.snapshot?.baseSha ?? null,
+    };
+  }
 
   // Check for trunk-red attribution first
   if (gate.floorAttribution?.verdict === 'trunk-red') {
@@ -604,6 +684,7 @@ export async function landReadiness(
     inheritedRed,
     compileGateAbstained,
     summary,
+    verdictReuse,
   };
 }
 

@@ -26,7 +26,7 @@ import { type ForwardIntegrateResult } from '../agent/worktree-manager';
 import { runRegistryGate, type GateSubject, type GateExec } from './gate-runner';
 import { validateStewardProof } from './steward-proof';
 import { landGateTrailer, landGateSummary, type EpicLandGateResult } from './epic-land-gate';
-import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor, type ThreadedStewardMeasurements } from './land-authority';
+import { landReadiness, checkLandDeps, type LandReadinessVerdict, type LandActor, type ThreadedStewardMeasurements, type LandVerdictReuse } from './land-authority';
 import { getEpicLandReadiness, type LandReadinessReport } from './epic-land-readiness';
 import { hasLandStamp, isEpicLandedInGit, isEpicTreeIdenticalToTrunk } from './epic-landedness';
 import type { GateVerdict } from './coordinator-daemon';
@@ -243,6 +243,7 @@ export interface LandProof {
   reason: string;
   detail?: string;
   gate: EpicLandGateResult;
+  verdictReuse?: LandVerdictReuse;
 }
 
 /** Pure builder for the proof-stage land refusal escalation questionText. Combines the
@@ -312,9 +313,9 @@ async function deriveEpicLandProof(a: {
 
   if (!readiness.green) {
     const reason = readiness.blockers[0]?.code ?? 'land-not-ready';
-    return { ok: false, reason, detail: readiness.summary, gate };
+    return { ok: false, reason, detail: readiness.summary, gate, verdictReuse: readiness.verdictReuse };
   }
-  return { ok: true, reason: 'ok', gate };
+  return { ok: true, reason: 'ok', gate, verdictReuse: readiness.verdictReuse };
 }
 
 /**
@@ -1272,6 +1273,7 @@ async function finalizeLandRecord(
   land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>,
   freshTodosAtLandTime: Todo[],
   ctx: { project: string; session: string; escalationId: string | null; epicBranch: string },
+  proof?: LandProof,
 ): Promise<void> {
   const wm = getWorktreeManager(targetProject);
   const cycle = await captureLandCycleFields({
@@ -1291,6 +1293,7 @@ async function finalizeLandRecord(
     nonTerminalServingLeafIds: cycle.nonTerminalServingLeafIds,
     postLandClean: cycle.postLandClean,
     landPath: 'escalation-land',
+    gateVerdictReuse: proof?.verdictReuse ? JSON.stringify(proof.verdictReuse) : null,
   });
 }
 
@@ -1390,7 +1393,7 @@ export interface LandStageDeps {
   runProofStage: typeof runProofStage;
   checkOpenChildren: typeof checkOpenChildren;
   runMerge: typeof runMerge;
-  finalizeLandRecord: typeof finalizeLandRecord;
+  finalizeLandRecord: (targetProject: string, epicId: string, land: Awaited<ReturnType<ReturnType<typeof getWorktreeManager>['landEpicToMaster']>>, freshTodosAtLandTime: Todo[], ctx: { project: string; session: string; escalationId: string | null; epicBranch: string }, proof?: LandProof) => Promise<void>;
   teardownEpic: typeof teardownEpic;
   runPostLandGuard: typeof runPostLandGuard;
   runPostLandTestSweep: typeof runPostLandTestSweep;
@@ -1683,7 +1686,7 @@ export async function landEpic(
 
       const freshTodosAtLandTime = listTodos(project, { includeCompleted: true });
       phase('finalizeLandRecord');
-      await deps.finalizeLandRecord(targetProject, epicId, land, freshTodosAtLandTime, ctx);
+      await deps.finalizeLandRecord(targetProject, epicId, land, freshTodosAtLandTime, ctx, proof);
 
       phase('teardownEpic');
       await deps.teardownEpic(wm, epicId, targetProject, { epicBranch });
