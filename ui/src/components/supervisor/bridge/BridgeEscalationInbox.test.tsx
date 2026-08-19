@@ -13,19 +13,26 @@ import type { Session } from '@/types/session';
 
 const decideEscalation = vi.fn().mockResolvedValue(true);
 const resolveEscalation = vi.fn().mockResolvedValue(true);
+const landEpic = vi.fn();
 let sessionStoreMockSessions: Session[] = [];
+let mockLandJobs: Record<string, any> = {};
 
-vi.mock('@/stores/supervisorStore', () => ({
-  useSupervisorStore: (sel: (s: any) => unknown) =>
-    sel({
-      decideEscalation,
-      resolveEscalation,
-      landEpic: vi.fn(),
-      resolvedEscalations: [],
-      promoteTodo: vi.fn(),
-      todosByProject: {},
-    }),
-}));
+vi.mock('@/stores/supervisorStore', async () => {
+  const actual = await vi.importActual('@/stores/supervisorStore') as typeof import('@/stores/supervisorStore');
+  return {
+    useSupervisorStore: (sel: (s: any) => unknown) =>
+      sel({
+        decideEscalation,
+        resolveEscalation,
+        landEpic,
+        resolvedEscalations: [],
+        promoteTodo: vi.fn(),
+        todosByProject: {},
+        landJobs: mockLandJobs,
+      }),
+    runningLandJobFor: actual.runningLandJobFor,
+  };
+});
 
 vi.mock('@/stores/sessionStore', () => ({
   useSessionStore: (sel: (s: any) => unknown) =>
@@ -55,8 +62,10 @@ function esc(p: Partial<Escalation>): Escalation {
 beforeEach(() => {
   decideEscalation.mockClear();
   resolveEscalation.mockClear();
+  landEpic.mockClear();
   sessionStoreMockSessions = [];
   nicknameMap = {};
+  mockLandJobs = {};
 });
 
 describe('BridgeEscalationInbox', () => {
@@ -166,5 +175,83 @@ describe('BridgeEscalationInbox', () => {
     const questionEl = screen.getByTestId('escalation-question-text');
     expect(questionEl).toHaveTextContent('brave-otter');
     expect(questionEl).toHaveAttribute('data-raw-text', questionText);
+  });
+
+  it('replaces the Land button with the running job reference while a land is in flight', () => {
+    const escalationId = 'e-land-in-flight';
+    const jobId = 'job-abcdef01-full-id';
+    const escalations = [
+      esc({
+        id: escalationId,
+        kind: 'epic-ready-to-land',
+        conditionKey: null,
+      }),
+    ];
+
+    // Set up a running land job for this escalation
+    mockLandJobs = {
+      [escalationId]: {
+        id: jobId,
+        targetId: escalationId,
+        status: 'running',
+        phase: 'merging',
+      },
+    };
+
+    render(
+      <BridgeEscalationInbox
+        escalations={escalations}
+        serverScope="local"
+      />
+    );
+
+    // Assert in-flight control is present
+    const inFlightControl = screen.getByTestId('land-in-flight');
+    expect(inFlightControl).toBeInTheDocument();
+    expect(inFlightControl).toHaveAttribute('disabled');
+    expect(inFlightControl).toHaveTextContent('Landing…');
+    expect(inFlightControl).toHaveTextContent(jobId.slice(0, 8));
+    expect(inFlightControl).toHaveTextContent('merging');
+
+    // Assert landEpic is not called when clicking the in-flight control
+    fireEvent.click(inFlightControl);
+    expect(landEpic).not.toHaveBeenCalled();
+
+    // Verify the Dismiss button is still present and reachable
+    const dismissButton = screen.getByText('Dismiss');
+    expect(dismissButton).toBeInTheDocument();
+  });
+
+  it('still renders the emerald Land button when there is no running land job', () => {
+    const escalationId = 'e-no-job';
+    const escalations = [
+      esc({
+        id: escalationId,
+        kind: 'epic-ready-to-land',
+        conditionKey: null,
+      }),
+    ];
+
+    // mockLandJobs is already empty from beforeEach
+
+    render(
+      <BridgeEscalationInbox
+        escalations={escalations}
+        serverScope="local"
+      />
+    );
+
+    // Assert in-flight control is not present
+    expect(screen.queryByTestId('land-in-flight')).not.toBeInTheDocument();
+
+    // Assert the emerald Land button is present
+    const landButton = screen.getByText('Land');
+    expect(landButton).toBeInTheDocument();
+    expect(landButton).toHaveClass('bg-emerald-600');
+    expect(landButton).not.toHaveAttribute('disabled');
+
+    // Assert clicking Land calls landEpic
+    fireEvent.click(landButton);
+    expect(landEpic).toHaveBeenCalledWith('local', 'P', escalationId);
   });
 });

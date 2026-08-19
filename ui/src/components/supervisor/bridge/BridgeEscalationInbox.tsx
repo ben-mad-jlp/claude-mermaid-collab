@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
+import { useSupervisorStore, runningLandJobFor, type Escalation } from '@/stores/supervisorStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import type { SessionTodo } from '@/types/sessionTodo';
 import { RecurrenceBadge } from '@/components/shared/RecurrenceBadge';
@@ -113,6 +113,7 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
   const resolvedEscalations = useSupervisorStore((s) => s.resolvedEscalations);
   const promoteTodo = useSupervisorStore((s) => s.promoteTodo);
   const todosByProject = useSupervisorStore((s) => s.todosByProject);
+  const landJobs = useSupervisorStore((s) => s.landJobs);
   const sessions = useSessionStore((s) => s.sessions);
   const nicknames = useProjectNicknames(project ?? '');
 
@@ -303,35 +304,51 @@ export const BridgeEscalationInbox: React.FC<BridgeEscalationInboxProps> = ({
                       );
                     })}
                   </div>
-                ) : e.kind === 'epic-ready-to-land' ? (
+                ) : e.kind === 'epic-ready-to-land' ? (() => {
                   // LAND card (epic-landing P3): primary action is LAND (merge to
                   // master via the server proof gate), NOT the destructive Resolve —
                   // resolving would dismiss the card and strand the work off-master.
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => void landEpic(serverScope, e.project, e.id)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-2xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-                      title="Re-derive land-readiness server-side, then merge this epic onto master"
-                    >
-                      {/* download glyph = 'ship to master' — the same icon the project
-                          cards + Land tab use (replaces the old rocket). */}
-                      <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                        <path d="M10 2a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 10.586V3a1 1 0 011-1z" />
-                        <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
-                      </svg>
-                      Land
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
-                      className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
-                      title="Dismiss without landing (the work stays on its epic branch)"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : (
+                  const landJob = runningLandJobFor({ landJobs }, e);
+                  return (
+                    <div className="flex items-center gap-1.5 pt-1">
+                      {landJob ? (
+                        <button
+                          type="button"
+                          data-testid="land-in-flight"
+                          disabled
+                          className="inline-flex items-center gap-1 px-2 py-1 text-2xs font-medium rounded bg-gray-300 text-gray-600 dark:bg-gray-700 dark:text-gray-400 cursor-not-allowed"
+                          title="Land job is in flight"
+                        >
+                          Landing… {landJob.id.slice(0, 8)}
+                          {landJob.phase && <span className="text-3xs opacity-75">({landJob.phase})</span>}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void landEpic(serverScope, e.project, e.id)}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-2xs font-medium rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                          title="Re-derive land-readiness server-side, then merge this epic onto master"
+                        >
+                          {/* download glyph = 'ship to master' — the same icon the project
+                              cards + Land tab use (replaces the old rocket). */}
+                          <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path d="M10 2a1 1 0 011 1v7.586l2.293-2.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 111.414-1.414L9 10.586V3a1 1 0 011-1z" />
+                            <path d="M3 14a1 1 0 011 1v1a1 1 0 001 1h10a1 1 0 001-1v-1a1 1 0 112 0v1a3 3 0 01-3 3H5a3 3 0 01-3-3v-1a1 1 0 011-1z" />
+                          </svg>
+                          Land
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void resolveEscalation(serverScope, e.id, 'resolved')}
+                        className="px-2 py-1 text-2xs font-medium rounded bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        title="Dismiss without landing (the work stays on its epic branch)"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  );
+                })() : (
                   // Dismiss clears the card. With a linked, non-terminal todo (#2) the
                   // human can also choose its fate: re-ready (orchestrator re-picks it)
                   // or block (needs a human). Plain Dismiss leaves the todo untouched.
