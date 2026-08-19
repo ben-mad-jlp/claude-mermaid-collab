@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, BASE_GATE_FAIL_REVERIFY_ATTEMPTS, BASE_GATE_FAIL_TTL_MS, type EpicBaseGateRow, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, type LedgerEntry } from '../worker-ledger';
+import { recordPhase, queryLedger, queryLedgerThin, _thinLedgerSql, summarize, _closeLedgerDb, setLeafInflight, listLeafInflight, isLeafInflightLive, clearLeafInflight, reapStaleInflight, reapSameEpochOrphanInflight, recordLeafResume, markLeafMerged, getLeafResume, clearLeafResume, recordEpicBaseGate, getEpicBaseGate, shouldHonourCachedBaseGate, BASE_GATE_FAIL_REVERIFY_ATTEMPTS, BASE_GATE_FAIL_TTL_MS, type EpicBaseGateRow, recordEpicBaseLane, getEpicBaseLane, recordLeafBlueprint, getLeafBlueprint, clearLeafBlueprint, recordLeafResumeDecision, getLeafResumeDecisions, getLatestNodeOutput, getLatestSuccessfulNodeOutput, editContractField, editLeafRequirement, restoreEditableBlueprint, recordBaseGateVerdict, getGreenTreeVerdict, type LedgerEntry } from '../worker-ledger';
 import { parseDiffContract, renderContract, type DiffContract } from '../diff-contract';
 import Database from 'bun:sqlite';
 import { makeClaimProject } from '../__fixtures__/claim-project';
@@ -589,5 +589,43 @@ describe('editContractField / editLeafRequirement / restoreEditableBlueprint (ed
 
     expect(getLeafBlueprint('L2')?.specJson ?? null).toBeNull();
     expect(restoreEditableBlueprint('L2')).toBe(getLatestSuccessfulNodeOutput('L2', 'blueprint'));
+  });
+});
+
+describe('getGreenTreeVerdict (tree sha verdict lookup)', () => {
+  test('green verdict at a treeSha is returned; a different treeSha and a recorded FAIL are misses', () => {
+    // Record a green verdict at treeSha t1
+    expect(recordBaseGateVerdict({
+      key: 'base:key1',
+      project: '/p',
+      baseSha: 'abc123',
+      status: 'pass',
+      resultJson: null,
+      quarantineHash: '',
+      treeSha: 't1',
+    })).toBe(true);
+
+    // Green verdict at t1 is found
+    const hit = getGreenTreeVerdict('/p', 't1');
+    expect(hit).not.toBeNull();
+    expect(hit?.status).toBe('pass');
+    expect(hit?.treeSha).toBe('t1');
+
+    // Different treeSha is a miss
+    expect(getGreenTreeVerdict('/p', 't2')).toBeNull();
+
+    // Record a fail verdict at t3
+    expect(recordBaseGateVerdict({
+      key: 'base:key3',
+      project: '/p',
+      baseSha: 'def456',
+      status: 'fail',
+      resultJson: null,
+      quarantineHash: '',
+      treeSha: 't3',
+    })).toBe(true);
+
+    // Fail verdict at t3 is a miss (only pass verdicts are returned)
+    expect(getGreenTreeVerdict('/p', 't3')).toBeNull();
   });
 });
