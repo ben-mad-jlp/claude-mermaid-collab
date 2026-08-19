@@ -4,8 +4,9 @@
  *
  * The full backend floor (~636 files) reds on ~1 random slow timing test per run under
  * load, making every land a coin flip. The floor only needs to answer "did THIS diff
- * break a test?", so we walk the repo's TypeScript sources, build a static import graph,
- * reverse it, and run only the test files that transitively depend on a changed file.
+ * break a test?", so we walk the repo's TypeScript sources (src/, desktop/src, ui/src),
+ * build a static import graph, reverse it, and run only the test files that transitively
+ * depend on a changed file.
  *
  * The graph is deliberately conservative-by-construction where it can be, and every case
  * it CANNOT see falls back to the full suite via `planImpactedFloor`'s triggers. What the
@@ -15,6 +16,11 @@
  * `ensureTrunkAnchor` (trunk-anchor.ts) — the capped, coalesced FULL-suite gate at the
  * trunk sha, fired after every land and on every anchor miss — is the safety net for the
  * rest: an impacted-set miss self-surfaces there on the next full trunk run.
+ *
+ * An empty impacted set is trusted only when the diff touches no backend candidate root
+ * (src/, scripts/, desktop/src/): a ui/src-only diff whose paths all resolve into the
+ * graph can confidently run zero backend tests. A ui-only diff with an empty backend
+ * impacted set plans { mode: 'impacted', tests: [], trigger: null }.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -56,6 +62,14 @@ export const FLOOR_INFRA_RES: RegExp[] = [
   /^src\/services\/__tests__\/fixtures\//,
   /^src\/testing\//,
 ];
+
+/** Backend candidate roots that collectFloorCandidates actually collects test files from. */
+export const BACKEND_CANDIDATE_ROOT_RE = /^(src|scripts|desktop\/src)\//;
+
+/** True iff any changed path is under a backend candidate root. */
+export function touchesBackendSurface(changedFiles: string[]): boolean {
+  return changedFiles.some((p) => BACKEND_CANDIDATE_ROOT_RE.test(p));
+}
 
 const TEST_FILE_RE = /\.test\.tsx?$/;
 const SOURCE_FILE_RE = /\.tsx?$/;
@@ -345,7 +359,7 @@ export function planImpactedFloor(opts: {
   }
 
   const nonTestCodeChange = opts.changedFiles.some((p) => SOURCE_FILE_RE.test(p) && !TEST_FILE_RE.test(p));
-  if (impacted.tests.length === 0 && nonTestCodeChange) {
+  if (impacted.tests.length === 0 && nonTestCodeChange && touchesBackendSurface(opts.changedFiles)) {
     return full('empty impacted set on a non-test .ts change — graph not trusted');
   }
   if (candidates.length > 0 && impacted.tests.length > 0.6 * candidates.length) {
