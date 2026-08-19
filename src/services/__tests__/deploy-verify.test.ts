@@ -9,8 +9,11 @@ import {
   writeBuildManifest,
   readBuildManifest,
   parseUiBundle,
+  compareBundleHashes,
   servedOwnerOk,
   verifyDeployedBuild,
+  type HashSide,
+  type DeployIndeterminate,
 } from '../deploy-verify';
 import { readSelfDeployStatus, writeDeployVerification, deployLogDir, deployStatusPath } from '../deploy-service';
 import { _closeAllCollabDbs } from '../collab-db';
@@ -37,6 +40,53 @@ describe('parseUiBundle', () => {
   test('returns null when no bundle found', () => {
     expect(parseUiBundle('<html></html>')).toBeNull();
     expect(parseUiBundle('random text')).toBeNull();
+  });
+});
+
+describe('compareBundleHashes / indeterminate verification', () => {
+  test('unknown on both sides is indeterminate, never a mismatch', () => {
+    const result = compareBundleHashes('unknown', 'unknown', 'ui-bundle');
+    expect(result.kind).toBe('indeterminate');
+    expect(result.kind === 'indeterminate' && result.unresolvedSide).toBe('both');
+    expect(result.kind === 'indeterminate' && result.reason).toBeTruthy();
+    expect(result.kind).not.toBe('mismatch');
+  });
+
+  test('two distinct resolved hashes are a mismatch', () => {
+    const result = compareBundleHashes('index-aaa.js', 'index-bbb.js', 'ui-bundle');
+    expect(result.kind).toBe('mismatch');
+  });
+
+  test('verifyDeployedBuild records an indeterminate ui-bundle instead of a mismatch', async () => {
+    const resPath = mkdtempSync(join(tmpdir(), 'res-'));
+    try {
+      const m: BuildManifest = {
+        headSha: 'sha',
+        asarSha256: 'asar',
+        sidecarSha256: 'sidecar',
+        uiBundle: 'unknown',
+        builtAt: 1000,
+      };
+      writeBuildManifest(resPath, m);
+
+      const result = await verifyDeployedBuild({
+        resourcesPath: resPath,
+        expectedHeadSha: () => 'sha',
+        readManifest: () => m,
+        health: () => Promise.resolve({ exePath: '/app/Contents/MacOS/server', owner: 'app' }),
+        servedIndexHtml: () => Promise.resolve('<html></html>'), // No parseable bundle
+        hashAsar: () => 'asar',
+        appPath: '/app',
+      });
+
+      expect(result.mismatches).not.toContain('ui-bundle-mismatch');
+      expect(result.indeterminate.length).toBe(1);
+      expect(result.indeterminate[0].check).toBe('ui-bundle');
+      expect(result.indeterminate[0].unresolvedSide).toBeTruthy();
+      expect(result.indeterminate[0].reason).toBeTruthy();
+    } finally {
+      rmSync(resPath, { recursive: true, force: true });
+    }
   });
 });
 
@@ -234,7 +284,7 @@ describe('verifyDeployedBuild — per-mismatch tests', () => {
       headSha: 'sha',
       asarSha256: 'asar',
       sidecarSha256: 'sidecar',
-      uiBundle: 'index-manifest.js',
+      uiBundle: 'index-abc123.js',
       builtAt: 1000,
     };
     writeBuildManifest(baseResPath, m);
@@ -244,7 +294,7 @@ describe('verifyDeployedBuild — per-mismatch tests', () => {
       expectedHeadSha: () => 'sha',
       readManifest: () => m,
       health: () => Promise.resolve({ exePath: '/app/Contents/MacOS/server', owner: 'app' }),
-      servedIndexHtml: () => Promise.resolve('<script src="index-served.js"></script>'),
+      servedIndexHtml: () => Promise.resolve('<script src="index-def456.js"></script>'),
       hashAsar: () => 'asar',
       appPath: '/app',
     });
