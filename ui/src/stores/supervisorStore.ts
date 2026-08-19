@@ -87,6 +87,14 @@ export interface LandInFlight {
   startedAtMs: number;
 }
 
+export interface LandJob {
+  id: string;
+  targetId: string;
+  status: string;
+  phase?: string | null;
+  updatedAt?: number;
+}
+
 export interface AuditEntry {
   id: string;
   ts: number;
@@ -546,6 +554,9 @@ interface SupervisorState {
   unlandedEpicsByProject: Record<string, UnlandedEpic[]>;
   /** Per-project in-flight land jobs. Populated from the bridge snapshot when available. */
   landsInFlightByProject: Record<string, LandInFlight[]>;
+  /** Running land-epic jobs keyed by targetId (epic or escalation id).
+   *  Populated by fetchLandJobs from /api/supervisor/land-jobs. */
+  landJobs: Record<string, LandJob>;
   /** Per-project bridge snapshot load state (ephemeral, not persisted). Tracks
    *  loading/loaded/error status and whether data has been loaded once. */
   bridgeSnapshotStateByProject: Record<string, { status: 'loading' | 'loaded' | 'error'; hasLoadedOnce: boolean }>;
@@ -625,6 +636,7 @@ interface SupervisorState {
   removeProject: (serverId: string, project: string) => Promise<void>;
   loadProjectTodos: (serverId: string, project: string) => Promise<void>;
   loadUnlandedEpics: (serverId: string, project: string) => Promise<void>;
+  fetchLandJobs: (serverId: string, project: string) => Promise<void>;
   loadBridgeSnapshot: (serverId: string, project: string) => Promise<void>;
   /** Convergence-loop missions for a project (GET /api/supervisor/missions).
    *  Returns the mission summaries, or [] on any failure (fail open — the Plan
@@ -818,6 +830,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   todosByProject: hydrateTodosByProject(),
   unlandedEpicsByProject: {},
   landsInFlightByProject: {},
+  landJobs: {},
   bridgeSnapshotStateByProject: {},
   sessionSummaries: {},
   pendingClears: {},
@@ -1044,6 +1057,19 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     const ue = await invoke(serverId, `/api/supervisor/unlanded-epics?project=${encodeURIComponent(project)}`, 'GET');
     if (!ue?.ok) return;
     set((state) => ({ unlandedEpicsByProject: { ...state.unlandedEpicsByProject, [project]: ue.body?.unlandedEpics ?? [] } }));
+  },
+
+  fetchLandJobs: async (serverId, project) => {
+    const res = await invoke(serverId, '/api/supervisor/land-jobs?project=' + encodeURIComponent(project), 'GET');
+    if (!res?.ok) return;
+    const jobs = res.body?.jobs ?? [];
+    const landJobs: Record<string, LandJob> = {};
+    for (const job of jobs) {
+      if (job.targetId) {
+        landJobs[job.targetId] = job;
+      }
+    }
+    set((state) => ({ landJobs }));
   },
 
   loadBridgeSnapshot: async (serverId, project) => {
@@ -1510,3 +1536,18 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
     return true;
   },
 }));
+
+export function runningLandJobFor(
+  state: { landJobs: Record<string, LandJob> },
+  escalation: { id?: string | null; todoId?: string | null } | null | undefined,
+): LandJob | null {
+  if (!escalation) return null;
+  if (escalation.id) {
+    const job = state.landJobs[escalation.id];
+    if (job) return job;
+  }
+  if (escalation.todoId) {
+    return state.landJobs[escalation.todoId] ?? null;
+  }
+  return null;
+}

@@ -6,7 +6,7 @@
  * groups without waiting for a poll/reload), and un-supervising removes it.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useSupervisorStore, type SupervisedSession, type Escalation } from './supervisorStore';
+import { useSupervisorStore, type SupervisedSession, type Escalation, type LandJob, runningLandJobFor } from './supervisorStore';
 
 const sess = (session: string, extra?: Partial<SupervisedSession>): SupervisedSession => ({
   project: '/repo',
@@ -364,5 +364,91 @@ describe('supervisorStore.hydrateWatchedSessions', () => {
     expect(supervised).toHaveLength(1);
     expect(supervised[0].serverId).toBe('srvLive');
     expect(supervised.some((s) => s.serverId === 'srvDeadA' || s.serverId === 'srvDeadB')).toBe(false);
+  });
+});
+
+describe('supervisorStore.fetchLandJobs', () => {
+  beforeEach(() => {
+    useSupervisorStore.setState({ landJobs: {} });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetchLandJobs populates landJobs keyed by targetId', async () => {
+    const jobs: LandJob[] = [
+      { id: 'job1', targetId: 'epic-abc123', status: 'running', phase: 'merge', updatedAt: 1000 },
+      { id: 'job2', targetId: 'esc-def456', status: 'pending', phase: null, updatedAt: 2000 },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ jobs }) }));
+    await useSupervisorStore.getState().fetchLandJobs('srv1', '/repo');
+    const state = useSupervisorStore.getState();
+    expect(state.landJobs).toEqual({
+      'epic-abc123': jobs[0],
+      'esc-def456': jobs[1],
+    });
+  });
+
+  it('fetchLandJobs skips jobs without targetId', async () => {
+    const jobs = [
+      { id: 'job1', targetId: 'epic-abc123', status: 'running', phase: 'merge', updatedAt: 1000 },
+      { id: 'job2', targetId: null, status: 'pending', phase: null, updatedAt: 2000 },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ jobs }) }));
+    await useSupervisorStore.getState().fetchLandJobs('srv1', '/repo');
+    const state = useSupervisorStore.getState();
+    expect(state.landJobs).toEqual({
+      'epic-abc123': jobs[0],
+    });
+  });
+
+  it('fetchLandJobs replaces the entire map on success', async () => {
+    useSupervisorStore.setState({
+      landJobs: { 'old-id': { id: 'old', targetId: 'old-id', status: 'done' } },
+    });
+    const jobs = [
+      { id: 'job1', targetId: 'epic-new', status: 'running', phase: 'merge' },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ jobs }) }));
+    await useSupervisorStore.getState().fetchLandJobs('srv1', '/repo');
+    const state = useSupervisorStore.getState();
+    expect(state.landJobs).toEqual({
+      'epic-new': jobs[0],
+    });
+    expect(state.landJobs['old-id']).toBeUndefined();
+  });
+
+  it('fetchLandJobs leaves landJobs unchanged on failure', async () => {
+    const original = { 'epic-abc': { id: 'j1', targetId: 'epic-abc', status: 'running' } };
+    useSupervisorStore.setState({ landJobs: original });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+    await useSupervisorStore.getState().fetchLandJobs('srv1', '/repo');
+    expect(useSupervisorStore.getState().landJobs).toEqual(original);
+  });
+});
+
+describe('supervisorStore.runningLandJobFor', () => {
+  const job: LandJob = { id: 'j1', targetId: 'epic-abc', status: 'running' };
+  const state = { landJobs: { 'epic-abc': job, 'esc-def': { id: 'j2', targetId: 'esc-def', status: 'pending' } } };
+
+  it('runningLandJobFor matches escalation id, then todoId, else null', () => {
+    expect(runningLandJobFor(state, { id: 'epic-abc' })).toBe(job);
+    expect(runningLandJobFor(state, { id: 'nonexistent' })).toBeNull();
+    expect(runningLandJobFor(state, { todoId: 'esc-def' })).toEqual(state.landJobs['esc-def']);
+  });
+
+  it('runningLandJobFor prefers id over todoId', () => {
+    expect(runningLandJobFor(state, { id: 'epic-abc', todoId: 'esc-def' })).toBe(job);
+  });
+
+  it('runningLandJobFor returns null for null or undefined escalation', () => {
+    expect(runningLandJobFor(state, null)).toBeNull();
+    expect(runningLandJobFor(state, undefined)).toBeNull();
+  });
+
+  it('runningLandJobFor guards against null/undefined todoId', () => {
+    expect(runningLandJobFor(state, { todoId: null })).toBeNull();
+    expect(runningLandJobFor(state, { todoId: undefined })).toBeNull();
   });
 });
