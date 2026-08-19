@@ -615,7 +615,7 @@ export async function runCampaignPass(
           } catch (err) {
             // Fail-open: a throwing proposal gate or forge releases all claims.
             console.warn(
-              `[campaign-pass] campaign ${campaignId} decision-fork forge failed for probes ${claimed.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
+              `[campaign-pass] campaign ${campaignId} decision-fork forge failed for signature ${groups.map((g) => g.signature).join(' | ')} probes ${claimed.map((p) => p.id).join(', ')}; releasing claims: ${err instanceof Error ? err.message : String(err)}`,
             );
             for (const probe of claimed) {
               try {

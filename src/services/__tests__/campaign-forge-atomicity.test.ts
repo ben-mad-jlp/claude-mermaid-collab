@@ -47,6 +47,13 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
+// The chamber now sits between the front and the forge: without a decision the pass
+// records inaction and never reaches the proposal gate or forgeMission. These tests
+// exercise the gate/forge stages, so the convene itself is stubbed to a decision.
+const chamberDecisionStub = (async () => ({
+  decision: { outcome: 'decision', chosenCandidate: 'Stub chamber candidate' },
+})) as any;
+
 describe('campaign-forge-atomicity', () => {
   it('a criterion write that throws leaves zero mission todos behind', async () => {
     // Create a campaign with one probe that will be forged.
@@ -90,6 +97,7 @@ describe('campaign-forge-atomicity', () => {
     };
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
@@ -172,6 +180,7 @@ describe('campaign-forge-atomicity', () => {
     };
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       forgeMission: mockForgeMission,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
