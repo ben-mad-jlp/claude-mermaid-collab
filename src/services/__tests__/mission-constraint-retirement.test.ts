@@ -90,6 +90,14 @@ test('pruneOrphanMissions retires constraints for an orphaned mission the same w
 
   expect(getActiveConstraints(project).some((r) => r.id === recId)).toBe(true);
 
+  // The prune now defends fresh rows (grace window + live-node read): make this a
+  // genuine orphan — node dropped and the control row aged past the grace window.
+  const { openCollabDb } = await import('../collab-db.ts');
+  const { PRUNE_ORPHAN_GRACE_MS } = await import('../mission-store.ts');
+  const dbh = openCollabDb(project);
+  dbh.prepare("UPDATE todos SET status = 'dropped' WHERE id = ?").run(missionId);
+  dbh.prepare('UPDATE mission SET createdAt = ? WHERE todoId = ?').run(Date.now() - PRUNE_ORPHAN_GRACE_MS - 60_000, missionId);
+
   pruneOrphanMissions(project, new Set());
 
   expect(getActiveConstraints(project).some((r) => r.id === recId)).toBe(false);

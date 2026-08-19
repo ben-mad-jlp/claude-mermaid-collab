@@ -950,10 +950,24 @@ export function deleteMission(project: string, todoId: string): void {
  *  through delete_mission. Idempotent self-heal; returns the count pruned. */
 export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): number {
   const db = openDb(project);
-  const rows = db.query('SELECT todoId FROM mission').all() as Array<{ todoId: string }>;
+  const rows = db.query('SELECT todoId, createdAt FROM mission').all() as Array<{ todoId: string; createdAt: number }>;
   let pruned = 0;
-  for (const { todoId } of rows) {
+  for (const { todoId, createdAt } of rows) {
     if (!liveNodeIds.has(todoId)) {
+      // liveNodeIds can be a STALE snapshot (the orchestrator tick's todos array is taken
+      // at tick start, so a mission forged mid-tick is absent from it). Absence from the
+      // set is a HINT, never proof: confirm against the todos table directly before
+      // destroying control state. This exact race deleted three freshly-forged missions'
+      // control rows + criteria (unrecoverable) on 2026-08-19.
+      const node = db
+        .query("SELECT status FROM todos WHERE id = ?")
+        .get(todoId) as { status: string } | null;
+      const nodeLive = node != null && node.status !== 'dropped';
+      if (nodeLive) continue;
+      // Grace window: even a genuinely-absent node younger than an hour is more likely a
+      // cross-store write race than a real orphan — leave it for a later sweep.
+      if (nowMs() - createdAt < PRUNE_ORPHAN_GRACE_MS) continue;
+      console.warn(`[mission-store] pruning orphan mission ${todoId} (graph node absent/dropped, age ${(nowMs() - createdAt) / 1000 | 0}s)`);
       retireConstraintsForDeletedTodo(project, todoId);
       db.prepare('DELETE FROM mission_criterion WHERE todoId = ?').run(todoId);
       db.prepare('DELETE FROM mission WHERE todoId = ?').run(todoId);
@@ -962,6 +976,10 @@ export function pruneOrphanMissions(project: string, liveNodeIds: Set<string>): 
   }
   return pruned;
 }
+
+/** A mission row younger than this is never pruned as an orphan — a fresh forge can be
+ *  absent from a caller's stale todos snapshot without being an orphan at all. */
+export const PRUNE_ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
 /** Set a mission's active flag directly (low-level; prefer activateMission to keep
  *  the one-active-per-session invariant). Resolves a short id. */
