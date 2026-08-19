@@ -100,6 +100,8 @@ export interface BridgeCampaign {
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
   chamber: BridgeChamberDeliberation | null;
+  /** The missions linked to this campaign via probe claims, with their display nicknames. */
+  linkedMissions: Array<{ id: string; nickname: string | null }>;
   /** Number of missions linked to this campaign via probe claims. */
   missionCount: number;
   /** Number of leaf todos whose parent chain reaches a linked mission. */
@@ -251,6 +253,18 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       leafCount = countLeavesByMissionReach(todoMap, linkedMissionSet);
     }
 
+    // Project linkedMissionIds through todoMap to include nicknames, skipping missing todos.
+    let linkedMissions: Array<{ id: string; nickname: string | null }> = [];
+    if (todoMap !== null) {
+      linkedMissions = linkedMissionIds
+        .map((id) => {
+          const todo = todoMap.get(id);
+          if (!todo) return null;
+          return { id: todo.id, nickname: todo.nickname ?? null };
+        })
+        .filter((item) => item !== null) as Array<{ id: string; nickname: string | null }>;
+    }
+
     return {
       id: campaign.id,
       title: campaign.title,
@@ -260,6 +274,7 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       probes: enrichedProbes,
       ruling,
       chamber,
+      linkedMissions,
       missionCount,
       leafCount,
       chamberRoster: [...CHAMBER_ROSTER],
