@@ -45,11 +45,18 @@ describe('DeployBanner', () => {
     expect(screen.getByText(/epic landed after this build started/)).toBeTruthy();
   });
 
-  it('shows a blocked note (no button) when not self-project', async () => {
-    fetchDeployStatus.mockResolvedValue(status({ stale: true, canDeploy: false, deployBlockedReason: 'not-self-project' }));
+  it('shows a blocked note (no button) when the deploy cannot run here', async () => {
+    fetchDeployStatus.mockResolvedValue(status({ stale: true, canDeploy: false, deployBlockedReason: 'unsupported-platform' }));
     render(<DeployBanner project="p" serverScope="local" />);
     await waitFor(() => expect(screen.getByTestId('deploy-banner')).toBeTruthy());
     expect(screen.queryByTestId('deploy-banner-button')).toBeNull();
-    expect(screen.getByText(/self-project only/)).toBeTruthy();
+    expect(screen.getByText(/macOS only/)).toBeTruthy();
+  });
+
+  it('renders nothing for a not-self-project status even when stale is set', async () => {
+    fetchDeployStatus.mockResolvedValue(status({ stale: true, notSelfProject: true, canDeploy: false, deployBlockedReason: 'not-self-project' }));
+    const { container } = render(<DeployBanner project="p" serverScope="local" />);
+    await waitFor(() => expect(fetchDeployStatus).toHaveBeenCalled());
+    expect(container.querySelector('[data-testid="deploy-banner"]')).toBeNull();
   });
 });
