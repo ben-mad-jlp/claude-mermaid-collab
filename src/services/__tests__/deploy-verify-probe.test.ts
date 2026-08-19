@@ -107,7 +107,7 @@ describe('runVerifyDeployedBuild', () => {
           owner: 'collab',
         }),
         servedIndexHtml: async () =>
-          '<html><script src="index-different.js"></script></html>',
+          '<html><script src="index-def456.js"></script></html>',
         hashAsar: () => 'wrong-asar-hash',
         readManifest: () => ({
           headSha: 'abc123def456',
@@ -318,6 +318,82 @@ describe('runVerifyDeployedBuild', () => {
     expect(code).toBe(1);
     const status = readSelfDeployStatus();
     expect(status?.mismatches?.includes('head-sha-mismatch')).toBe(true);
+  });
+
+  test('returns 0 and logs an indeterminate line when both bundle sides are unresolved', async () => {
+    const logs: string[] = [];
+    let capturedPayload: any;
+    const io: VerifyProbeIO = {
+      log: (line: string) => logs.push(line),
+      writeVerification: (status) => {
+        capturedPayload = status;
+      },
+      deps: {
+        resourcesPath: '/app/Resources',
+        appPath: '/app',
+        expectedHeadSha: () => 'abc123',
+        health: async () => ({
+          exePath: '/app/Contents/MacOS/Mermaid Collab',
+          owner: 'collab',
+        }),
+        servedIndexHtml: async () => '<html></html>',
+        hashAsar: () => 'asar-hash',
+        readManifest: () => ({
+          headSha: 'abc123',
+          asarSha256: 'asar-hash',
+          sidecarSha256: 'sidecar-hash',
+          uiBundle: 'unknown',
+          builtAt: 1000,
+        }),
+        mainPing: undefined,
+      },
+    };
+
+    const code = await runVerifyDeployedBuild(io);
+
+    expect(code).toBe(0);
+    expect(logs.some((l) => l.startsWith('indeterminate ui-bundle:'))).toBe(true);
+    const indeterminateLog = logs.find((l) => l.startsWith('indeterminate ui-bundle:'));
+    expect(indeterminateLog).toContain('reason="both-bundles-unresolved"');
+    expect(indeterminateLog).toContain('unresolved="both"');
+    expect(logs.some((l) => l.startsWith('mismatch ui-bundle-mismatch'))).toBe(false);
+    expect(capturedPayload?.ok).toBe(true);
+    expect(capturedPayload?.buildVerified).toBe(false);
+  });
+
+  test('returns 1 and logs mismatch ui-bundle-mismatch for two distinct resolved bundle hashes', async () => {
+    const logs: string[] = [];
+    let capturedPayload: any;
+    const io: VerifyProbeIO = {
+      log: (line: string) => logs.push(line),
+      writeVerification: (status) => {
+        capturedPayload = status;
+      },
+      deps: {
+        resourcesPath: '/app/Resources',
+        appPath: '/app',
+        expectedHeadSha: () => 'abc123',
+        health: async () => ({
+          exePath: '/app/Contents/MacOS/Mermaid Collab',
+          owner: 'collab',
+        }),
+        servedIndexHtml: async () => '<html><script src="index-def456.js"></script></html>',
+        hashAsar: () => 'asar-hash',
+        readManifest: () => ({
+          headSha: 'abc123',
+          asarSha256: 'asar-hash',
+          sidecarSha256: 'sidecar-hash',
+          uiBundle: 'index-abc123.js',
+          builtAt: 1000,
+        }),
+        mainPing: undefined,
+      },
+    };
+
+    const code = await runVerifyDeployedBuild(io);
+
+    expect(code).toBe(1);
+    expect(logs.some((l) => l.startsWith('mismatch ui-bundle-mismatch'))).toBe(true);
   });
 });
 
