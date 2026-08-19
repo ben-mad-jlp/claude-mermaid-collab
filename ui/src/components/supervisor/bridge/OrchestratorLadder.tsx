@@ -7,6 +7,7 @@
  * POST /api/orchestrator/level body { project, level } → { project, level }
  */
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { apiFetch } from '@/lib/api';
 
 export type OrchestratorLevel = 'off' | 'on';
 
@@ -26,9 +27,10 @@ const STOP_ACTIVE: Record<OrchestratorLevel, string> = {
 
 export interface OrchestratorLadderProps {
   project: string;
+  serverScope?: string;
 }
 
-export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project }) => {
+export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project, serverScope = 'local' }) => {
   // Optimistic level — default to 'on' until the GET resolves.
   const [level, setLevel] = useState<OrchestratorLevel>('on');
   const [loaded, setLoaded] = useState(false);
@@ -43,18 +45,15 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
     let cancelled = false;
     const probe = async () => {
       try {
-        const mc = (window as any).mc;
-        const path = '/api/orchestrator/health';
-        const data = mc?.invokeOnServer
-          ? (await mc.invokeOnServer('local', { path, method: 'GET' }))?.body
-          : await (await fetch(path)).json();
+        const res = await apiFetch(serverScope, '/api/orchestrator/health');
+        const data = res.ok ? await res.json() : {};
         if (!cancelled) setDaemonUp(!!data?.running);
       } catch { if (!cancelled) setDaemonUp(false); }
     };
     void probe();
     const id = setInterval(probe, 30_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [serverScope]);
 
   // Fetch current level on mount / project change.
   useEffect(() => {
@@ -64,16 +63,9 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
     const myId = ++requestIdRef.current;
     void (async () => {
       try {
-        const mc = (window as any).mc;
         const path = `/api/orchestrator/level?project=${encodeURIComponent(project)}`;
-        let data: { level?: OrchestratorLevel } = {};
-        if (mc?.invokeOnServer) {
-          const res = await mc.invokeOnServer('local', { path, method: 'GET' });
-          data = res?.body ?? {};
-        } else {
-          const r = await fetch(path);
-          if (r.ok) data = await r.json();
-        }
+        const r = await apiFetch(serverScope, path);
+        const data = r.ok ? await r.json() : {};
         if (!cancelled && requestIdRef.current === myId && data.level && LEVELS.includes(data.level)) {
           setLevel(data.level);
         }
@@ -81,7 +73,7 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
       if (!cancelled) setLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [project]);
+  }, [project, serverScope]);
 
   const handleSelect = useCallback(
     (next: OrchestratorLevel) => {
@@ -94,20 +86,13 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
       setBusy(true);
       void (async () => {
         try {
-          const mc = (window as any).mc;
-          const path = '/api/orchestrator/level';
           const body = { project, level: next };
-          if (mc?.invokeOnServer) {
-            const res = await mc.invokeOnServer('local', { path, method: 'POST', body });
-            if (!res?.ok || (typeof res.status === 'number' && res.status >= 400)) setLevel(prev);
-          } else {
-            const r = await fetch(path, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            if (!r.ok) setLevel(prev);
-          }
+          const r = await apiFetch(serverScope, '/api/orchestrator/level', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) setLevel(prev);
         } catch {
           setLevel(prev);
         } finally {
@@ -115,7 +100,7 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project 
         }
       })();
     },
-    [busy, project, level],
+    [busy, project, level, serverScope],
   );
 
   return (
