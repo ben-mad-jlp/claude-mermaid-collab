@@ -46,6 +46,12 @@ afterEach(() => {
   rmSync(project, { recursive: true, force: true });
 });
 
+// The chamber sits between the front and the forge now: without a stub the pass
+// convenes the real chamber (live LLM spawn) and the test times out at 5s.
+const chamberDecisionStub = (async () => ({
+  decision: { outcome: 'decision', chosenCandidate: 'Stub chamber candidate' },
+})) as any;
+
 describe('campaign-pass-dead-link-selfheal', () => {
   it('a link to a missing mission is deleted and the probe is re-forged on the same pass', async () => {
     // Create a campaign with one probe.
@@ -95,6 +101,7 @@ describe('campaign-pass-dead-link-selfheal', () => {
     // Use the DEFAULT isMissionOpen so the real getMission → null path is exercised.
     // This simulates the mission truly not existing.
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       forgeMission: mockForgeMission,
@@ -170,6 +177,7 @@ describe('campaign-pass-dead-link-selfheal', () => {
     const mockIsMissionOpen = () => false;
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       forgeMission: mockForgeMission,
@@ -241,6 +249,7 @@ describe('campaign-pass-dead-link-selfheal', () => {
     const mockIsMissionOpen = () => true;
 
     const deps: CampaignPassDeps = {
+      runChamber: chamberDecisionStub,
       campaignFront: mockCampaignFront,
       listProbeVerdicts: mockListProbeVerdicts,
       forgeMission: mockForgeMission,
