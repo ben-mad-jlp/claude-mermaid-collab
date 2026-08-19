@@ -222,7 +222,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
   }
 
   return (
-    <div className="p-2 space-y-3">
+    <div className="p-2 space-y-3 h-full min-h-0 flex flex-col">
       {campaigns.map((c) => (
         c.droppedAt != null ? (
           // A dropped campaign no longer runs passes or spawns missions — one muted line,
@@ -238,7 +238,7 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
             </span>
           </div>
         ) : (
-        <div key={c.id} className="space-y-1">
+        <div key={c.id} className="space-y-1 flex-1 min-h-0 flex flex-col">
           {/* Campaign heading with optional click handler */}
           {onOpenEntity ? (
             <button
@@ -418,8 +418,8 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
 
           {/* Chamber deliberation transcript */}
           {c.chamber != null && (
-            <div data-testid="campaign-chamber" className="px-2 space-y-2">
-              <div data-testid="chamber-transcript" className="max-h-96 overflow-y-auto space-y-2">
+            <div data-testid="campaign-chamber" className="px-2 space-y-2 flex-1 min-h-0 flex flex-col">
+              <div data-testid="chamber-transcript" className="flex-1 min-h-0 overflow-y-auto space-y-2">
                 {/* Proposals */}
                 {c.chamber.proposals.length > 0 && (
                   <div className="space-y-1">
