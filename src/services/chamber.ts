@@ -74,6 +74,7 @@ export interface ChamberArgs {
   llm?: JudgmentLLM | ChamberLLMFactory;
   model?: string | null;
   forgeInput?: any;
+  frontFingerprint?: string | null;
 }
 
 /**
@@ -609,6 +610,7 @@ You are the president. Choose a candidate to close the campaign, acknowledge the
     strongestDissent,
     refiningGuidance,
     decidedAtSha: args.decidedAtSha,
+    frontFingerprint: args.frontFingerprint ?? null,
     transcript: [
       {
         campaignId: args.campaignId,

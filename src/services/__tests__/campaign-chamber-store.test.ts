@@ -1,5 +1,5 @@
 // Runs via `bun test` (uses bun:sqlite) — excluded from vitest (Node) in vitest.config.ts.
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -226,5 +226,35 @@ describe('campaign-chamber-store', () => {
     // Verify that no decision rows were inserted.
     const decisions = listChamberDecisions(project, campaign.id);
     expect(decisions).toHaveLength(0);
+  });
+
+  it('a chamber decision round-trips its frontFingerprint through the store', () => {
+    // Open the campaign DB and verify the frontFingerprint column exists.
+    const db = openCampaignDb(project);
+    const tableInfo = db
+      .prepare("PRAGMA table_info(chamber_decision)")
+      .all() as Array<{ name: string }>;
+    const columnNames = tableInfo.map((col) => col.name);
+    expect(columnNames).toContain('frontFingerprint');
+
+    // Create a campaign.
+    const campaign = createCampaign(project, {
+      title: 'Test Campaign',
+      goal: 'Verify frontFingerprint persistence',
+    });
+
+    // Record a chamber decision with frontFingerprint.
+    recordChamberDecision(project, {
+      campaignId: campaign.id,
+      sessionId: '__test_session__',
+      outcome: 'decision',
+      decidedAtSha: 'def5678',
+      frontFingerprint: 'p1@aaa|p2@bbb',
+    });
+
+    // List decisions and verify the frontFingerprint round-trips.
+    const decisions = listChamberDecisions(project, campaign.id);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].frontFingerprint).toBe('p1@aaa|p2@bbb');
   });
 });
