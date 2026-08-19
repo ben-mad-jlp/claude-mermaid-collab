@@ -212,6 +212,7 @@ function openDb(): Database {
     const ebgc = db.query('PRAGMA table_info(epic_base_gate)').all() as Array<{ name: string }>;
     if (!ebgc.some((c) => c.name === 'baselineFailures')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN baselineFailures TEXT');
     if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
+    if (!ebgc.some((c) => c.name === 'treeSha')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN treeSha TEXT');
   }
   // Durable SHARED base-gate verdict, keyed by WHAT WAS MEASURED (the coalescer's
   // project+baseSha+lane key, extended with the active-quarantine-set hash) — not by who
@@ -233,6 +234,11 @@ function openDb(): Database {
     failServeCount INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_bgv_base ON base_gate_verdict(baseSha)`);
+  {
+    const bgvc = db.query('PRAGMA table_info(base_gate_verdict)').all() as Array<{ name: string }>;
+    if (!bgvc.some((c) => c.name === 'treeSha')) db.exec('ALTER TABLE base_gate_verdict ADD COLUMN treeSha TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_bgv_tree ON base_gate_verdict(treeSha)');
   // One durable typecheck verdict per (command, tree, cwd-kind) — the cross-RUNNER memo.
   // A clean land used to run the whole-tree typecheck up to four times (base gate, land
   // gate + floor, steward tscClean, test-backend's desktop preamble) because the only
@@ -935,6 +941,7 @@ export interface EpicBaseGateRow {
    *  Reset to 0 by a `pass`; pre-column / pre-existing rows read back as `0`. */
   failAttempts: number;
   checkedAt: number;
+  treeSha?: string | null;
 }
 
 /** A cached base-gate `fail` is only believed once this many fail writes exist at the
@@ -966,19 +973,20 @@ export function recordEpicBaseGate(
       ? 0
       : (sameBase ? (existing?.failAttempts ?? 0) + 1 : 1);
     db.prepare(
-      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, baselineFailures, failAttempts, checkedAt)
-       VALUES (?,?,?,?,?,?,?,?,?)
+      `INSERT INTO epic_base_gate (epicId, project, baseSha, status, command, output, baselineFailures, failAttempts, checkedAt, treeSha)
+       VALUES (?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(epicId) DO UPDATE SET
          project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
          command=excluded.command, output=excluded.output,
          baselineFailures=excluded.baselineFailures,
-         failAttempts=excluded.failAttempts, checkedAt=excluded.checkedAt`,
+         failAttempts=excluded.failAttempts, checkedAt=excluded.checkedAt, treeSha=excluded.treeSha`,
     ).run(
       e.epicId, e.project, e.baseSha ?? null, e.status, e.command ?? null,
       e.output == null ? null : e.output.slice(0, MAX_OUTPUT_CHARS),
       e.baselineFailures == null ? null : JSON.stringify(e.baselineFailures).slice(0, MAX_OUTPUT_CHARS),
       failAttempts,
       now,
+      e.treeSha ?? null,
     );
   } catch { /* best-effort */ }
 }
@@ -1094,6 +1102,7 @@ export interface BaseGateVerdictRow {
   quarantineHash: string;
   measuredAt: number;
   failServeCount: number;
+  treeSha?: string | null;
 }
 
 /** Upsert a shared verdict. Resets `failServeCount` to 0 — a fresh measurement opens a fresh
@@ -1111,13 +1120,13 @@ export function recordBaseGateVerdict(
   try {
     const db = openDb();
     db.prepare(
-      `INSERT INTO base_gate_verdict (key, project, baseSha, status, resultJson, quarantineHash, measuredAt, failServeCount)
-       VALUES (?,?,?,?,?,?,?,0)
+      `INSERT INTO base_gate_verdict (key, project, baseSha, status, resultJson, quarantineHash, measuredAt, failServeCount, treeSha)
+       VALUES (?,?,?,?,?,?,?,0,?)
        ON CONFLICT(key) DO UPDATE SET
          project=excluded.project, baseSha=excluded.baseSha, status=excluded.status,
          resultJson=excluded.resultJson, quarantineHash=excluded.quarantineHash,
-         measuredAt=excluded.measuredAt, failServeCount=0`,
-    ).run(v.key, v.project, v.baseSha ?? null, v.status, v.resultJson ?? null, v.quarantineHash, now);
+         measuredAt=excluded.measuredAt, failServeCount=0, treeSha=excluded.treeSha`,
+    ).run(v.key, v.project, v.baseSha ?? null, v.status, v.resultJson ?? null, v.quarantineHash, now, v.treeSha ?? null);
     const back = db.prepare('SELECT status, measuredAt FROM base_gate_verdict WHERE key=?').get(v.key) as
       { status: string; measuredAt: number } | undefined;
     return back?.status === v.status && back?.measuredAt === now;
@@ -1166,6 +1175,43 @@ export function getLatestBaseGateVerdictForBase(baseSha: string): BaseGateVerdic
       'SELECT * FROM base_gate_verdict WHERE baseSha=? ORDER BY measuredAt DESC LIMIT 1',
     ).get(baseSha) as BaseGateVerdictRow | undefined;
     return raw ?? null;
+  } catch { return null; }
+}
+
+/** Latest green verdict for a tree sha — checks base_gate_verdict (primary) and epic_base_gate
+ *  (fallback) to answer "has a GREEN base gate already been measured for exactly this tree?".
+ *  Falsy/empty `treeSha` ⇒ `null` before touching the DB (an unknown tree is never a verdict).
+ *  Fallback adapts the epic row into a BaseGateVerdictRow shape.
+ *  `null` on miss, on a non-pass row, or on throw — never synthesizes a pass. */
+export function getGreenTreeVerdict(project: string, treeSha: string): BaseGateVerdictRow | null {
+  if (!treeSha) return null;
+  try {
+    const db = openDb();
+    // Primary: newest base_gate_verdict with matching project, treeSha, and status='pass'
+    const primary = db.prepare(
+      'SELECT * FROM base_gate_verdict WHERE project=? AND treeSha=? AND status=? ORDER BY measuredAt DESC LIMIT 1',
+    ).get(project, treeSha, 'pass') as BaseGateVerdictRow | undefined;
+    if (primary) return primary;
+
+    // Fallback: newest epic_base_gate row with matching project, treeSha, and status='pass'
+    const fallback = db.prepare(
+      'SELECT * FROM epic_base_gate WHERE project=? AND treeSha=? AND status=? ORDER BY checkedAt DESC LIMIT 1',
+    ).get(project, treeSha, 'pass') as (Omit<EpicBaseGateRow, 'baselineFailures' | 'failAttempts'> & { baselineFailures: string | null; failAttempts: number | null }) | undefined;
+    if (fallback) {
+      return {
+        key: `epic:${fallback.epicId}`,
+        project: fallback.project,
+        baseSha: fallback.baseSha,
+        treeSha: fallback.treeSha,
+        status: 'pass',
+        resultJson: null,
+        quarantineHash: '',
+        measuredAt: fallback.checkedAt,
+        failServeCount: 0,
+      };
+    }
+
+    return null;
   } catch { return null; }
 }
 
