@@ -81,6 +81,12 @@ export interface UnlandedEpic {
   ahead: number;
 }
 
+export interface LandInFlight {
+  jobId: string;
+  epicId: string;
+  startedAtMs: number;
+}
+
 export interface AuditEntry {
   id: string;
   ts: number;
@@ -538,6 +544,8 @@ interface SupervisorState {
    *  branches with commits not on master = accepted work stranded off-master.
    *  Refreshed alongside todos on the existing per-project load (no new poll). */
   unlandedEpicsByProject: Record<string, UnlandedEpic[]>;
+  /** Per-project in-flight land jobs. Populated from the bridge snapshot when available. */
+  landsInFlightByProject: Record<string, LandInFlight[]>;
   /** Per-project bridge snapshot load state (ephemeral, not persisted). Tracks
    *  loading/loaded/error status and whether data has been loaded once. */
   bridgeSnapshotStateByProject: Record<string, { status: 'loading' | 'loaded' | 'error'; hasLoadedOnce: boolean }>;
@@ -809,6 +817,7 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
   watchedProjects: hydrate<WatchedProject[]>(PROJECTS_KEY, []),
   todosByProject: hydrateTodosByProject(),
   unlandedEpicsByProject: {},
+  landsInFlightByProject: {},
   bridgeSnapshotStateByProject: {},
   sessionSummaries: {},
   pendingClears: {},
@@ -1095,6 +1104,14 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
       // Guard and write campaigns
       if (res.body?.campaigns) {
         nextState.campaignsByProject = { ...state.campaignsByProject, [project]: res.body.campaigns as BridgeCampaign[] };
+      }
+
+      // Guard and write landsInFlight
+      if (res.body?.landsInFlight) {
+        nextState.landsInFlightByProject = {
+          ...state.landsInFlightByProject,
+          [project]: (res.body.landsInFlight as LandInFlight[]) ?? [],
+        };
       }
 
       return nextState;
