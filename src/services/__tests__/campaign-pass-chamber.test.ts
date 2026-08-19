@@ -151,6 +151,7 @@ describe('campaign-pass chamber routing', () => {
           refiningGuidance: null,
           decidedAtSha: 'abc123',
           createdAt: Date.now(),
+          frontFingerprint: null,
         },
         forged: null,
       };

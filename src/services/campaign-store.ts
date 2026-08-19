@@ -143,6 +143,7 @@ export interface ChamberDecisionRecord {
   refiningGuidance: string | null;
   decidedAtSha: string;
   createdAt: number;
+  frontFingerprint?: string | null;
 }
 
 /** Input shape for recording a chamber decision with optional accompanying transcript rows. */
@@ -154,6 +155,7 @@ export interface ChamberDecisionInput {
   strongestDissent?: string | null;
   refiningGuidance?: string | null;
   decidedAtSha: string;
+  frontFingerprint?: string | null;
   transcript?: ChamberTranscriptInput[];
 }
 
@@ -347,7 +349,8 @@ export const CHAMBER_DECISION_TABLE_DDL = `
   strongestDissent TEXT,
   refiningGuidance TEXT,
   decidedAtSha TEXT NOT NULL,
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  frontFingerprint TEXT
 `;
 
 const CAMPAIGN_SCHEMA = `
@@ -601,6 +604,24 @@ function addCompletionLensRoundColumns(db: Database): void {
   }
 }
 
+/**
+ * Idempotent migration to add frontFingerprint column to chamber_decision table.
+ * Uses PRAGMA table_info to check if the column exists; adds it if missing.
+ * Safe to call multiple times and on tables that already have the column.
+ */
+function addChamberDecisionFrontFingerprintColumn(db: Database): void {
+  const tableInfo = db
+    .prepare("PRAGMA table_info(chamber_decision)")
+    .all() as Array<{ name: string }>;
+
+  const hasColumn = tableInfo.some((col) => col.name === 'frontFingerprint');
+  if (hasColumn) {
+    return; // Column already exists, no-op.
+  }
+
+  db.prepare("ALTER TABLE chamber_decision ADD COLUMN frontFingerprint TEXT").run();
+}
+
 export function openCampaignDb(project: string): Database {
   // Key the cache on the SAME canonical root canonicalProjectRoot resolves to.
   project = canonicalProjectRoot(project);
@@ -651,6 +672,9 @@ export function openCampaignDb(project: string): Database {
 
   // Idempotent migration: create chamber_transcript and chamber_decision tables if missing.
   ensureChamberTables(db);
+
+  // Idempotent migration: add frontFingerprint column to chamber_decision if missing.
+  addChamberDecisionFrontFingerprintColumn(db);
 
   prepared.add(project);
   return db;
@@ -1446,7 +1470,7 @@ export function recordChamberDecision(project: string, input: ChamberDecisionInp
   try {
     // Insert the parent chamber decision record.
     db.prepare(
-      'INSERT INTO chamber_decision (campaignId, sessionId, outcome, chosenCandidate, strongestDissent, refiningGuidance, decidedAtSha, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO chamber_decision (campaignId, sessionId, outcome, chosenCandidate, strongestDissent, refiningGuidance, decidedAtSha, createdAt, frontFingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       input.campaignId,
       input.sessionId,
@@ -1456,6 +1480,7 @@ export function recordChamberDecision(project: string, input: ChamberDecisionInp
       input.refiningGuidance ?? null,
       input.decidedAtSha,
       ts,
+      input.frontFingerprint ?? null,
     );
 
     // Get the id of the inserted decision record while still in the transaction.
@@ -1493,6 +1518,7 @@ export function recordChamberDecision(project: string, input: ChamberDecisionInp
       refiningGuidance: input.refiningGuidance ?? null,
       decidedAtSha: input.decidedAtSha,
       createdAt: ts,
+      frontFingerprint: input.frontFingerprint ?? null,
     };
   } catch (err) {
     db.exec('ROLLBACK');
@@ -1542,6 +1568,7 @@ export function listChamberDecisions(project: string, campaignId: string): Chamb
     refiningGuidance: row.refiningGuidance,
     decidedAtSha: row.decidedAtSha,
     createdAt: row.createdAt,
+    frontFingerprint: row.frontFingerprint ?? null,
   }));
 }
 
