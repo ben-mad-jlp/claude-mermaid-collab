@@ -5,8 +5,8 @@
 //   bun scripts/verify-deployed-build.ts
 //
 // Exit codes:
-//   0 — deployed build matches manifest
-//   1 — mismatch or verification failed
+//   0 — deployed build matches manifest, or verification was indeterminate (swap succeeded, health returned)
+//   1 — a genuine mismatch between two resolved values
 //
 // Environment:
 //   APP_PATH               path to the .app bundle (default /Applications/Mermaid Collab.app)
@@ -102,6 +102,10 @@ export async function runVerifyDeployedBuild(io: VerifyProbeIO): Promise<number>
     }
   }
 
+  for (const e of result.indeterminate) {
+    io.log(`indeterminate ${e.check}: reason="${e.reason}" unresolved="${e.unresolvedSide}"`);
+  }
+
   let headShaResult = 'unknown';
   try {
     const headShaCall = await Promise.resolve(io.deps.expectedHeadSha());
@@ -110,12 +114,20 @@ export async function runVerifyDeployedBuild(io: VerifyProbeIO): Promise<number>
     // use default 'unknown'
   }
 
+  let message: string;
+  if (result.ok && result.indeterminate.length > 0) {
+    const reasons = result.indeterminate.map((e) => e.reason).join(', ');
+    message = `verification indeterminate: ${reasons}`;
+  } else {
+    message = result.ok ? 'build verified' : `${result.mismatches.length} mismatch(es)`;
+  }
+
   io.writeVerification({
     ok: result.ok,
-    buildVerified: result.ok,
+    buildVerified: result.ok && result.indeterminate.length === 0,
     headSha: headShaResult,
     mismatches: result.mismatches,
-    message: result.ok ? 'build verified' : `${result.mismatches.length} mismatch(es)`,
+    message,
   });
 
   return result.ok ? 0 : 1;
