@@ -32,7 +32,7 @@ export const DeployBanner: React.FC<DeployBannerProps> = ({ project, serverScope
   // DIFFERENT one, the new sidecar is up and the deploy succeeded.
   const deployingFromRef = useRef<string | null>(null);
 
-  const visible = !!status && (status.stale || deploying);
+  const visible = !!status && !status.notSelfProject && (status.stale || deploying);
   useEffect(() => { onVisibleChange?.(visible); }, [visible, onVisibleChange]);
 
   const poll = useCallback(async () => {

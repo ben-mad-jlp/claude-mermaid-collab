@@ -53,6 +53,7 @@ export interface DeployStatus {
   stale: boolean;
   canDeploy: boolean;
   deployBlockedReason: string | null;
+  notSelfProject?: boolean;
 }
 
 export interface VerifyEpicSummary {
