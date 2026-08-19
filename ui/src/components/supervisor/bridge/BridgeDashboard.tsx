@@ -62,6 +62,7 @@ import { BridgeInspector } from './inspector/BridgeInspector';
 import { MissionDetailPanel } from './inspector/MissionDetailPanel';
 import { MissionStrip } from './MissionStrip';
 import { UnlandedStrip } from './UnlandedStrip';
+import { CampaignStrip } from './CampaignStrip';
 import { CampaignPanel } from './CampaignPanel';
 
 // Match the worker-card poll cadence (useSessionStatuses POLL_MS) so the
@@ -670,6 +671,12 @@ export const BridgeDashboard: React.FC = () => {
             project={project}
             session={currentSession?.name}
             onOpenMissions={handleOpenMissions}
+          />
+        }
+        campaignStrip={
+          <CampaignStrip
+            project={project}
+            onOpenCampaigns={handleOpenCampaigns}
           />
         }
         stage={
