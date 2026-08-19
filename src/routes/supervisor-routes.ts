@@ -328,6 +328,29 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
     }
   }
 
+  // LAND JOBS — read-only in-flight land-epic async jobs for a project. Returns running
+  // and pending jobs only, with fields: id, targetId, status, phase, updatedAt.
+  if (url.pathname === '/api/supervisor/land-jobs' && req.method === 'GET') {
+    try {
+      const project = url.searchParams.get('project');
+      if (!project) return jsonError('project is required', 400);
+      const { listJobs } = await import('../services/async-job-store.ts');
+      const allJobs = listJobs(project, { kind: 'land-epic' });
+      const jobs = allJobs
+        .filter((job) => job.status === 'pending' || job.status === 'running')
+        .map((job) => ({
+          id: job.id,
+          targetId: job.targetId,
+          status: job.status,
+          phase: job.phase,
+          updatedAt: job.updatedAt,
+        }));
+      return Response.json({ jobs });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
+  }
+
   // MISSIONS (write) — AUTHORING surface for the Plan-board Missions strip. Each route
   // NICKNAMES — read-only merge of todo + mission-criterion nicknames for a project.
   if (url.pathname === '/api/supervisor/nicknames' && req.method === 'GET') {
