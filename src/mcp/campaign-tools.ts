@@ -9,6 +9,7 @@ import { campaignFront } from '../services/campaign-front.js';
 import { deriveCampaignCompletion } from '../services/campaign-completion.js';
 import { makeJudgmentLLM } from '../services/judgment-llm.js';
 import { resolveTriageRoute } from '../services/config-service.js';
+import { getCampaignLevel, setCampaignLevel, type CampaignLevel } from '../services/orchestrator-config.js';
 
 export const CAMPAIGN_TOOL_DEFS = [
   {
@@ -125,6 +126,25 @@ export const CAMPAIGN_TOOL_DEFS = [
       required: ['project', 'campaignId'],
     },
   },
+  {
+    name: 'set_campaign_level',
+    description: 'Set the campaign pass gate level for a project. The campaign pass runs probes and files issues; an explicit "off" level gates it (the default is "on").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: {
+          type: 'string',
+          description: 'Tracking project.',
+        },
+        level: {
+          type: 'string',
+          enum: ['off', 'on'],
+          description: 'Campaign pass gate level.',
+        },
+      },
+      required: ['project', 'level'],
+    },
+  },
 ];
 
 export async function handleCampaignTool(name: string, args: any): Promise<string | null> {
@@ -149,10 +169,12 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const { project } = args as { project?: string };
       if (!project) throw new Error('Missing required: project');
       const campaigns = listCampaigns(project);
-      // Enrich each campaign with its probe count
+      const level = getCampaignLevel(project);
+      // Enrich each campaign with its probe count and campaign level
       const enriched = campaigns.map((row) => ({
         ...row,
         probeCount: listProbes(project, row.id).length,
+        campaignLevel: level,
       }));
       return JSON.stringify(enriched, null, 2);
     }
@@ -169,7 +191,7 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const front = campaignFront(project, campaignId);
       const latest = latestCampaignCompletion(project, campaignId);
       const completion = deriveCampaignCompletion({ probes, verdict: latest });
-      return JSON.stringify({ campaignId, goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
+      return JSON.stringify({ campaignId, campaignLevel: getCampaignLevel(project), goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
     }
     case 'drop_campaign': {
       const { project, campaignId } = args as { project?: string; campaignId?: string };
@@ -177,6 +199,13 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       if (!campaignId) throw new Error('Missing required: campaignId');
       const dropped = dropCampaign(project, campaignId);
       return JSON.stringify(dropped, null, 2);
+    }
+    case 'set_campaign_level': {
+      const { project, level } = args as { project?: string; level?: string };
+      if (!project) throw new Error('Missing required: project');
+      if (!level) throw new Error('Missing required: level');
+      setCampaignLevel(project, level as CampaignLevel);
+      return JSON.stringify({ project, level: getCampaignLevel(project) }, null, 2);
     }
     default:
       return null;
