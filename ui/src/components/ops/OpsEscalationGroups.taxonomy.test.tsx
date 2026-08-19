@@ -16,10 +16,12 @@ const mockState = {
   promoteTodo: vi.fn(),
   resolvedEscalations: [],
   todosByProject: {},
+  landJobs: {},
 };
 
 vi.mock('@/stores/supervisorStore', () => ({
   useSupervisorStore: (sel?: (s: any) => any) => (sel ? sel(mockState) : mockState),
+  runningLandJobFor: () => null,
 }));
 
 function mkEscalation(over: Partial<Escalation> = {}): Escalation {

@@ -110,8 +110,18 @@ describe('BridgeDashboard project selection persists the ladder level', () => {
     posts = [];
     const pendingBGet = new Promise((r) => { resolveBGet = r; });
 
+    const normalizePath = (raw: string): string => {
+      try {
+        const parsed = new URL(raw, 'http://localhost');
+        const pathAndQuery = parsed.pathname + parsed.search;
+        return pathAndQuery.replace(/^\/srv\/[^/]+/, '');
+      } catch {
+        return raw;
+      }
+    };
+
     global.fetch = vi.fn((url: any, init?: any) => {
-      const path = String(url);
+      const path = normalizePath(String(url));
       const method = init?.method ?? 'GET';
 
       if (method === 'POST' && path.startsWith('/api/orchestrator/level')) {
