@@ -116,4 +116,7 @@ export interface BridgeCampaign {
   /** Roster of chamber members with their agenda descriptions. Optional so snapshots from an older server
    *  (no field) still parse; missing means no roster available. */
   chamberRoster?: ChamberRosterEntry[];
+  /** Every chamber deliberation for this campaign, oldest first. Optional so snapshots from an
+   *  older server (no field) still parse; missing means only `chamber` (the latest) is known. */
+  chamberHistory?: BridgeChamberDeliberation[];
 }
