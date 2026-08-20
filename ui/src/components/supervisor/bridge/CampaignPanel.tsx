@@ -8,9 +8,10 @@
  * and one row per probe showing id prefix, kind, environment and verdict.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
-import type { BridgeCampaign, BridgeCampaignLens, BridgeChamberEntry, ChamberRosterEntry } from '@/types/campaign';
+import type { BridgeCampaign, BridgeCampaignLens } from '@/types/campaign';
+import { ChamberDecisionIndex } from './ChamberDecisionIndex';
 
 export interface CampaignPanelProps {
   project: string;
@@ -24,68 +25,10 @@ export interface CampaignPanelProps {
  */
 export const PROBE_EVIDENCE_STALE_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Chamber entry bodies longer than this character count are clamped and can be expanded.
- */
-export const CHAMBER_CLAMP_CHARS = 280;
+export { CHAMBER_CLAMP_CHARS, rosterAgendaFor, parseChamberFailure } from './chamberEntry';
 
 /** Frozen empty array to avoid re-render on every store write. */
 const EMPTY: BridgeCampaign[] = [];
-
-/**
- * Render a chamber role with its optional roster agenda description.
- * The role is rendered in its own <span> to preserve test assertions like
- * screen.getByText('lens-security'). The agenda (if present) renders in a sibling
- * muted element with data-testid="chamber-role-agenda".
- */
-const ChamberRole: React.FC<{ role: string; agenda: string | null }> = ({ role, agenda }) => (
-  <div className="flex items-center gap-2">
-    <span className="font-mono">{role}</span>
-    {agenda !== null && (
-      <span
-        data-testid="chamber-role-agenda"
-        title={agenda}
-        className="text-gray-400 dark:text-gray-500"
-      >
-        {agenda}
-      </span>
-    )}
-  </div>
-);
-
-/**
- * Render a chamber body with automatic clamping and expand control.
- * Short bodies (≤ CHAMBER_CLAMP_CHARS) render unchanged.
- * Long bodies render clamped by default with a Show more/Show less button.
- */
-const ClampedBody: React.FC<{ text: string }> = ({ text }) => {
-  const [expanded, setExpanded] = useState(false);
-
-  if (text.length <= CHAMBER_CLAMP_CHARS) {
-    return <div className="text-gray-500 dark:text-gray-500">{text}</div>;
-  }
-
-  const truncated = text.slice(0, CHAMBER_CLAMP_CHARS) + '…';
-
-  return (
-    <>
-      <div
-        data-testid="chamber-body"
-        data-clamped={expanded ? 'false' : 'true'}
-        className="text-gray-500 dark:text-gray-500"
-      >
-        {expanded ? text : truncated}
-      </div>
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors text-2xs mt-1"
-      >
-        {expanded ? 'Show less' : 'Show more'}
-      </button>
-    </>
-  );
-};
 
 /**
  * Format a probe's last evidence timestamp into a relative-age label.
@@ -136,76 +79,6 @@ export function panelHasDissent(lenses: BridgeCampaignLens[]): boolean {
   const firstVerdict = lenses[0].verdict;
   return lenses.some((l) => l.verdict !== firstVerdict);
 }
-
-/**
- * Resolve a chamber role to its roster agenda description, or null if the role
- * is not found or the roster is undefined/empty.
- * This is the crash-safety seam: never indexes or assumes the field exists.
- */
-export function rosterAgendaFor(roster: ChamberRosterEntry[] | undefined, role: string): string | null {
-  if (!roster || roster.length === 0) return null;
-  const entry = roster.find((e) => e.name === role);
-  return entry?.agenda ?? null;
-}
-
-/**
- * Parse a chamber entry content string to detect failed general calls.
- * Returns { reason: string | null } when the content is (failed: <reason>) or (failed),
- * or null when the content is ordinary deliberation prose.
- * Returns defensive { reason: null } for any malformed (failed...) string.
- */
-export function parseChamberFailure(content: string): { reason: string | null } | null {
-  if (!content.startsWith('(failed')) {
-    return null;
-  }
-
-  if (content === '(failed)') {
-    return { reason: null };
-  }
-
-  if (content.startsWith('(failed: ') && content.endsWith(')')) {
-    const reason = content.slice('(failed: '.length, -1);
-    return { reason };
-  }
-
-  // Malformed (failed...) string, treat defensively
-  return { reason: null };
-}
-
-/**
- * Render a failed general call as a single compact line with its recorded reason.
- * Shows the role and the recorded reason, or "no reason recorded" if reason is null.
- */
-const ChamberFailureLine: React.FC<{ role: string; reason: string | null }> = ({ role, reason }) => (
-  <div
-    data-testid="chamber-failure"
-    className="text-gray-500 dark:text-gray-500"
-  >
-    {role} failed: {reason || 'no reason recorded'}
-  </div>
-);
-
-/**
- * Route chamber entry rendering between a failure line (if content is a failed call)
- * and the normal role + clamped body pair (for deliberation prose).
- */
-const ChamberEntryBody: React.FC<{ entry: BridgeChamberEntry; agenda: string | null }> = ({
-  entry,
-  agenda,
-}) => {
-  const failureInfo = parseChamberFailure(entry.content);
-
-  if (failureInfo !== null) {
-    return <ChamberFailureLine role={entry.role} reason={failureInfo.reason} />;
-  }
-
-  return (
-    <>
-      <ChamberRole role={entry.role} agenda={agenda} />
-      <ClampedBody text={entry.content} />
-    </>
-  );
-};
 
 export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEntity, nowMs }) => {
   const campaigns = useSupervisorStore((s) => s.campaignsByProject[project]) ?? EMPTY;
@@ -416,120 +289,15 @@ export const CampaignPanel: React.FC<CampaignPanelProps> = ({ project, onOpenEnt
             </div>
           )}
 
-          {/* Chamber deliberation transcript */}
-          {c.chamber != null && (
-            <div data-testid="campaign-chamber" className="px-2 space-y-2 flex-1 min-h-0 flex flex-col">
-              <div data-testid="chamber-transcript" className="flex-1 min-h-0 overflow-y-auto space-y-2">
-                {/* Proposals */}
-                {c.chamber.proposals.length > 0 && (
-                  <div className="space-y-1">
-                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                      Propose
-                    </div>
-                    {c.chamber.proposals.map((entry, idx) => (
-                      <div
-                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                        data-testid="chamber-proposal"
-                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                      >
-                        <ChamberEntryBody
-                          entry={entry}
-                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Vetoes */}
-                {c.chamber.vetoes.length > 0 && (
-                  <div className="space-y-1">
-                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                      Veto
-                    </div>
-                    {c.chamber.vetoes.map((entry, idx) => (
-                      <div
-                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                        data-testid="chamber-veto"
-                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                      >
-                        <ChamberEntryBody
-                          entry={entry}
-                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Wargame */}
-                {c.chamber.wargame.length > 0 && (
-                  <div className="space-y-1">
-                    <div data-testid="chamber-phase-heading" className="text-3xs text-gray-600 dark:text-gray-400 font-semibold">
-                      Wargame
-                    </div>
-                    {c.chamber.wargame.map((entry, idx) => (
-                      <div
-                        key={`${entry.phase}-${entry.createdAt}-${idx}`}
-                        data-testid="chamber-wargame"
-                        className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5 pl-2"
-                      >
-                        <ChamberEntryBody
-                          entry={entry}
-                          agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Decision */}
-                <div
-                  data-testid="chamber-decision"
-                  className="text-xs text-gray-600 dark:text-gray-400 space-y-0.5"
-                >
-                  <div data-testid="chamber-phase-heading" className="font-semibold">Decision</div>
-                <div className="pl-2 space-y-1">
-                  {/* Decision entries with role and agenda */}
-                  {c.chamber.decision.length > 0 && (
-                    <div className="space-y-1">
-                      {c.chamber.decision.map((entry, idx) => (
-                        <div key={`${entry.phase}-${entry.createdAt}-${idx}`} className="space-y-0.5">
-                          <ChamberEntryBody
-                            entry={entry}
-                            agenda={rosterAgendaFor(c.chamberRoster, entry.role)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="text-gray-500 dark:text-gray-500">
-                    <span className="font-mono">Outcome:</span> {c.chamber.outcome}
-                  </div>
-                  {c.chamber.chosenCandidate !== null && (
-                    <div className="text-gray-500 dark:text-gray-500">
-                      <span className="font-mono">Chosen:</span> {c.chamber.chosenCandidate}
-                    </div>
-                  )}
-                  {c.chamber.strongestDissent !== null && (
-                    <div className="text-gray-500 dark:text-gray-500">
-                      <span className="font-mono">Dissent:</span> {c.chamber.strongestDissent}
-                    </div>
-                  )}
-                  {c.chamber.refiningGuidance !== null ? (
-                    <div className="text-gray-500 dark:text-gray-500">
-                      <span className="font-mono">Guidance:</span> {c.chamber.refiningGuidance}
-                    </div>
-                  ) : (
-                    <div className="text-gray-400 dark:text-gray-600 pl-2 italic">
-                      No guidance recorded
-                    </div>
-                  )}
-                </div>
+          {/* Chamber deliberation index */}
+          {(() => {
+            const history = c.chamberHistory ?? (c.chamber ? [c.chamber] : []);
+            return history.length > 0 ? (
+              <div data-testid="campaign-chamber" className="px-2 space-y-2 flex-1 min-h-0 flex flex-col">
+                <ChamberDecisionIndex decisions={history} roster={c.chamberRoster} />
               </div>
-              </div>
-            </div>
-          )}
+            ) : null;
+          })()}
         </div>
         )
       ))}
