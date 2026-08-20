@@ -758,8 +758,8 @@ export function setMissionClosed(
     // Clean convergence: no unmet criteria, update as before
     db.transaction(() => {
       const res = db
-        .prepare('UPDATE mission SET closedAt = ?, updatedAt = ? WHERE todoId = ?')
-        .run(at, nowMs(), id);
+        .prepare('UPDATE mission SET closedAt = ?, closedBy = ?, updatedAt = ? WHERE todoId = ?')
+        .run(at, judge, nowMs(), id);
       if (res.changes === 0) throw new Error(`mission not found: ${todoId}`);
       stampMissionTodoStatus(db, id, true);
     })();
