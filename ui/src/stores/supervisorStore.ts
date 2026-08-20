@@ -457,31 +457,40 @@ function hydrateTodosByProject(): Record<string, SessionTodo[]> {
   return sanitizeTodosByProject(hydrate<unknown>(TODOS_KEY, {}));
 }
 
-/** Persist the todos cache with a byte-size limit. Evicts the oldest (first-inserted)
- *  project key when the serialized blob exceeds TODOS_CACHE_MAX_BYTES and there is
- *  more than one key. localStorage.setItem errors are swallowed (cache only; server
- *  is authoritative). Returns the (possibly evicted) map for use as state. */
+/** Persist the todos cache with a byte-size limit, and return the map UNCHANGED for state.
+ *
+ *  The size cap bounds what goes to localStorage — never what the app renders. It used to
+ *  return the evicted map as state, so a single large project stripped every other project
+ *  out of the store: this repo's own work-graph is ~4,600 rows ≈ 8 MB, four times the cap on
+ *  its own, so each per-project load evicted the rest and the rail's project cards blanked
+ *  for every project except the one that happened to load last. Project cards are a global
+ *  summary — they must show for every watched project regardless of which one is selected.
+ *
+ *  When even a single project exceeds the cap the write is SKIPPED entirely rather than
+ *  attempted and swallowed: a doomed multi-megabyte setItem on every refresh is pure cost. */
 function persistTodosCache(todosByProject: Record<string, SessionTodo[]>): Record<string, SessionTodo[]> {
-  let map = todosByProject;
-  let serialized = JSON.stringify(map);
+  let persistable = todosByProject;
+  let serialized = JSON.stringify(persistable);
   let byteLength = new TextEncoder().encode(serialized).length;
 
-  // Evict the oldest project key while over the cap and there are multiple keys
-  while (byteLength > TODOS_CACHE_MAX_BYTES && Object.keys(map).length > 1) {
-    const oldestKey = Object.keys(map)[0];
-    const { [oldestKey]: _drop, ...rest } = map;
-    map = rest;
-    serialized = JSON.stringify(map);
+  // Evict the oldest project key from the PERSISTED copy while over the cap.
+  while (byteLength > TODOS_CACHE_MAX_BYTES && Object.keys(persistable).length > 1) {
+    const oldestKey = Object.keys(persistable)[0];
+    const { [oldestKey]: _drop, ...rest } = persistable;
+    persistable = rest;
+    serialized = JSON.stringify(persistable);
     byteLength = new TextEncoder().encode(serialized).length;
   }
 
-  try {
-    localStorage.setItem(TODOS_KEY, serialized);
-  } catch {
-    // QuotaExceededError and any other storage error: cache only, do not throw
+  if (byteLength <= TODOS_CACHE_MAX_BYTES) {
+    try {
+      localStorage.setItem(TODOS_KEY, serialized);
+    } catch {
+      // QuotaExceededError and any other storage error: cache only, do not throw
+    }
   }
 
-  return map;
+  return todosByProject;
 }
 
 // Z9: module-scope snooze resurface timers, keyed by `${project}::${session}`.
