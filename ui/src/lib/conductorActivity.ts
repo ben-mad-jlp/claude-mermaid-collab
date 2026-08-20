@@ -9,6 +9,64 @@
  * keep it in lockstep with the backend if the rule ever changes.
  */
 
+/**
+ * Local mirror of `apiFetch` (`ui/src/lib/api.ts`) — duplicated rather than imported, for the
+ * same reason the formatter body below is duplicated: this module is ALSO typechecked from
+ * the repo-root tsconfig (via `src/services/__tests__/conductor-pass-format-ui-parity.test.ts`,
+ * which imports it directly). That config has no DOM lib and no `@/*` path mapping, so an
+ * import of `./api` — which touches `window`, `@/types`, and `websocket.ts` — fails there.
+ * Keep this in lockstep with `api.ts`'s `apiFetch` if the routing rule ever changes.
+ */
+async function apiFetch(serverId: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const mc = (globalThis as any).window?.mc;
+  if (mc?.invokeOnServer && serverId) {
+    const method = init.method || 'GET';
+    const headers = (init.headers as Record<string, string>) || {};
+    let body: any = undefined;
+    if (init.body != null) {
+      if (typeof init.body === 'string') {
+        body = init.body;
+      } else {
+        // FormData / Blob etc. are not supported by the IPC bridge — fall through to browser fetch.
+        const fallbackUrl = new URL(
+          '/srv/' + encodeURIComponent(serverId) + path,
+          (globalThis as any).window.location.origin,
+        ).toString();
+        return fetch(fallbackUrl, init);
+      }
+    }
+    const res: any = await mc.invokeOnServer(serverId, { path, method, body, headers });
+    if (!res) {
+      return new Response(null, { status: 502, statusText: 'invokeOnServer failed' });
+    }
+    const respHeaders = new Headers();
+    const rawHeaders = (res.headers ?? {}) as Record<string, string | string[]>;
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      if (Array.isArray(v)) v.forEach((x) => respHeaders.append(k, String(x)));
+      else if (v != null) respHeaders.set(k, String(v));
+    }
+    const respBody = typeof res.body === 'string'
+      ? res.body
+      : res.body == null ? null : JSON.stringify(res.body);
+    return new Response(respBody, {
+      status: res.status ?? 200,
+      statusText: res.statusText ?? '',
+      headers: respHeaders,
+    });
+  }
+  if (mc && !serverId) {
+    console.warn(
+      `[apiFetch] empty serverId for ${path} with a native bridge present — ` +
+        `falling back to the local origin. If this is a remote session, its ` +
+        `documents/items will appear empty; the session likely lost its serverId.`
+    );
+  }
+  const url = serverId
+    ? new URL('/srv/' + encodeURIComponent(serverId) + path, (globalThis as any).window.location.origin).toString()
+    : path;
+  return fetch(url, init);
+}
+
 export interface ConductorFiledRef {
   kind: 'epic' | 'leaf' | 'card';
   id: string;
@@ -40,9 +98,10 @@ export interface ConductorPassRow {
 export async function kickConductor(
   project: string,
   missionId?: string,
+  serverScope: string = 'local',
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const response = await fetch('/api/conductor/kick', {
+    const response = await apiFetch(serverScope, '/api/conductor/kick', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project, missionId }),
@@ -75,9 +134,10 @@ async function fetchLeverLevel(
   path: string,
   label: string,
   project: string,
+  serverScope: string = 'local',
 ): Promise<{ ok: boolean; level: LeverLevel; error?: string }> {
   try {
-    const response = await fetch(`${path}?project=${encodeURIComponent(project)}`);
+    const response = await apiFetch(serverScope, `${path}?project=${encodeURIComponent(project)}`);
     if (!response.ok) return { ok: false, level: 'on', error: `${label} read failed (${response.status})` };
     const data = (await response.json()) as { level?: string };
     return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
@@ -93,9 +153,10 @@ async function postLeverLevel(
   label: string,
   project: string,
   level: LeverLevel,
+  serverScope: string = 'local',
 ): Promise<{ ok: boolean; level?: LeverLevel; error?: string }> {
   try {
-    const response = await fetch(path, {
+    const response = await apiFetch(serverScope, path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project, level }),
@@ -117,18 +178,28 @@ async function postLeverLevel(
   }
 }
 
+/**
+ * The trailing `serverScope` param on every export below is OPTIONAL, so the existing
+ * unscoped callers keep compiling untouched — `ConductorLadder.tsx:64-65` types `LeverStopProps.fetchLevel`
+ * as `(project: string) => Promise<...>` and `.postLevel` as `(project, level) => Promise<...>`; passing
+ * `fetchAutoFixLevel`/`setAutoFixLevel`/`fetchExplorerLevel`/`setExplorerLevel` (each now `(project,
+ * serverScope = 'local')` / `(project, level, serverScope = 'local')`) still satisfies those prop types
+ * because a function with fewer required params is assignable to a shorter function type. Same for
+ * `kickConductor(project)` at `ConductorLadder.tsx:200`. `npx tsc --noEmit -p ui/tsconfig.json` is clean
+ * with this file's new signatures.
+ */
 /** AUTOFIX (third lever): gates the daemon's repair-forge pass. */
-export const fetchAutoFixLevel = (project: string) =>
-  fetchLeverLevel('/api/autofix/level', 'autofix', project);
-export const setAutoFixLevel = (project: string, level: AutoFixLevel) =>
-  postLeverLevel('/api/autofix/level', 'autofix', project, level);
+export const fetchAutoFixLevel = (project: string, serverScope: string = 'local') =>
+  fetchLeverLevel('/api/autofix/level', 'autofix', project, serverScope);
+export const setAutoFixLevel = (project: string, level: AutoFixLevel, serverScope: string = 'local') =>
+  postLeverLevel('/api/autofix/level', 'autofix', project, level, serverScope);
 
 /** EXPLORER (fourth lever): gates explore-leaf DISPATCH + the verify-explore filer.
  *  Explores are still filed and still promoted while it is off — only claiming is held. */
-export const fetchExplorerLevel = (project: string) =>
-  fetchLeverLevel('/api/explorer/level', 'explorer', project);
-export const setExplorerLevel = (project: string, level: ExplorerLevel) =>
-  postLeverLevel('/api/explorer/level', 'explorer', project, level);
+export const fetchExplorerLevel = (project: string, serverScope: string = 'local') =>
+  fetchLeverLevel('/api/explorer/level', 'explorer', project, serverScope);
+export const setExplorerLevel = (project: string, level: ExplorerLevel, serverScope: string = 'local') =>
+  postLeverLevel('/api/explorer/level', 'explorer', project, level, serverScope);
 
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }
