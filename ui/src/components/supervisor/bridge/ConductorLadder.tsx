@@ -15,6 +15,8 @@ import {
   setAutoFixLevel,
   fetchExplorerLevel,
   setExplorerLevel,
+  fetchCampaignLevel,
+  setCampaignLevel,
   type LeverLevel,
 } from '@/lib/conductorActivity';
 
@@ -308,6 +310,26 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project, serve
           <>
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
+          </>
+        }
+      />
+      {/* CAMPAIGN — the spend kill switch. Holds the whole campaign pass: probe execution,
+          mission forging, and chamber convenes. A convene is a full multi-general LLM
+          deliberation (the most expensive automated act in the system), so this lever sits
+          here where the operator already reaches to stop autonomous work. */}
+      <LeverStop
+        testId="campaign"
+        label="Campaign"
+        project={project}
+        fetchLevel={(p) => fetchCampaignLevel(p, serverScope)}
+        postLevel={(p, l) => setCampaignLevel(p, l, serverScope)}
+        failLabel="campaign"
+        titleOn="Campaign on — campaign probes run and the chamber convenes (a full multi-general deliberation) when evidence changes. Click to hold ALL campaign activity and spend."
+        titleOff="Campaign off — no probes, no mission forging, no chamber convenes for this project. Click to resume."
+        icon={
+          <>
+            <path d="M4 15V4l9 3.5L4 11" />
+            <path d="M4 22v-7" />
           </>
         }
       />
