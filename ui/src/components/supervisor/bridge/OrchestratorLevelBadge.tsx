@@ -19,9 +19,11 @@ const LEVEL_DOT: Record<OrchestratorLevel, string> = {
 
 export interface OrchestratorLevelBadgeProps {
   project: string;
+  /** Server that owns this project — the read routes to it, never the default server. */
+  serverScope?: string;
 }
 
-export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ project }) => {
+export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ project, serverScope = 'local' }) => {
   const [level, setLevel] = useState<OrchestratorLevel | null>(null);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ 
         const path = `/api/orchestrator/level?project=${encodeURIComponent(project)}`;
         let data: { level?: OrchestratorLevel } = {};
         if (mc?.invokeOnServer) {
-          const res = await mc.invokeOnServer('local', { path, method: 'GET' });
+          const res = await mc.invokeOnServer(serverScope, { path, method: 'GET' });
           data = res?.body ?? {};
         } else {
           const r = await fetch(path);
@@ -48,7 +50,7 @@ export const OrchestratorLevelBadge: React.FC<OrchestratorLevelBadgeProps> = ({ 
     // Poll on the same cadence the panel refreshes so a CommandBar change reflects here.
     const id = setInterval(fetchLevel, 10_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [project]);
+  }, [project, serverScope]);
 
   if (!level) return null;
 

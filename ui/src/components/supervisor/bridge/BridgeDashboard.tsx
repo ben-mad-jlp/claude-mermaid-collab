@@ -613,6 +613,7 @@ export const BridgeDashboard: React.FC = () => {
       <SplitDeck
         commandBar={
           <CommandBar
+            serverScope={serverScope}
             liveCount={liveCount}
             inflightCount={inflightCount}
             needsYouCount={blockerEscalations.length}

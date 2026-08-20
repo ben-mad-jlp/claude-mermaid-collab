@@ -140,10 +140,12 @@ const LeverStop: React.FC<LeverStopProps> = ({
 
 export interface ConductorLadderProps {
   project: string;
+  /** Server that owns this project — every read/write below routes to it. */
+  serverScope?: string;
 }
 
-export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => {
-  const { enabled, lastPass, busy, setEnabled } = useConductorEnabled(project);
+export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project, serverScope = 'local' }) => {
+  const { enabled, lastPass, busy, setEnabled } = useConductorEnabled(project, serverScope);
   const loaded = enabled !== null;
   // Optimistic default OFF until the GET resolves (matches the backend default).
   const level: ConductorLevel = enabled ? 'on' : 'off';
@@ -169,13 +171,13 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
     if (!project) return;
     let cancelled = false;
     const fetchLevel = async () => {
-      const data = await apiGet(`/api/orchestrator/level?project=${encodeURIComponent(project)}`);
+      const data = await apiGet(`/api/orchestrator/level?project=${encodeURIComponent(project)}`, serverScope);
       if (!cancelled && typeof data.level === 'string') setDaemonOn(data.level !== 'off');
     };
     void fetchLevel().catch(() => {});
     const id = setInterval(() => { void fetchLevel().catch(() => {}); }, 10_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [project]);
+  }, [project, serverScope]);
 
   const disabled = busy || daemonOn === false;
 
@@ -197,7 +199,7 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
     if (kicking || !project) return;
     setKicking(true);
     setKickNote(null);
-    const r = await kickConductor(project);
+    const r = await kickConductor(project, undefined, serverScope);
     setKickNote(r.ok ? { ok: true, text: 'kick armed — next pass runs' } : { ok: false, text: r.error ?? 'kick failed' });
     setKicking(false);
   }, [kicking, project]);
@@ -278,8 +280,8 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
         testId="autofix"
         label="AutoFix"
         project={project}
-        fetchLevel={fetchAutoFixLevel}
-        postLevel={setAutoFixLevel}
+        fetchLevel={(p) => fetchAutoFixLevel(p, serverScope)}
+        postLevel={(p, l) => setAutoFixLevel(p, l, serverScope)}
         failLabel="autofix"
         titleOn="AutoFix on — the daemon batches bugfix requests and forges a repair mission for approval. Click to hold it."
         titleOff="AutoFix off — the daemon will NOT forge repair missions from batched bugfix requests. Findings are still recorded. Click to turn on."
@@ -297,8 +299,8 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project }) => 
         testId="explorer"
         label="Explorer"
         project={project}
-        fetchLevel={fetchExplorerLevel}
-        postLevel={setExplorerLevel}
+        fetchLevel={(p) => fetchExplorerLevel(p, serverScope)}
+        postLevel={(p, l) => setExplorerLevel(p, l, serverScope)}
         failLabel="explorer"
         titleOn="Explorer on — filed explore leaves are claimed and run as usual. Click to hold dispatch."
         titleOff="Explorer off — explore leaves are still filed and promoted, but NOT claimed (they queue; the claim-suppression report names explorer-off). Click to drain the queue."
