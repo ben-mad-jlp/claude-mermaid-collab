@@ -25,6 +25,10 @@ afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); dele
  * repo root) still succeed.
  */
 describe('createEscalation — transient project path refusal', () => {
+  // Fixed synthetic, non-existent, non-transient project root (not under /tmp or similar).
+  // trackingProjectRoot performs pure string parsing and does not access the filesystem.
+  const REAL_PROJECT = '/Users/collab-fixtures/transient-escalation-repo';
+
   let savedFlag: string | undefined;
 
   beforeEach(() => {
@@ -68,7 +72,7 @@ describe('createEscalation — transient project path refusal', () => {
   });
 
   it('still creates an escalation for a real project path', () => {
-    const realProject = trackingProjectRoot(process.cwd());
+    const realProject = trackingProjectRoot(REAL_PROJECT);
     const { escalation, isNew } = createEscalation({
       audience: 'human',
       project: realProject,
@@ -90,7 +94,7 @@ describe('createEscalation — transient project path refusal', () => {
   });
 
   it('still succeeds for a worktree path, landing under the normalized repo root', () => {
-    const realProject = trackingProjectRoot(process.cwd());
+    const realProject = trackingProjectRoot(REAL_PROJECT);
     const worktreePath = `${realProject}/.collab/agent-sessions/worktrees/lane-1`;
 
     const { escalation, isNew } = createEscalation({
