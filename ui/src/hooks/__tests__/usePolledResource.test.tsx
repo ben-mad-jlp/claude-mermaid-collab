@@ -124,29 +124,52 @@ describe('usePolledResource', () => {
     unmount();
   });
 
-  it('changing the project prop starts an immediate fetch for the new project', () => {
-    const deferreds: Array<{
-      resolve: (v: string) => void;
-      reject: (e?: unknown) => void;
-    }> = [];
-    const fetcher = vi.fn(
-      (_p: string) =>
-        new Promise<string>((resolve, reject) => {
-          deferreds.push({ resolve, reject });
-        }),
-    );
+  it('changing the project prop does NOT refetch when that project is already cached', async () => {
+    const fetcher = vi.fn((p: string) => Promise.resolve(`v-${p}`));
 
     const { rerender, unmount } = renderHook(
-      ({ project }: { project: string }) =>
-        usePolledResource('k4', project, fetcher),
+      ({ project }: { project: string }) => usePolledResource('k4', project, fetcher),
       { initialProps: { project: 'alpha' } },
     );
 
-    expect(fetcher.mock.calls[0][0]).toBe('alpha');
+    // Cold cache for alpha → exactly one fill fetch.
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // Cold cache for beta → one fill fetch for beta.
+    rerender({ project: 'beta' });
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    // Switching BACK to a cached project must not fetch: the timer and the manual
+    // refresh are the only refresh paths once there is something to paint.
+    rerender({ project: 'alpha' });
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
 
     rerender({ project: 'beta' });
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
 
-    expect(fetcher.mock.calls[fetcher.mock.calls.length - 1][0]).toBe('beta');
+    unmount();
+  });
+
+  it('a cached project still refreshes through refreshNow', async () => {
+    const fetcher = vi.fn((p: string) => Promise.resolve(`v-${p}`));
+
+    const { result, rerender, unmount } = renderHook(
+      ({ project }: { project: string }) => usePolledResource('k5', project, fetcher),
+      { initialProps: { project: 'alpha' } },
+    );
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    rerender({ project: 'alpha' });
+    await act(async () => { await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => { result.current.refreshNow(); await Promise.resolve(); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
 
     unmount();
   });
