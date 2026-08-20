@@ -117,6 +117,7 @@ describe('deploy-status-git-probe', () => {
         'lastDeploy',
         'lastSelfLandAt',
         'modifiedTrackedCount',
+        'notSelfProject',
         'selfLandPending',
         'stale',
         'versionDrift',

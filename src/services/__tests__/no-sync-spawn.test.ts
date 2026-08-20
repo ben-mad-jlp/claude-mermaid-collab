@@ -48,6 +48,14 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'campaign reconcile records a verdict, is wrapped in try/catch returning "unknown", ' +
       'and is injectable via deps.commitSha so tests never spawn at all.',
   },
+  'services/merged-tree-sha.ts': {
+    count: 2,
+    reason:
+      'Verdict-reuse provenance: one execFileSync import + one sub-second local git read ' +
+      '(merge-base/rev-parse class) to compute the would-be merged tree sha before the land ' +
+      'gate decides whether a recorded verdict is reusable. Runs once per land attempt, ' +
+      'never on the tick.',
+  },
   'services/chamber-judge.ts': {
     count: 2,
     reason:
