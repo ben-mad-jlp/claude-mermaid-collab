@@ -10,7 +10,7 @@ import {
 import {
   upsertMission, getMission,
   addCriterion, setCriterionMet, setCriterionVerdict, updateCriterionText, setCriterionDependsOn, setCriterionMeasurementPendingUntil, dropCriterion, listCriteria, listCriteriaWithActions, getMissionRollup, reArmCriterion,
-  activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned, reorderMissionQueue,
+  activateMission, projectHasActiveMission, enqueueMission, deleteMission, setMissionAbandoned, reorderMissionQueue, setMissionClosed,
   assertMissionCreationAllowed, listMissions, isMissionTerminal, setMissionBudget,
   missionIdOfCriterion,
   type CriterionType,
@@ -54,7 +54,16 @@ export const MISSION_TOOL_DEFS = [
       { name: 'add_mission_criterion', description: 'Add an acceptance criterion (a capability assertion) to a mission. Convergence is reached when every criterion is met (see set_mission_criterion). Returns the created criterion.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, todoId: { type: 'string' }, text: { type: 'string' }, type: { type: 'string', enum: ['capability', 'one-shot'], description: "Criterion type. Defaults to 'capability'." }, dependsOn: { type: 'array', items: { type: 'string' }, description: 'Criterion ids this criterion depends on (must be met first). Optional.' } }, required: ['project', 'todoId', 'text'] } },
       { name: 'set_mission_criterion', description: "Record a VERIFY-gate verdict on a mission acceptance criterion: met/unmet PLUS the `evidence` the judge cited and `verifiedBy` (who judged). This should be filled by an INDEPENDENT check (maker≠checker) that fails CLOSED — do not self-grade the work you did. When a criterion is high-stakes (reopened by land, contested by humans, or approaching serve limits), supply panelVerdicts (≥2 independent lenses) to join them by strict-majority vote; fewer than 2 will error fail-closed. Pass remove=true to reversibly DROP the criterion instead (preserves the row, cascades any live serving epics to dropped; a future undrop re-arms it). Convergence = all criteria met.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, criterionId: { type: 'string' }, met: { type: 'boolean' }, evidence: { type: 'string', description: 'Why the judge ruled this met/unmet (the ground-truth citation).' }, verifiedBy: { type: 'string', description: 'Handle of the independent judge (e.g. the reviewer agent id / role).' }, verifiedAtSha: { type: 'string', description: 'Git sha the verdict was checked against (staleness pin).' }, evidencePaths: { type: 'array', items: { type: 'string' }, description: 'File paths the verdict cited (a later land-diff touching one re-opens this criterion).' }, panelVerdicts: { type: 'array', items: { type: 'object', properties: { lens: { type: 'string' }, met: { type: 'boolean' }, reason: { type: 'string' } }, required: ['lens', 'met', 'reason'] }, description: 'High-stakes verdict panel: array of independent lens verdicts. Required when a criterion is reopened-by-land, contested, or serving ≥2 epics; must have ≥2 verdicts or the call will fail closed.' }, remove: { type: 'boolean', description: 'If true, reversibly drop the criterion (ignores met).' }, reason: { type: 'string', description: 'Why the criterion is being dropped (recorded with remove=true; defaults to a generic note).' } }, required: ['project', 'criterionId'] } },
       { name: 'rearm_mission_criterion', description: "Reset an exhausted acceptance criterion's serve/verify attempt caps in place so it can be re-served/re-verified without dropping and re-adding it. Zeroes serveAttemptCount and verifyAttemptCount; increments the durable reArmCount so repeated use is visible. Refuses (throws criterion-already-met: <id>) when the criterion is already met — re-arming a met criterion is never valid. text, evidence, evidencePaths, verifiedBy/verifiedAt and verdict history are all preserved untouched. Records a durable 'override' audit entry.", inputSchema: { type: 'object', properties: { project: { type: 'string' }, session: { type: 'string' }, criterionId: { type: 'string' }, reason: { type: 'string', description: 'Why the caps are being reset.' }, actor: { type: 'string', description: "Who is re-arming (default 'operator')." } }, required: ['project', 'session', 'criterionId', 'reason'] } },
+      { name: 'close_mission', description: 'Record mission closure with attribution. When all criteria are met (clean closure), stamps closedAt and closedBy. When criteria remain unmet (dirty closure), records closedBy alongside closure evidence and raises a human-visible escalation card. The mission todo status is stamped terminal in both cases. Validates that the mission exists; returns {missionId, closedAt, closedBy} from a post-closure read.', inputSchema: { type: 'object', properties: { project: { type: 'string' }, missionId: { type: 'string' }, attribution: { type: 'string', description: 'The judge/closer identity (recorded as closedBy in clean closure, or in closure evidence for dirty closure).' }, evidence: { type: 'string', description: 'Optional evidence or rationale for the closure.' } }, required: ['project', 'missionId', 'attribution'] } },
 ];
+
+/**
+ * Derived key set for update_mission, built from the declared inputSchema.properties.
+ * Used to validate that all arguments in the call are declared keys.
+ */
+export const UPDATE_MISSION_ARG_KEYS: ReadonlySet<string> = new Set(
+  Object.keys((MISSION_TOOL_DEFS.find((d) => d.name === 'update_mission')!.inputSchema as any).properties),
+);
 
 /**
  * Handle a mission-group CallTool invocation. Returns the JSON string result
@@ -253,6 +262,12 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         project: string; todoId: string; title?: string; description?: string; abandonedAt?: number | null;
         budgetUsd?: number | null; actor?: string; reason?: string;
       };
+      // Validate that all provided keys are declared in the schema
+      for (const key of Object.keys(args ?? {})) {
+        if (!UPDATE_MISSION_ARG_KEYS.has(key)) {
+          return JSON.stringify({ error: `unknown argument key: ${key}`, unknownKey: key }, null, 2);
+        }
+      }
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
@@ -411,6 +426,17 @@ export async function handleMissionTool(name: string, args: any): Promise<string
       const result = reArmCriterion(project, criterionId, { reason, by: who });
       recordSupervisorAudit({ kind: 'override', project, session, detail: JSON.stringify({ criterionId, actor: who, reason, reArmCount: result.reArmCount }) });
       return JSON.stringify({ criterionId, ...result }, null, 2);
+    }
+    case 'close_mission': {
+      const { project, missionId, attribution, evidence } = args as { project: string; missionId: string; attribution: string; evidence?: string };
+      if (!project || !missionId || !attribution) throw new Error('Missing required: project, missionId, attribution');
+      const existing = getMission(project, missionId);
+      if (!existing) {
+        return JSON.stringify({ error: `mission not found: ${missionId}` }, null, 2);
+      }
+      setMissionClosed(project, missionId, Date.now(), { judge: attribution, evidence });
+      const readBack = getMission(project, missionId);
+      return JSON.stringify({ missionId, closedAt: readBack?.closedAt ?? null, closedBy: readBack?.closedBy ?? null }, null, 2);
     }
     default:
       return null;
