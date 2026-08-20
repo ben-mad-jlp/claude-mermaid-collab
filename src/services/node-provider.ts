@@ -118,9 +118,18 @@ export function xaiApiNeededForKinds(project: string | undefined, kinds: readonl
   return kinds.some((k) => resolveNodeProvider(project, k, undefined) === 'grok-api');
 }
 
-/** The model recorded in the ledger for a grok-api node — the flagship reasoner. */
+/** The DEFAULT model for a grok-api node — the flagship reasoner. Per-kind matrix
+ *  overrides are honored by xaiApiModelForKind below; this stays the fallback. */
 export function xaiApiLedgerModel(_kind: string): string {
   return 'grok-4.3';
+}
+
+/** grok-api analogue of grokModelForKind: honor the per-kind model override (UI matrix)
+ *  so e.g. review can be pinned to a newer flagship (grok-4.6) than the default. The
+ *  dispatch previously called xaiApiLedgerModel directly, so a matrix model on a
+ *  grok-api row was recorded but never actually sent to the API. */
+export function xaiApiModelForKind(project: string | undefined, kind: string): string {
+  return resolveNodeModel(project, kind, 'grok-api', xaiApiLedgerModel(kind));
 }
 
 /** The OPAQUE model recorded in the ledger for a grok node (contract A — not the CLI id).

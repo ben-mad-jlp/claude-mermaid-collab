@@ -45,7 +45,7 @@ import type { WorktreeManager, ReintegrateBaseResult } from '../agent/worktree-m
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor, classifyWorktreeAddFault, transientRetryAfterMs } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { config } from '../config';
-import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from './node-provider';
+import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiModelForKind, resolveNodeModel } from './node-provider';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation, getTypedContractGating } from './supervisor-store';
@@ -1749,8 +1749,10 @@ export async function runLeaf(
       recordedModel = grokModel;
     } else if (provider === 'grok-api') {
       invoker = deps.xaiInvoker ?? XaiApiNodeInvoker;
-      effSpec = { ...spec, model: xaiApiLedgerModel(kind) };
-      recordedModel = xaiApiLedgerModel(kind);
+      // Honor the per-kind model override (UI matrix), mirroring the grok-build lane.
+      const xaiModel = xaiApiModelForKind(project, kind);
+      effSpec = { ...spec, model: xaiModel };
+      recordedModel = xaiModel;
     } else {
       invoker = deps.invoker;
       recordedModel = spec.model!;
