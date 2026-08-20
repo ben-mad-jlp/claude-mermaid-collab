@@ -180,10 +180,21 @@ ${assertionLines}`;
 /** Lens-specific instruction blocks. */
 const LENS_INSTRUCTIONS: Record<VerifyLens, string> = {
   'evidence-exists': `## Lens: evidence-exists
-Verify that cited evidence actually exists in the files listed under Evidence paths.
-Open each file, locate the exact text/citation given in the Evidence section,
-and confirm it is present. A file that does not exist, or whose content does not
-match the cited evidence, is a FAIL.`,
+Verify that cited evidence actually exists. Open each file listed under Evidence paths,
+locate the exact text/citation given in the Evidence section, and confirm it is present.
+
+A NAMED PATH THAT IS ABSENT IS NOT BY ITSELF A FAIL. Builders follow the repository's
+own layout, so a criterion often names a plausible path while the proof lives under the
+project's test directories with a different filename. When a named path is absent, SEARCH
+the project's test directories for the quoted assertion names before you rule (for example
+\`grep -rnE "\\b(it|test)\\s*\\(" <test dirs>\` for the quoted name). Judge the ASSERTION,
+not the filename: if a named assertion is declared somewhere in the project and its body is
+substantive, that is evidence found.
+
+Enumerate in evidencePaths every path you actually examined — the cited ones plus anything
+the search turned up. A verdict that examined nothing cites nothing and decides nothing.
+FAIL only when the cited text and the quoted assertion names appear NOWHERE in the project,
+or when a file you read contradicts the cited evidence.`,
 
   'regression-red-when-neutered': `## Lens: regression-red-when-neutered
 Locate the named regression test that guards this criterion. Obtain the change
