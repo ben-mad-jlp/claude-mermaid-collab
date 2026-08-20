@@ -8,13 +8,23 @@
  * behavior of splitCommandClauses (node-commands.ts:295).
  */
 
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 export const WRITE_VERBS = new Set(['cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch', 'tee', 'install', 'ln', 'dd', 'chown', 'chmod', 'patch']);
 export const READ_VERBS = new Set(['find', 'grep', 'rg', 'ls', 'cat', 'head', 'tail', 'wc', 'file', 'stat', 'tree', 'which', 'echo', 'pwd']);
 
-const GIT_WRITE_SUBCOMMANDS = new Set(['commit', 'add', 'apply', 'checkout', 'restore', 'rm', 'mv', 'stash']);
+const GIT_WRITE_SUBCOMMANDS = new Set(['commit', 'add', 'apply', 'checkout', 'restore', 'rm', 'mv', 'stash', 'switch', 'reset', 'clean']);
 const GIT_READ_SUBCOMMANDS = new Set(['grep', 'log', 'diff', 'status', 'show', 'rev-parse', 'ls-files']);
+
+/** Git subcommands that mutate worktree/index state (not merely the object store). */
+export const GIT_WORKTREE_MUTATING_SUBCOMMANDS = new Set([
+  'stash',
+  'checkout',
+  'switch',
+  'reset',
+  'clean',
+  'restore',
+]);
 
 interface WriteSegment {
   text: string;
@@ -193,23 +203,37 @@ function stripQuotes(path: string): string {
 }
 
 /**
- * Classify command writes, tracking cwd changes and resolving all paths to absolute.
- *
- * Returns an object with `targets` array containing all absolute paths that are
- * written to by this command (from WRITE_VERBS, special-cased verbs, and redirects).
+ * True when `cwd` is `root` itself or a path under it (string path math only).
+ * Same shape as node-commands.ts containment checks.
  */
-export function classifyCommandWrites(cmd: string, cwd: string): { targets: string[] } {
+function isPathContainedIn(root: string, cwd: string): boolean {
+  const rel = relative(root, cwd);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
+
+interface SegmentWalkEntry {
+  text: string;
+  tokens: string[];
+  verb: string;
+  cwd: string;
+}
+
+/**
+ * Yield one entry per non-empty segment with the running cwd already advanced
+ * by any preceding `cd` segment. For a `cd` segment itself, `cwd` is the
+ * POST-`cd` path (so redirect targets resolve against it).
+ */
+function* iterateSegments(cmd: string, cwd: string): Iterable<SegmentWalkEntry> {
   const segments = splitWriteSegments(cmd);
-  const allTargets = new Set<string>();
   let runningCwd = cwd;
 
   for (const seg of segments) {
     const tokens = tokenizeForVerb(seg.text);
     if (tokens.length === 0) continue;
 
-    const verb = tokens[0];
+    const verb = tokens[0]!;
 
-    // Handle cd: update running cwd but don't contribute targets
+    // Handle cd: update running cwd before yielding (POST-cd for this segment)
     if (verb === 'cd') {
       if (tokens[1]) {
         const path = stripQuotes(tokens[1]);
@@ -217,8 +241,29 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
           runningCwd = resolve(runningCwd, path);
         }
       }
+    }
+
+    yield { text: seg.text, tokens, verb, cwd: runningCwd };
+  }
+}
+
+/**
+ * Classify command writes, tracking cwd changes and resolving all paths to absolute.
+ *
+ * Returns an object with `targets` array containing all absolute paths that are
+ * written to by this command (from WRITE_VERBS, special-cased verbs, and redirects).
+ */
+export function classifyCommandWrites(cmd: string, cwd: string): { targets: string[] } {
+  const allTargets = new Set<string>();
+
+  for (const seg of iterateSegments(cmd, cwd)) {
+    const { text, tokens, verb, cwd: runningCwd } = seg;
+
+    // Handle cd: update running cwd but don't contribute targets
+    // (cwd already advanced by iterateSegments; collect redirect targets only)
+    if (verb === 'cd') {
       // Still collect redirect targets after cd
-      for (const m of seg.text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
+      for (const m of text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
         if (m[1]) {
           const resolved = resolve(runningCwd, m[1]);
           allTargets.add(resolved);
@@ -237,7 +282,7 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
       if (subCmd && GIT_READ_SUBCOMMANDS.has(subCmd)) {
         // Read-only git command, skip argument collection
         // But still collect redirects
-        for (const m of seg.text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
+        for (const m of text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
           if (m[1]) {
             const resolved = resolve(runningCwd, m[1]);
             allTargets.add(resolved);
@@ -247,14 +292,14 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
       }
       // For write subcommands, collect argument targets
       if (subCmd && GIT_WRITE_SUBCOMMANDS.has(subCmd)) {
-        const args = extractArgumentTargets(seg.text, tokens);
+        const args = extractArgumentTargets(text, tokens);
         for (const arg of args) {
           const resolved = resolve(runningCwd, stripQuotes(arg));
           allTargets.add(resolved);
         }
       }
       // Collect redirects for git commands too
-      for (const m of seg.text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
+      for (const m of text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
         if (m[1]) {
           const resolved = resolve(runningCwd, m[1]);
           allTargets.add(resolved);
@@ -271,14 +316,14 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
 
       if (hasInPlace) {
         // sed -i is a WRITE
-        const args = extractArgumentTargets(seg.text, tokens);
+        const args = extractArgumentTargets(text, tokens);
         for (const arg of args) {
           const resolved = resolve(runningCwd, stripQuotes(arg));
           allTargets.add(resolved);
         }
       }
       // Collect redirects for sed commands
-      for (const m of seg.text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
+      for (const m of text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
         if (m[1]) {
           const resolved = resolve(runningCwd, m[1]);
           allTargets.add(resolved);
@@ -290,7 +335,7 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
     // Standard WRITE_VERBS / READ_VERBS classification
     if (WRITE_VERBS.has(verb)) {
       // Collect argument targets for write verbs
-      const args = extractArgumentTargets(seg.text, tokens);
+      const args = extractArgumentTargets(text, tokens);
       for (const arg of args) {
         const resolved = resolve(runningCwd, stripQuotes(arg));
         allTargets.add(resolved);
@@ -303,7 +348,7 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
 
     // Collect redirect targets from ALL segments, regardless of verb
     // Pattern: >, >>, or > followed by a path
-    for (const m of seg.text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
+    for (const m of text.matchAll(/(?:^|[\s>])>{1,2}\s*([^\s;&|)'"\n]+)/g)) {
       if (m[1]) {
         const resolved = resolve(runningCwd, m[1]);
         allTargets.add(resolved);
@@ -312,4 +357,54 @@ export function classifyCommandWrites(cmd: string, cwd: string): { targets: stri
   }
 
   return { targets: [...allTargets] };
+}
+
+/**
+ * Pure predicate: detect a git worktree-state mutation whose running cwd resolves
+ * to the main checkout (or under it) and is NOT contained in the leaf worktree.
+ * Fail-safe: any fault returns null.
+ */
+export function detectMainCheckoutGitMutation(opts: {
+  cmd: string;
+  cwd: string;
+  mainCheckoutRoot?: string | null;
+  worktreeRoot?: string | null;
+}): { subcommand: string; segment: string; resolvedCwd: string; message: string } | null {
+  try {
+    const mainRoot = opts.mainCheckoutRoot;
+    if (!mainRoot || typeof mainRoot !== 'string' || mainRoot.length === 0) {
+      return null;
+    }
+
+    const mainAbs = resolve(mainRoot);
+    const worktreeAbs =
+      opts.worktreeRoot && typeof opts.worktreeRoot === 'string' && opts.worktreeRoot.length > 0
+        ? resolve(opts.worktreeRoot)
+        : null;
+
+    for (const seg of iterateSegments(opts.cmd, opts.cwd)) {
+      const resolvedCwd = resolve(seg.cwd);
+
+      if (!isPathContainedIn(mainAbs, resolvedCwd)) continue;
+      if (worktreeAbs && isPathContainedIn(worktreeAbs, resolvedCwd)) continue;
+
+      if (seg.verb !== 'git') continue;
+      const subcommand = seg.tokens[1];
+      if (!subcommand || !GIT_WORKTREE_MUTATING_SUBCOMMANDS.has(subcommand)) continue;
+
+      return {
+        subcommand,
+        segment: seg.text,
+        resolvedCwd,
+        message:
+          `main-checkout-git-mutation: \`git ${subcommand}\` would run with cwd ${resolvedCwd}, ` +
+          `which is the repository's MAIN checkout (or under it). ` +
+          `This leaf holds no privilege to mutate the main checkout.`,
+      };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }

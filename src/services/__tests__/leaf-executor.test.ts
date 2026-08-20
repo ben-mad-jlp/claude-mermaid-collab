@@ -3007,6 +3007,31 @@ describe('runVerifyPipeline command-gate composition (L3)', () => {
     expect(exec).toBeDefined();
     expect(exec!.allowedTools).toContain('mcp__bsync-cad__check_graph_drift');
   });
+
+  it('refuses a git stash whose cwd is the main checkout instead of the leaf worktree', async () => {
+    const { deps, calls } = makeCmdGateDeps({
+      resultJson: PLAN_CLEAN,
+      command: 'cd /tmp/main && git stash',
+      cmd: { ran: true, ok: true, output: '' },
+    });
+    deps.mainCheckoutRoot = '/tmp/main';
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(calls).toEqual([]);
+    expect(res.outcome).toBe('blocked');
+    expect(res.reason).toContain('main-checkout-mutation-refused');
+  });
+
+  it('still allows git stash inside the leaf worktree', async () => {
+    const { deps, calls } = makeCmdGateDeps({
+      resultJson: PLAN_CLEAN,
+      command: 'git stash',
+      cmd: { ran: true, ok: true, output: '' },
+    });
+    deps.mainCheckoutRoot = '/tmp/main';
+    const res = await runLeaf('proj', makeLeaf({ type: 'verify' }), deps);
+    expect(calls).toEqual(['git stash']);
+    expect(res.reason ?? '').not.toContain('main-checkout-mutation-refused');
+  });
 });
 
 describe('runLeaf resume consumption (slice 2)', () => {
