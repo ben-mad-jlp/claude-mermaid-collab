@@ -37,6 +37,18 @@ describe('checkAuth LAN-only enforcement', () => {
     expect(checkAuth(withToken('nope'), url, '10.0.0.2')!.status).toBe(401);
   });
 
+  it('allows a Tailscale CGNAT (100.64/10) peer with a valid token, 401s without, and 403s outside the range', () => {
+    // In-range tailnet peers: token still required (401 without), admitted with it.
+    for (const peer of ['100.64.0.1', '100.73.88.53', '100.127.255.254', '::ffff:100.84.191.57']) {
+      expect(checkAuth(withToken('secret-token'), url, peer)).toBeNull();
+      expect(checkAuth(withToken(), url, peer)!.status).toBe(401);
+    }
+    // 100.x outside 100.64/10 is public space — rejected before the token gate.
+    for (const peer of ['100.63.255.255', '100.128.0.1', '100.1.2.3']) {
+      expect(checkAuth(withToken('secret-token'), url, peer)!.status).toBe(403);
+    }
+  });
+
   it('allows a loopback peer tokenless (unchanged)', () => {
     for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
       expect(checkAuth(withToken(), url, peer)).toBeNull();
