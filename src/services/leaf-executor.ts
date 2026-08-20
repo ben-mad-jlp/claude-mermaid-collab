@@ -45,7 +45,8 @@ import type { WorktreeManager, ReintegrateBaseResult } from '../agent/worktree-m
 import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokAuth, mcpConfigFor, classifyWorktreeAddFault, transientRetryAfterMs } from '../agent/node-invoker';
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { config } from '../config';
-import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiModelForKind, resolveNodeModel } from './node-provider';
+import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiModelForKind, resolveNodeModel, type NodeProvider } from './node-provider';
+import { classifyProviderFallback } from './provider-fallback';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation, getTypedContractGating } from './supervisor-store';
@@ -1729,6 +1730,8 @@ export async function runLeaf(
       invoker = deps.invoker;
       recordedModel = spec.model!;
     }
+    let effectiveProvider: NodeProvider = provider;
+    let effectiveModel = recordedModel;
     // NOTE (bug 0f1df3d2): do NOT clear the inflight row here. It is set per-node
     // (above) so nodeKind stays fresh, but the row must SPAN the whole run — including
     // the between-nodes window — so the daemon's orphan-reclaim guard (isLeafInflightLive)
@@ -1736,15 +1739,31 @@ export async function runLeaf(
     // Opt OUT of the invoke boundary's default-on spend capture: the leaf executor records its node
     // spend richly itself (deps.recordNode below, with per-leaf/epic keying). Without this the boundary
     // would write a SECOND, coarser row per node and double-count leaf burn in the gauge.
-    const res: NodeResult = await invoker.invoke({ ...effSpec, skipAutoLedger: true });
+    let res: NodeResult = await invoker.invoke({ ...effSpec, skipAutoLedger: true });
     // Cooperative abort — after the spawn returns. A `killLeafSubtree` SIGTERM (E1)
     // makes the node return non-zero; without this check the revise/WAVES loop reads
     // that as a plain node failure and spawns the NEXT node instead of stopping.
     // Checked BEFORE the start-failure probe so a killed node is never misread as one.
     const postAbort = deps.shouldAbort?.(project, leaf.id);
     if (postAbort) throw new LeafAborted(postAbort);
+    // Grok→claude provider fallback (one hop): after postAbort so a killed node is never
+    // re-dispatched, before the start-failure stamp so an eligible grok start-failure is
+    // retried on claude rather than recorded as a grok start failure.
+    const decision = classifyProviderFallback(provider, res);
+    if (decision.eligible) {
+      state.nodesSpent += 1;
+      deps.setInflight?.({ project, leafId: leaf.id, epicId, nodeKind: kind, model: nodeModel(kind), attempt: state.attempt });
+      deps.persistResume?.({ project, leafId: leaf.id, nodesSpent: state.nodesSpent, phase: kind, attempt: state.attempt, epicBaseSha: deps.epicBaseSha });
+      const claudeModel = resolveNodeModel(project, kind, 'claude', NODE_PROFILE[kind].model);
+      // Retry on the ORIGINAL spec (not effSpec) so the grok model is not reused.
+      res = await deps.invoker.invoke({ ...spec, model: claudeModel, skipAutoLedger: true });
+      effectiveProvider = 'claude';
+      effectiveModel = claudeModel;
+      const postFallbackAbort = deps.shouldAbort?.(project, leaf.id);
+      if (postFallbackAbort) throw new LeafAborted(postFallbackAbort);
+    }
     if (isNodeStartFailure(res)) {
-      res.startFailure = { provider, model: recordedModel, detail: (res.text ?? res.parseError ?? '').slice(0, 300) };
+      res.startFailure = { provider: effectiveProvider, model: effectiveModel, detail: (res.text ?? res.parseError ?? '').slice(0, 300) };
     }
     try {
       deps.recordNode({
@@ -1754,8 +1773,8 @@ export async function runLeaf(
         epicId,
         leafId: leaf.id,
         nodeKind: kind,
-        provider,
-        model: recordedModel,
+        provider: effectiveProvider,
+        model: effectiveModel,
         nodesSpent: 1,
         authMode: res.authMode,
         exitCode: res.exitCode,
@@ -1767,7 +1786,7 @@ export async function runLeaf(
         cacheCreationTokens: res.usage?.cacheCreationTokens,
         costUsd: res.usage?.costUsd,
         steps: res.usage?.numTurns,
-        parseError: res.startFailure ? `node-start-failure (provider=${provider}, model=${recordedModel}): ${res.parseError ?? ''}` : (res.parseError ?? null),
+        parseError: res.startFailure ? `node-start-failure (provider=${effectiveProvider}, model=${effectiveModel}): ${res.parseError ?? ''}` : (res.parseError ?? null),
         verdict: extra?.verdict ?? null,
         leafOutcome: extra?.leafOutcome ?? null,
         // Persist the node's final message so a stuck/rejected leaf is diagnosable
@@ -1775,6 +1794,9 @@ export async function runLeaf(
         outputText: res.text ?? null,
         // C2: persist recorded commands for evidence gating
         commands: res.commands?.length ? JSON.stringify(res.commands) : null,
+        ...(decision.eligible
+          ? { outcomeDetail: JSON.stringify({ providerFallback: { from: provider, to: 'claude', reason: decision.reason } }) }
+          : {}),
       });
     } catch {
       /* ledger is telemetry — never break the run */
