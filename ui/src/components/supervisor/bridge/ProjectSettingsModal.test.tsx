@@ -161,4 +161,14 @@ describe('ProjectSettingsModal', () => {
     );
     expect(posted).toBe(true);
   });
+
+  it('dialog is max-w-3xl, not max-w-lg', async () => {
+    global.fetch = vi.fn(mockFetch as any);
+    render(<ProjectSettingsModal project="/abs/p" open onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.getByTestId('project-settings-modal')).toBeTruthy());
+    const el = screen.getByTestId('project-settings-modal');
+    expect(el.classList.contains('max-w-3xl')).toBe(true);
+    expect(el.classList.contains('max-w-lg')).toBe(false);
+  });
 });
