@@ -67,19 +67,38 @@ describe('DaemonNodesMatrix — provider column', () => {
 });
 
 describe('DaemonNodesMatrix — effort gating', () => {
-  it('hides effort select and shows n/a for grok-build and grok-api rows; shows effort select for claude rows', async () => {
+  it('grok-build effort select offers every level except max', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
     render(<DaemonNodesMatrix project="/abs/p" />);
-    // grok-build row (implement): no effort select, n/a present
-    await waitFor(() => expect(screen.getByTestId('node-effort-implement-na')).toBeTruthy());
-    expect(screen.queryByTestId('node-effort-implement')).toBeNull();
-    // grok-api row (review): no effort select, n/a present
-    await waitFor(() => expect(screen.getByTestId('node-effort-review-na')).toBeTruthy());
-    expect(screen.queryByTestId('node-effort-review')).toBeNull();
-    // claude non-MCP row (blueprint): effort select present
+    await waitFor(() => expect(screen.getByTestId('node-effort-implement')).toBeTruthy());
+    const select = within(screen.getByTestId('node-effort-implement'));
+    expect(select.getByText('low')).toBeTruthy();
+    expect(select.getByText('medium')).toBeTruthy();
+    expect(select.getByText('high')).toBeTruthy();
+    expect(select.getByText('xhigh')).toBeTruthy();
+    expect(select.queryByText('max')).toBeNull();
+  });
+
+  it('grok-build effort select is enabled', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-effort-implement')).toBeTruthy());
+    expect((screen.getByTestId('node-effort-implement') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it('grok-api effort select renders disabled', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-effort-review')).toBeTruthy());
+    expect((screen.getByTestId('node-effort-review') as HTMLSelectElement).disabled).toBe(true);
+  });
+
+  it('claude rows still offer all five effort levels including max', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
     await waitFor(() => expect(screen.getByTestId('node-effort-blueprint')).toBeTruthy());
-    // report (MCP-forced claude) still renders a normal effort select (mcpForced only locks provider)
-    expect(screen.getByTestId('node-effort-report')).toBeTruthy();
+    expect(within(screen.getByTestId('node-effort-blueprint')).getByText('max')).toBeTruthy();
+    expect(within(screen.getByTestId('node-effort-report')).getByText('max')).toBeTruthy();
   });
 });
 
