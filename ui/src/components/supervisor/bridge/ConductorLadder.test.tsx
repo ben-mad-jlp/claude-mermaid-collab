@@ -22,9 +22,8 @@ describe('ConductorLadder', () => {
     mockConductor(false);
     render(<ConductorLadder project="/abs/p" />);
     await waitFor(() => expect(screen.getByTestId('conductor-ladder')).toBeTruthy());
-    expect(screen.getByTestId('conductor-stop-off')).toBeTruthy();
-    expect(screen.getByTestId('conductor-stop-on')).toBeTruthy();
-    expect(screen.getByText('Conductor')).toBeTruthy();
+    expect(screen.getByTestId('conductor-toggle')).toBeTruthy();
+    expect(screen.getByTestId('conductor-level').textContent).toContain('Conductor');
   });
 
   it('marks the ON stop active when the conductor is enabled', async () => {
@@ -33,8 +32,7 @@ describe('ConductorLadder', () => {
     await waitFor(() =>
       expect(screen.getByTestId('conductor-ladder').getAttribute('data-enabled')).toBe('true'),
     );
-    expect(screen.getByTestId('conductor-stop-on').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('conductor-stop-off').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('conductor-toggle').getAttribute('data-lever-level')).toBe('on');
   });
 
   it('POSTs { enabled: true } when the ON stop is clicked (interactive, unlike the old badge)', async () => {
@@ -43,7 +41,7 @@ describe('ConductorLadder', () => {
     await waitFor(() =>
       expect(screen.getByTestId('conductor-ladder').getAttribute('data-enabled')).toBe('false'),
     );
-    fireEvent.click(screen.getByTestId('conductor-stop-on'));
+    fireEvent.click(screen.getByTestId('conductor-toggle'));
     await waitFor(() => expect(post).toHaveBeenCalled());
     expect(post).toHaveBeenCalledWith({ project: '/abs/p', enabled: true });
   });
@@ -61,8 +59,8 @@ describe('ConductorLadder', () => {
     await waitFor(() =>
       expect(screen.getByTestId('conductor-ladder').getAttribute('data-daemon-off')).toBe('true'),
     );
-    expect((screen.getByTestId('conductor-stop-on') as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByTestId('conductor-stop-on'));
+    expect((screen.getByTestId('conductor-toggle') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId('conductor-toggle'));
     await new Promise((r) => setTimeout(r, 10));
     expect(post).not.toHaveBeenCalled(); // can't enable the conductor while the daemon is off
   });
@@ -142,16 +140,15 @@ describe('ConductorLadder', () => {
     expect(line).not.toContain('running…');
   });
 
-  it('does not POST when the already-active stop is clicked', async () => {
+  it('clicking the ON lever flips it OFF', async () => {
     const { post } = mockConductor(true);
     render(<ConductorLadder project="/abs/p" />);
     await waitFor(() =>
       expect(screen.getByTestId('conductor-ladder').getAttribute('data-enabled')).toBe('true'),
     );
-    fireEvent.click(screen.getByTestId('conductor-stop-on')); // already on → no-op
-    // Give any (unexpected) POST a tick to fire.
-    await new Promise((r) => setTimeout(r, 10));
-    expect(post).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('conductor-toggle'));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledWith({ project: '/abs/p', enabled: false });
   });
 });
 
