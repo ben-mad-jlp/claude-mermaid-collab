@@ -22,7 +22,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useEventStreamStore } from '@/stores/eventStreamStore';
 import { useDiveIn, useSelectSessionInPlace } from '@/hooks/useDiveIn';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
-import { usePolledResource } from '@/hooks/usePolledResource';
+import { usePolledResource, POLL_INTERVAL_MS } from '@/hooks/usePolledResource';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
@@ -211,9 +211,30 @@ export const BridgeDashboard: React.FC = () => {
   const gatedReconnectResync = useMemo(() => makeCooldownGate(() => resyncRef.current()), []);
   useEffect(() => () => gatedReconnectResync.cancel(), [gatedReconnectResync]);
 
+  // A PROJECT SWITCH DOES NOT RESYNC (operator direction). `resyncBridge`'s identity
+  // changes on every switch, so this effect used to refire and put the snapshot into
+  // `loading` — which blanked the project cards on each switch and left only the last
+  // project valid. The panels now paint whatever that project already holds and refresh
+  // on the shared timer below or the ↺ button. A project that has NEVER loaded still
+  // fills once: with nothing cached there is nothing to paint, only an empty Bridge.
+  // Read the flag imperatively so subscribing to the map cannot re-fire this effect.
   useEffect(() => {
+    if (!project) return;
+    const loadedOnce =
+      useSupervisorStore.getState().bridgeSnapshotStateByProject[project]?.hasLoadedOnce ?? false;
+    if (loadedOnce) return;
     resyncBridge();
-  }, [resyncBridge]);
+  }, [resyncBridge, project]);
+
+  // The TIMER half of "timer + manual refresh": the bridge snapshot had no periodic
+  // refresh of its own — it rode the project-switch resync — so removing that would
+  // have left these panels refreshing only on a WS reconnect or a ↺ click. Same
+  // interval as the shared poller, driven through the ref so a project switch never
+  // restarts the clock.
+  useEffect(() => {
+    const id = setInterval(() => { resyncRef.current(); }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   // BUG FIX (5b8dc726): the WS client auto-reconnects after a drop (very common —
   // the API server restarts often), but the load effect above keys only on
