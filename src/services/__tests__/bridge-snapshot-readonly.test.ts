@@ -207,6 +207,7 @@ describe('bridge-snapshot readonly verification', () => {
       // hard constraint). campaign-snapshot.ts reaches for no git, child_process or fs, so it
       // does not weaken what this guard exists to forbid.
       './campaign-snapshot.js',
+      './async-job-store.js',
     ]);
 
     const allowedImports = new Set([
@@ -221,7 +222,9 @@ describe('bridge-snapshot readonly verification', () => {
       'specCoverage',
       'CoverageRollup',
       'listCampaignsForSnapshot',
-      'BridgeCampaign',
+      'BridgeCampaign',,
+      'listJobs',
+      'AsyncJobRow',
     ]);
 
     for (const match of importMatches) {
