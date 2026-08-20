@@ -46,7 +46,7 @@ import { ClaudeNodeInvoker, GrokNodeInvoker, assertSubscriptionAuth, assertGrokA
 import { XaiApiNodeInvoker, assertXaiApiAuth } from '../agent/xai-api-invoker';
 import { config } from '../config';
 import { resolveNodeProvider, grokNeededForKinds, xaiApiNeededForKinds, grokModelForKind, xaiApiModelForKind, resolveNodeModel, type NodeProvider } from './node-provider';
-import { classifyProviderFallback } from './provider-fallback';
+import { classifyProviderFallback, classifyTransientReviewFailure } from './provider-fallback';
 import { getWorktreeManager, resolveEpicId, makeCoordinatorDeps } from './coordinator-live';
 import { handleWorkerComplete } from './coordinator-daemon';
 import { createEscalation, resolveEscalation, getTypedContractGating } from './supervisor-store';
@@ -1680,6 +1680,11 @@ export async function runLeaf(
   /** TRUE while still within the master node budget. */
   const checkBudget = (): boolean => state.nodesSpent <= budgetState.value;
 
+  // Tracks the provider that ACTUALLY ran the most recent runNode call (post the one-hop
+  // grok→claude fallback inside runNode), so the main-loop review re-run classifier
+  // (classifyTransientReviewFailure) judges against reality, not the pre-resolution guess.
+  let lastNodeProvider: NodeProvider = 'claude';
+
   /** Single wrapper used for EVERY invokeNode call: increment BEFORE the spawn
    *  (so a hanging node still counts toward the budget), invoke, then a best-effort
    *  ledger write. */
@@ -1690,6 +1695,9 @@ export async function runLeaf(
      *  review node passes its parsed verdict; the terminal return path also stamps
      *  the leaf's final outcome here so no extra row is emitted). */
     extra?: { verdict?: 'pass' | 'fail' | null; leafOutcome?: LeafRunResult['outcome'] | null },
+    /** Bounded transient-review re-run (blueprint 5631ee34): force the claude invoker on the
+     *  third review call rather than re-resolving the node's normal provider routing. */
+    opts?: { forceProvider?: 'claude' },
   ): Promise<NodeResult> => {
     // Cooperative abort — before the spawn. Catches an ancestor drop / hold / claim
     // loss at the node boundary so we never launch a node the daemon has already
@@ -1708,14 +1716,18 @@ export async function runLeaf(
     // forced claude) + config; default claude = no behaviour change. For grok, set the spec
     // model to the kind's grok default so buildGrokArgv resolves a grok `-m` (not a claude
     // alias). The recorded (provider, model) reflects what actually ran (Grok review note).
-    const provider = resolveNodeProvider(project, kind, spec.allowedTools);
+    const provider = opts?.forceProvider === 'claude' ? 'claude' : resolveNodeProvider(project, kind, spec.allowedTools);
     // Three lanes: grok-build (CLI coding proxy), grok-api (public api.x.ai → grok-4.3 reasoner,
     // read-only loop for review/blueprint), else claude. Each sets the spec model + ledger model
     // so the recorded (provider, model) reflects what actually ran.
     let invoker: NodeInvoker;
     let effSpec = spec;
     let recordedModel: string;
-    if (provider === 'grok-build') {
+    if (opts?.forceProvider === 'claude') {
+      invoker = deps.invoker;
+      effSpec = { ...spec, model: resolveNodeModel(project, kind, 'claude', NODE_PROFILE[kind].model) };
+      recordedModel = effSpec.model!;
+    } else if (provider === 'grok-build') {
       invoker = deps.grokInvoker ?? GrokNodeInvoker;
       // Honor the per-kind model override (UI matrix) so e.g. implement can be pinned to
       // grok-build (grok-build-0.1) instead of the composer-fast kind default.
@@ -1817,6 +1829,7 @@ export async function runLeaf(
     ) {
       throw new Error(`worktree-missing: lane worktree ${effSpec.cwd} was removed mid-run (node ${kind})`);
     }
+    lastNodeProvider = effectiveProvider;
     return res;
   };
 
@@ -3181,6 +3194,10 @@ export async function runLeaf(
       // PROSE gate RETRY: findings=synth+llm=fail so revise re-runs implement; makes
       // `findings=(review.text).trim()` below mutually exclusive with retry (else clobbers synth).
       let proseRetryFindings: string | null = null;
+      // Bounded transient-review re-run (blueprint 5631ee34): per-attempt scope, resets each
+      // attempt. Drives the review re-run loop below — up to 2 in-place re-runs on the same
+      // spec, the 3rd forced onto the claude invoker.
+      let transientReviewFailures = 0;
       // crit 1 (falsifiability): set when a GENUINE review FAIL on a GREEN mechanical gate
       // cites NO falsifiable defect (grounding vacuous/abstain = "can't verify" / "nothing to
       // review"). Such a veto is an ABSTAIN — it must NOT gate a green change (the mechanical
@@ -3305,7 +3322,31 @@ export async function runLeaf(
           (deps.typedContractGating?.(project) ?? false) && leafContract
             ? contractBallotRequirements(leafContract).map((r) => ({ id: r.id, kind: r.kind, text: r.description }))
             : undefined;
-        const review = await runNode('review', buildSpec('review', cwd, blueprintBody, undefined, route.depth, reviewBallot));
+        const reviewSpec = buildSpec('review', cwd, blueprintBody, undefined, route.depth, reviewBallot);
+        let review = await runNode('review', reviewSpec);
+        // Bounded in-place transient review re-run (blueprint 5631ee34): a grok-api/grok-build
+        // review failure that looks transient (rate-limit/resource-exhausted/timeout) is worth
+        // re-dispatching on the SAME spec — no new implement node, no proseOffense — rather than
+        // being treated as a real review-vacuous verdict. Classified against lastNodeProvider
+        // (post the one-hop grok→claude fallback inside runNode) so an already-fallen-back
+        // result is never misjudged. Capped at 3 review calls total per attempt; the 3rd is
+        // forced onto the claude invoker.
+        let t = classifyTransientReviewFailure(lastNodeProvider, review);
+        while (t.transient && transientReviewFailures < 2) {
+          transientReviewFailures += 1;
+          const forcedClaude = transientReviewFailures === 2;
+          try {
+            deps.recordNode({
+              project, todoId: leaf.id, session: sessionKey, epicId, leafId: leaf.id,
+              nodeKind: 'grounding-audit', nodesSpent: 0,
+              outcomeDetail: JSON.stringify({ transientReviewRerun: { n: transientReviewFailures, reason: t.reason, forcedClaude } }),
+            });
+          } catch { /* telemetry — never break the run */ }
+          review = forcedClaude
+            ? await runNode('review', reviewSpec, undefined, { forceProvider: 'claude' })
+            : await runNode('review', reviewSpec);
+          t = classifyTransientReviewFailure(lastNodeProvider, review);
+        }
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);
         llm = parseVerdict(review.text);
