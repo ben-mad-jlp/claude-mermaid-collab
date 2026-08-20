@@ -40,6 +40,9 @@ import { loadManifestSource } from '../config/project-manifest.js';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
 import { probeDepTrees, requiredDepRoots } from './dep-tree-guard.js';
+import { extractGateFailingFiles } from './gate-base-attribution.js';
+import { isInChangeSet } from './gate-runner.js';
+import { parseDeclaredScope } from './leaf-commit-scope.js';
 
 const defaultRunGit: GitRunner = async (cwd, args) => {
   const p = Bun.spawn(['git', ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
@@ -51,7 +54,29 @@ const defaultRunGit: GitRunner = async (cwd, args) => {
 
 /** The INFRA causes an executor stamps as the HEAD of a park reason (leaf-executor's G2
  *  base gate + the mis-homed target guard). Everything else is CONTENT. */
-export type InfraCause = 'epic-base-red' | 'epic-base-gate-could-not-run' | 'mis-homed-target';
+export type InfraCause =
+  | 'epic-base-red'
+  | 'epic-base-gate-could-not-run'
+  | 'mis-homed-target'
+  | 'leaf-gate-could-not-run';
+
+/**
+ * Leaf-level mechanical gate could not RUN, and at least one failing file is outside the
+ * leaf's declared scope — INFRA, not CONTENT. Boundary-anchored match is load-bearing:
+ * `epic-base-gate-could-not-run:` contains `gate-could-not-run:` as a substring, so a bare
+ * `includes()` would silently re-label every epic-level park.
+ */
+export function classifyLeafGateCouldNotRun(
+  reason: string | null,
+  declaredFiles: readonly string[] = [],
+): InfraCause | null {
+  if (!reason) return null;
+  if (!/(^|\s)gate-could-not-run:/.test(reason)) return null;
+  const failingFiles = extractGateFailingFiles(reason);
+  if (failingFiles.length === 0) return null;
+  if (!failingFiles.some((f) => !isInChangeSet(f, declaredFiles))) return null;
+  return 'leaf-gate-could-not-run';
+}
 
 /**
  * Classify a leaf's durable terminal reason (`LeafRunSummary.reason`). Matched in order so
@@ -61,7 +86,10 @@ export type InfraCause = 'epic-base-red' | 'epic-base-gate-could-not-run' | 'mis
  * park — returns `null` = CONTENT. That is the fail-closed default: this arm only ever
  * un-parks work whose failure it can positively identify as infrastructure.
  */
-export function classifyInfraRejection(reason: string | null): InfraCause | null {
+export function classifyInfraRejection(
+  reason: string | null,
+  declaredFiles: readonly string[] = [],
+): InfraCause | null {
   if (!reason) return null;
   const r = reason.toLowerCase();
   if (r.includes('epic-base-gate-could-not-run') || r.includes('gate could not run')) {
@@ -69,7 +97,7 @@ export function classifyInfraRejection(reason: string | null): InfraCause | null
   }
   if (r.includes('epic-base-red')) return 'epic-base-red';
   if (r.includes('mis-homed')) return 'mis-homed-target';
-  return null;
+  return classifyLeafGateCouldNotRun(reason, declaredFiles);
 }
 
 export interface InfraCandidate {
@@ -106,7 +134,7 @@ export function collectInfraRejectedLeaves(project: string, missionId: string): 
       if (run.finalOutcome !== 'rejected' && run.finalOutcome !== 'blocked') continue;
       const leaf = byId.get(run.leafId);
       if (!leaf || leaf.acceptanceStatus !== 'rejected') continue;
-      const cause = classifyInfraRejection(run.reason);
+      const cause = classifyInfraRejection(run.reason, parseDeclaredScope(leaf.description));
       if (!cause) continue; // CONTENT — never this arm's business
       out.push({ leafId: leaf.id, epicId: epic.id, cause, reason: run.reason ?? '' });
     }
