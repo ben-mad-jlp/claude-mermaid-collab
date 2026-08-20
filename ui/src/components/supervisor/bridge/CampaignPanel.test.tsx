@@ -70,6 +70,8 @@ describe('CampaignPanel chamber deliberation', () => {
     // Assert the chamber section is rendered
     expect(screen.getByTestId('campaign-chamber')).toBeTruthy();
 
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
+
     // Assert the failure line is rendered with the correct data-testid
     const failureLine = screen.getByTestId('chamber-failure');
     expect(failureLine).toBeTruthy();
@@ -133,6 +135,8 @@ describe('CampaignPanel chamber deliberation', () => {
     // Assert the chamber section is rendered
     expect(screen.getByTestId('campaign-chamber')).toBeTruthy();
 
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
+
     // Assert the veto row is rendered with the full reason text
     expect(screen.getByText(vetoReason)).toBeTruthy();
 
@@ -175,6 +179,8 @@ describe('CampaignPanel chamber deliberation', () => {
 
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
+
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
 
     // Assert the decision section is rendered
     const decisionBlock = screen.getByTestId('chamber-decision');
@@ -238,6 +244,8 @@ describe('CampaignPanel chamber deliberation', () => {
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
 
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
+
     // Assert the comptroller role is rendered
     expect(screen.getByText('comptroller')).toBeTruthy();
 
@@ -283,6 +291,8 @@ describe('CampaignPanel chamber deliberation', () => {
 
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
+
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
 
     const transcript = screen.getByTestId('chamber-transcript');
     expect(transcript).toBeTruthy();
@@ -353,6 +363,8 @@ describe('CampaignPanel chamber deliberation', () => {
 
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
+
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
 
     // Get all phase headings in document order
     const headings = screen.getAllByTestId('chamber-phase-heading');
@@ -427,6 +439,8 @@ describe('CampaignPanel chamber deliberation', () => {
 
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
+
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
 
     // Initially, the full body should not be in the DOM
     expect(screen.queryByText(longBody)).toBeNull();
@@ -513,6 +527,8 @@ describe('CampaignPanel chamber deliberation', () => {
 
     vi.clearAllTimers();
     render(<CampaignPanel project="P" />);
+
+    fireEvent.click(screen.getAllByTestId('chamber-decision-row')[0]);
 
     // Assert each row container has text-xs and not text-3xs
     const proposalRow = screen.getByTestId('chamber-proposal');
