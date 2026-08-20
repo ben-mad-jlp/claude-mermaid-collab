@@ -10,6 +10,7 @@
 import React from 'react';
 import { useSupervisorStore } from '@/stores/supervisorStore';
 import type { BridgeCampaign } from '@/types/campaign';
+import { CampaignIcon } from './rail/navIcons';
 
 export interface CampaignStripProps {
   project: string;
@@ -41,6 +42,7 @@ export const CampaignStrip: React.FC<CampaignStripProps> = ({ project, onOpenCam
           title="Open campaigns"
           className="flex w-full items-center gap-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
         >
+          <CampaignIcon className="shrink-0" />
           {/* Campaign title */}
           <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 min-w-0 truncate">
             {c.title}

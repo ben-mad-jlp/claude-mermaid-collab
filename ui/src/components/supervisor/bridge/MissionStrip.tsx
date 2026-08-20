@@ -12,6 +12,7 @@ import React from 'react';
 import { stripKindPrefix } from '@/lib/todoKind';
 import { StatusPill, missionView, isMissionCompleted } from './rail/missionShared';
 import { useMissions } from './rail/useMissions';
+import { MissionIcon } from './rail/navIcons';
 
 export interface MissionStripProps {
   serverId: string;
@@ -60,6 +61,7 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
         title="Open missions"
         className="flex w-full items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
       >
+        <MissionIcon className="shrink-0" />
         <span className="text-3xs text-gray-400 dark:text-gray-500 italic" data-testid="mission-strip-loading">
           Loading missions…
         </span>
@@ -78,6 +80,7 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
         title="Open missions"
         className="flex w-full items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
       >
+        <MissionIcon className="shrink-0" />
         <span className="text-3xs text-gray-400 dark:text-gray-500 italic" data-testid="mission-strip-idle-label">
           No active mission{missions.length > 0 ? ` (${missions.length} total)` : ''}
         </span>
@@ -96,6 +99,7 @@ export const MissionStrip: React.FC<MissionStripProps> = ({ serverId, project, o
       title="Open mission detail"
       className="flex w-full items-center gap-3 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-left hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
     >
+      <MissionIcon className="shrink-0" />
       {/* Mission title */}
       <span
         data-testid="mission-strip-title"
