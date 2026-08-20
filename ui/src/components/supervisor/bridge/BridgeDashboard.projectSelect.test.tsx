@@ -162,7 +162,7 @@ describe('BridgeDashboard project selection persists the ladder level', () => {
       expect(screen.getByTestId('orchestrator-ladder').getAttribute('data-project')).toBe(PROJECT_B),
     );
 
-    fireEvent.click(screen.getByTestId('orchestrator-stop-on'));
+    fireEvent.click(screen.getByTestId('daemon-toggle'));
 
     await waitFor(() => expect(posts.length).toBe(1));
     expect(posts[0]).toEqual({ project: PROJECT_B, level: 'on' });
@@ -173,6 +173,6 @@ describe('BridgeDashboard project selection persists the ladder level', () => {
     await Promise.resolve();
 
     expect(screen.getByTestId('orchestrator-ladder').getAttribute('data-level')).toBe('on');
-    expect(screen.getByTestId('orchestrator-stop-on').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('daemon-toggle').getAttribute('data-lever-level')).toBe('on');
   });
 });
