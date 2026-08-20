@@ -20,6 +20,7 @@ import {
   type CompletionLensRound,
   type ChamberPhase,
   type ChamberOutcome,
+  type ChamberDecisionRecord,
 } from './campaign-store.js';
 import { CHAMBER_ROSTER, type ChamberRosterEntry } from './chamber-constitution.js';
 import { listTodos, type Todo } from './todo-store.js';
@@ -100,6 +101,8 @@ export interface BridgeCampaign {
   probes: BridgeCampaignProbe[];
   ruling: BridgeCampaignRuling | null;
   chamber: BridgeChamberDeliberation | null;
+  /** Every chamber deliberation for this campaign, oldest→newest. `chamber` is its last element. */
+  chamberHistory: BridgeChamberDeliberation[];
   /** The missions linked to this campaign via probe claims, with their display nicknames. */
   linkedMissions: Array<{ id: string; nickname: string | null }>;
   /** Number of missions linked to this campaign via probe claims. */
@@ -189,58 +192,10 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       };
     }
 
-    // Get the latest chamber decision for this campaign, or null if none exist.
+    // Get all chamber decisions for this campaign and project them oldest→newest.
     const decisions = listChamberDecisions(project, campaign.id);
-    let chamber: BridgeChamberDeliberation | null = null;
-    if (decisions.length > 0) {
-      const decision = decisions[decisions.length - 1];
-      const transcript = listChamberTranscript(project, campaign.id, decision.sessionId);
-
-      // Bucket transcript rows by phase, preserving store order within each bucket.
-      const proposals: BridgeChamberEntry[] = [];
-      const vetoes: BridgeChamberEntry[] = [];
-      const wargame: BridgeChamberEntry[] = [];
-      const decisionEntries: BridgeChamberEntry[] = [];
-
-      for (const row of transcript) {
-        const entry: BridgeChamberEntry = {
-          phase: row.phase,
-          role: row.role,
-          model: row.model,
-          content: row.content,
-          createdAt: row.createdAt,
-        };
-
-        switch (row.phase) {
-          case 'propose':
-            proposals.push(entry);
-            break;
-          case 'veto':
-            vetoes.push(entry);
-            break;
-          case 'wargame':
-            wargame.push(entry);
-            break;
-          case 'decide':
-            decisionEntries.push(entry);
-            break;
-        }
-      }
-
-      chamber = {
-        sessionId: decision.sessionId,
-        outcome: decision.outcome,
-        chosenCandidate: decision.chosenCandidate,
-        strongestDissent: decision.strongestDissent,
-        refiningGuidance: decision.refiningGuidance,
-        decidedAtSha: decision.decidedAtSha,
-        decidedAt: decision.createdAt,
-        proposals,
-        vetoes,
-        wargame,
-        decision: decisionEntries,
-      };
-    }
+    const chamberHistory = decisions.map((d) => projectChamberDeliberation(project, campaign.id, d));
+    const chamber = chamberHistory.length > 0 ? chamberHistory[chamberHistory.length - 1] : null;
 
     // Count missions and leaves linked to this campaign.
     const linkedMissionIds = listLinkedMissionIds(project, campaign.id);
@@ -274,12 +229,71 @@ export function listCampaignsForSnapshot(project: string): BridgeCampaign[] {
       probes: enrichedProbes,
       ruling,
       chamber,
+      chamberHistory,
       linkedMissions,
       missionCount,
       leafCount,
       chamberRoster: [...CHAMBER_ROSTER],
     };
   });
+}
+
+/**
+ * Project a single chamber decision and its session transcript into a BridgeChamberDeliberation.
+ * Reads the transcript for this decision's sessionId only, buckets it by phase, and returns
+ * the structured deliberation. Called once per decision in the decision list.
+ */
+function projectChamberDeliberation(
+  project: string,
+  campaignId: string,
+  decision: ChamberDecisionRecord,
+): BridgeChamberDeliberation {
+  const transcript = listChamberTranscript(project, campaignId, decision.sessionId);
+
+  // Bucket transcript rows by phase, preserving store order within each bucket.
+  const proposals: BridgeChamberEntry[] = [];
+  const vetoes: BridgeChamberEntry[] = [];
+  const wargame: BridgeChamberEntry[] = [];
+  const decisionEntries: BridgeChamberEntry[] = [];
+
+  for (const row of transcript) {
+    const entry: BridgeChamberEntry = {
+      phase: row.phase,
+      role: row.role,
+      model: row.model,
+      content: row.content,
+      createdAt: row.createdAt,
+    };
+
+    switch (row.phase) {
+      case 'propose':
+        proposals.push(entry);
+        break;
+      case 'veto':
+        vetoes.push(entry);
+        break;
+      case 'wargame':
+        wargame.push(entry);
+        break;
+      case 'decide':
+        decisionEntries.push(entry);
+        break;
+    }
+  }
+
+  return {
+    sessionId: decision.sessionId,
+    outcome: decision.outcome,
+    chosenCandidate: decision.chosenCandidate,
+    strongestDissent: decision.strongestDissent,
+    refiningGuidance: decision.refiningGuidance,
+    decidedAtSha: decision.decidedAtSha,
+    decidedAt: decision.createdAt,
+    proposals,
+    vetoes,
+    wargame,
+    decision: decisionEntries,
+  };
 }
 
 /**
