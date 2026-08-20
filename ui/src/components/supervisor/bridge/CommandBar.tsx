@@ -18,6 +18,8 @@ import { OrchestratorLadder } from './OrchestratorLadder';
 import { ConductorLadder } from './ConductorLadder';
 
 export interface CommandBarProps {
+  /** Server that owns the scoped project — threaded to the daemon/conductor ladders. */
+  serverScope?: string;
   liveCount: number;
   inflightCount: number;
   needsYouCount: number;
@@ -40,7 +42,7 @@ export interface CommandBarProps {
   onOpenSettings?: () => void;
 }
 
-export const CommandBar: React.FC<CommandBarProps> = ({
+export const CommandBar: React.FC<CommandBarProps> = ({ serverScope = 'local',
   liveCount,
   inflightCount,
   needsYouCount,
@@ -74,8 +76,8 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             {projectName}
           </span>
         )}
-        {project && <OrchestratorLadder project={project} />}
-        {project && <ConductorLadder project={project} />}
+        {project && <OrchestratorLadder project={project} serverScope={serverScope} />}
+        {project && <ConductorLadder project={project} serverScope={serverScope} />}
         {onRefresh && (
           <button
             type="button"
