@@ -219,6 +219,8 @@ describe('leaf-executor in-place transient review re-run', () => {
     expect(spies.claudeSpecs.filter(isReviewSpec).length).toBe(1);
     // No fourth review call — the cap is 3 review calls total per attempt.
     expect(spies.xaiSpecs.filter(isReviewSpec).length + spies.claudeSpecs.filter(isReviewSpec).length).toBe(3);
+    // Exactly one implement node — the re-run re-invokes review only, not implement.
+    expect(spies.claudeSpecs.filter(isImplementSpec).length).toBe(1);
     const forcedRow = spies.nodeRows.find(
       (r) => r.nodeKind === 'grounding-audit' && typeof r.outcomeDetail === 'string' && (r.outcomeDetail as string).includes('"forcedClaude":true'),
     );
