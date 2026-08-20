@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { RailNav, RailKey, RailSection, RAIL_SECTION_ORDER } from './RailNav';
+import { CampaignIcon, MissionIcon } from './navIcons';
 
 export interface BridgeRailCounts {
   escalations?: number;
@@ -196,7 +197,7 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           onClick={() => onOpenCampaigns?.()}
           className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 data-[active=true]:bg-accent-50 dark:data-[active=true]:bg-accent-900/30 data-[active=true]:text-accent-700 dark:data-[active=true]:text-accent-300 ${expanded ? 'justify-start' : 'justify-center'}`}
         >
-          <span aria-hidden>◇</span>
+          <CampaignIcon />
           {expanded && <span>Campaigns</span>}
         </button>
         <button
@@ -207,7 +208,8 @@ export const BridgeRail: React.FC<BridgeRailProps> = ({
           onClick={() => onOpenMissions?.()}
           className={`w-full flex items-center gap-2 px-2 py-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 data-[active=true]:bg-accent-50 dark:data-[active=true]:bg-accent-900/30 data-[active=true]:text-accent-700 dark:data-[active=true]:text-accent-300 ${expanded ? 'justify-start' : 'justify-center'}`}
         >
-          <span aria-hidden>✦</span>
+          <MissionIcon />
+
           {expanded && <span>Missions</span>}
         </button>
       </div>
