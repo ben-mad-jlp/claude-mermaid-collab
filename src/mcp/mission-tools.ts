@@ -58,6 +58,14 @@ export const MISSION_TOOL_DEFS = [
 ];
 
 /**
+ * Derived key set for update_mission, built from the declared inputSchema.properties.
+ * Used to validate that all arguments in the call are declared keys.
+ */
+export const UPDATE_MISSION_ARG_KEYS: ReadonlySet<string> = new Set(
+  Object.keys((MISSION_TOOL_DEFS.find((d) => d.name === 'update_mission')!.inputSchema as any).properties),
+);
+
+/**
  * Handle a mission-group CallTool invocation. Returns the JSON string result
  * (identical to the original inline setup.ts handler), or `null` if `name` is
  * not a mission tool — in which case the caller falls through to its own switch.
@@ -254,6 +262,12 @@ export async function handleMissionTool(name: string, args: any): Promise<string
         project: string; todoId: string; title?: string; description?: string; abandonedAt?: number | null;
         budgetUsd?: number | null; actor?: string; reason?: string;
       };
+      // Validate that all provided keys are declared in the schema
+      for (const key of Object.keys(args ?? {})) {
+        if (!UPDATE_MISSION_ARG_KEYS.has(key)) {
+          return JSON.stringify({ error: `unknown argument key: ${key}`, unknownKey: key }, null, 2);
+        }
+      }
       if (!project || !todoId) throw new Error('Missing required: project, todoId');
       const node = getTodo(project, todoId);
       if (!node) throw new Error(`todo not found: ${todoId}`);
