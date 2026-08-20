@@ -30,8 +30,11 @@ function extractUseCallbackBody(src: string, name: string): string {
 
 describe('BridgeDashboard polled unseen wiring', () => {
   it('BridgeDashboard imports and calls usePolledResource', () => {
+    // Tolerates sibling named imports from the same module (e.g. POLL_INTERVAL_MS);
+    // the assertion is that BridgeDashboard imports usePolledResource, not that it is
+    // the only name imported.
     expect(SRC).toMatch(
-      /import\s*\{\s*usePolledResource\s*\}\s*from\s*['"]@\/hooks\/usePolledResource['"]/,
+      /import\s*\{[^}]*\busePolledResource\b[^}]*\}\s*from\s*['"]@\/hooks\/usePolledResource['"]/,
     );
     expect(SRC).toMatch(/usePolledResource[\s\S]*?['"]bridge-unseen['"]/);
     expect(SRC).toMatch(/project\s*\|\|\s*undefined/);
