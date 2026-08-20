@@ -201,6 +201,15 @@ export const fetchExplorerLevel = (project: string, serverScope: string = 'local
 export const setExplorerLevel = (project: string, level: ExplorerLevel, serverScope: string = 'local') =>
   postLeverLevel('/api/explorer/level', 'explorer', project, level, serverScope);
 
+/** CAMPAIGN: gates the campaign pass — probe execution, mission forging, and chamber
+ *  convenes. A convene is a full multi-general LLM deliberation (the most expensive
+ *  automated act in the system), so this lever is the operator's spend kill switch. */
+export type CampaignLevel = LeverLevel;
+export const fetchCampaignLevel = (project: string, serverScope: string = 'local') =>
+  fetchLeverLevel('/api/campaign/level', 'campaign', project, serverScope);
+export const setCampaignLevel = (project: string, level: CampaignLevel, serverScope: string = 'local') =>
+  postLeverLevel('/api/campaign/level', 'campaign', project, level, serverScope);
+
 export interface ConductorPassChip { kind: string; id: string; label: string }
 export interface FormattedConductorPass { sentence: string; chips: ConductorPassChip[] }
 
