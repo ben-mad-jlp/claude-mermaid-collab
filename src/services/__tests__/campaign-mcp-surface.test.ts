@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleCampaignTool } from '../../mcp/campaign-tools.js';
+import { _closeDb } from '../orchestrator-config';
 import { setupMCPServer } from '../../mcp/setup.js';
 import {
   recordProbeVerdict,
@@ -20,6 +21,7 @@ import { _closeAllCollabDbs } from '../collab-db';
 let project: string;
 
 beforeEach(() => {
+  _closeDb();
   project = mkdtempSync(join(tmpdir(), 'campaign-mcp-'));
   process.env.MERMAID_SUPERVISOR_DIR = project;
 });

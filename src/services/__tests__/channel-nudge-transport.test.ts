@@ -175,7 +175,10 @@ describe('channel-nudge-transport — live defaults (getStatus)', () => {
     });
 
     // Pass an invalid project path to force getStatus to throw
-    const result = await nudge('nonexistent/project', 'sess', 'message');
+    // ABSOLUTE nonexistent path: a relative one resolves against the daemon cwd and the
+    // session-status store obligingly mkdirs nonexistent/project/.collab/ INTO THE REPO,
+    // littering the main checkout and blocking every dirty-tree-guarded land (bf03a60b).
+    const result = await nudge('/nonexistent/project', 'sess', 'message');
 
     expect(result).toBe('undeliverable');
     expect(recording.deliveries).toHaveLength(0);

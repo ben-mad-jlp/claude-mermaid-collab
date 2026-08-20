@@ -19,6 +19,10 @@ process.env.MERMAID_SUPERVISOR_DIR = dir;
 process.env.MERMAID_ALLOW_TRANSIENT_PROJECT_CONFIG = '1';
 
 beforeEach(() => {
+  // Drop any cached orchestrator-config handle from an EARLIER test file whose
+  // tmpdir is already deleted — a stale handle to a dead vnode throws
+  // SQLITE_IOERR_VNODE on the first read/write here.
+  _closeDb();
   project = mkdtempSync(join(tmpdir(), 'set-campaign-level-'));
 });
 

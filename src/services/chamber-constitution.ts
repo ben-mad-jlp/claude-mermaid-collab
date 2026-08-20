@@ -197,15 +197,11 @@ export function buildPresidentSystemPrompt(
   // All nine articles, then reply contract
   const articleTexts = articles.map(a => a.text).join('\n\n');
 
-  const replyContract = `Respond with a single JSON object:
-{"ruling":"done"|"open","reasoning":string}
-
-- ruling must be "done" (campaign is complete) or "open" (campaign must remain open).
-- reasoning is a brief explanation of the ruling.`;
-
-  const system = [purpose, ...articles.slice(1).map(a => a.text), replyContract].join(
-    '\n\n',
-  );
+  // NO reply contract here — the decide phase appends the chosenIndex contract.
+  // A baked ruling contract made the president answer {"ruling":...} while the
+  // decide parser wanted chosenIndex, yielding 'chosen candidate not among
+  // surviving candidates' inaction on every convene.
+  const system = [purpose, ...articles.slice(1).map(a => a.text)].join('\n\n');
 
   const campaignSection = campaignContext?.goal
     ? `Campaign Title: ${campaignContext.title || '(untitled)'}
@@ -253,13 +249,12 @@ export function buildGeneralSystemPrompt(
   const articles = [...sharedArticles, agendaArticle];
   const articleTexts = articles.map(a => a.text).join('\n\n');
 
-  const replyContract = `Respond with a single JSON object:
-{"counsel":string|null,"reasoning":string}
-
-- counsel may be null (no counsel) or a string (a specific concern or objection).
-- reasoning is your assessment of the evidence through your lens.`;
-
-  const system = [articleTexts, replyContract].join('\n\n');
+  // NO reply contract here: the calling PHASE appends exactly one contract
+  // (propose/veto/wargame each have their own). A second contract baked into the
+  // base prompt made every general answer the wrong shape — the parse-miss fell
+  // through silently as '(failed)' and every convene ruled inaction (88 rows on
+  // campaign 4513790d before this was excised).
+  const system = articleTexts;
 
   const campaignSection = campaignContext?.goal
     ? `Campaign Title: ${campaignContext.title || '(untitled)'}
@@ -269,9 +264,7 @@ Campaign Goal: (none)`;
 
   const user = `${campaignSection}
 
-You are the ${general} general advising the president on campaign readiness. Examine the campaign state and offer counsel. Your role is to examine the facts through your specific lens and identify any concerns.
-
-Offer your counsel with reasoning that explains your assessment.`;
+You are the ${general} general advising the president on campaign readiness. Examine the campaign state through your specific lens; the task and reply shape for this phase follow in the instructions above.`;
 
   return { system, user };
 }

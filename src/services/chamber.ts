@@ -270,6 +270,11 @@ export async function propose(
       // Fall through: general failed, but continue with next
       failure = err instanceof Error ? err.message : String(err);
     }
+    // A reply that parsed to no candidate WITHOUT throwing is still a failure —
+    // record why, or the transcript shows a bare '(failed)' nobody can diagnose.
+    if (!candidate && !failure) {
+      failure = 'reply did not match the {goal, rationale} propose contract';
+    }
 
     // Always write a transcript row, even if the general failed or was dropped.
     const resolvedModel = args.model ?? resolveChamberRoleProfile(project, general).model;
