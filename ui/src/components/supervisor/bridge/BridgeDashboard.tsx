@@ -22,6 +22,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useEventStreamStore } from '@/stores/eventStreamStore';
 import { useDiveIn, useSelectSessionInPlace } from '@/hooks/useDiveIn';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
+import { usePolledResource } from '@/hooks/usePolledResource';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
@@ -145,6 +146,19 @@ export const BridgeDashboard: React.FC = () => {
 
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
 
+  const unseen = usePolledResource<Record<string, number>>(
+    'bridge-unseen',
+    project || undefined,
+    (p, signal) =>
+      apiFetch(serverScope, '/api/subscriptions?project=' + encodeURIComponent(p), { signal })
+        .then((r) => r.json())
+        .then((j: { unseenBySession?: Record<string, number> }) => j.unseenBySession ?? {}),
+  );
+
+  useEffect(() => {
+    if (unseen.data) applyUnseenCounts(unseen.data);
+  }, [unseen.data, applyUnseenCounts]);
+
   // Single place that re-fetches every Bridge store for the current scope. Run
   // on scope/project change AND on every WebSocket (re)connect — see below.
   //
@@ -171,22 +185,18 @@ export const BridgeDashboard: React.FC = () => {
       void loadAudit(serverScope, project);
       void loadRequirements(serverScope, project);
       void loadUnlandedEpics(serverScope, project);
-      void apiFetch(serverScope, '/api/subscriptions?project=' + encodeURIComponent(project))
-        .then((r) => r.json())
-        .then((j: { unseenBySession?: Record<string, number> }) =>
-          applyUnseenCounts(j.unseenBySession ?? {}))
-        .catch(() => {});
     }
     // Force the worker cards (polled session statuses) to refresh now, not in ≤10s.
     setStatusRefreshNonce((n) => n + 1);
-  }, [refetchSnapshot, serverScope, project, loadAudit, loadRequirements, loadUnlandedEpics, applyUnseenCounts]);
+  }, [refetchSnapshot, serverScope, project, loadAudit, loadRequirements, loadUnlandedEpics]);
 
   // EXPLICIT refresh (the ↺ button) — kept separate from the automatic
   // resyncBridge effect so a deliberate click is distinguishable from
   // dependency-driven resyncs.
   const onManualRefresh = useCallback(() => {
     resyncBridge();
-  }, [resyncBridge]);
+    unseen.refreshNow();
+  }, [resyncBridge, unseen.refreshNow]);
 
   // Reconnect-driven resyncs go through a cooldown gate (see reconnectCooldown.ts:
   // the resync-on-every-reconnect storm was one edge of the 2026-08-11/12 sidecar-pin
