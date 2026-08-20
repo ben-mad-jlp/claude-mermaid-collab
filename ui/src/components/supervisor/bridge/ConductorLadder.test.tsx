@@ -554,3 +554,54 @@ describe('ConductorLadder — Explorer switch', () => {
     expect(screen.getByTestId('autofix-toggle').getAttribute('data-lever-level')).toBe('on');
   });
 });
+
+describe('ConductorLadder campaign lever (the spend kill switch)', () => {
+  /** Route the campaign lever's GET/POST; everything else answers generically. */
+  function mockWithCampaign(opts: { campaign?: string }) {
+    const posts: any[] = [];
+    global.fetch = vi.fn((url: any, init?: any) => {
+      if (String(url).includes('/api/campaign/level')) {
+        if (init?.method === 'POST') {
+          const body = JSON.parse(init.body);
+          posts.push(body);
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: body.level }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: opts.campaign ?? 'on' }) });
+      }
+      if (init?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+      }
+      if (String(url).includes('/api/orchestrator/level')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ level: 'on' }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ enabled: true }) });
+    }) as any;
+    return posts;
+  }
+
+  it('renders a Campaign stop next to the conductor controls with the level read on mount', async () => {
+    mockWithCampaign({ campaign: 'off' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign-toggle').getAttribute('data-lever-level')).toBe('off'),
+    );
+    expect(screen.getByTestId('campaign-level').textContent).toContain('Campaign');
+    expect(screen.getByTestId('campaign-level').textContent).toContain('off');
+  });
+
+  it('POSTs the flipped campaign level on click and adopts the server value', async () => {
+    const posts = mockWithCampaign({ campaign: 'on' });
+    render(<ConductorLadder project="/abs/p" />);
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign-toggle').getAttribute('data-lever-level')).toBe('on'),
+    );
+
+    fireEvent.click(screen.getByTestId('campaign-toggle'));
+
+    await waitFor(() => expect(posts.length).toBe(1));
+    expect(posts).toEqual([{ project: '/abs/p', level: 'off' }]);
+    await waitFor(() =>
+      expect(screen.getByTestId('campaign-toggle').getAttribute('data-lever-level')).toBe('off'),
+    );
+  });
+});
