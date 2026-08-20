@@ -313,7 +313,7 @@ export const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ proj
         role="dialog"
         aria-label="Project settings"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl"
+        className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl"
       >
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
