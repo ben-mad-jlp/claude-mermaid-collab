@@ -40,7 +40,7 @@ describe('GET /api/supervisor/bridge-snapshot', () => {
     const { status, body } = await getSnapshot(`project=${encodeURIComponent(project)}`);
     expect(status).toBe(200);
     expect(Object.keys(body).sort()).toEqual(
-      ['campaigns', 'coverage', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
+      ['campaigns', 'coverage', 'landsInFlight', 'missions', 'openEscalations', 'projects', 'summaries', 'todos'].sort(),
     );
   });
 
