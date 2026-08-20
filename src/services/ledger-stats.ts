@@ -39,6 +39,12 @@ export interface LeafNodeStat {
    *  This is the field that explains a blueprint-node-failed / blocked leaf; without it
    *  exitCode alone (143=SIGTERM) doesn't say WHY the node was killed. */
   parseError?: string | null;
+  /** Which provider actually ran the node (`worker_ledger.provider`). Without it the
+   *  timeline cannot show that a grok-routed node in fact ran on claude. */
+  provider?: string | null;
+  /** Why the route fell back, parsed from the row's `outcomeDetail` JSON
+   *  (`providerFallback.reason`). null when absent or unparseable. */
+  providerFallbackReason?: string | null;
   ts: number;
   verdict?: string | null;
   inputTokens?: number | null; // UNCACHED input only (a tiny value is normal once caching is warm)
@@ -117,6 +123,18 @@ function safeParseCommands(json: string | null | undefined): ReturnType<typeof i
   }
 }
 
+/** Extract `providerFallback.reason` from a node's outcomeDetail JSON. Returns null
+ *  on falsy input, parse failure, or JSON that carries unrelated outcome markers. */
+function parseProviderFallbackReason(detail: string | null | undefined): string | null {
+  if (!detail) return null;
+  try {
+    const parsed = JSON.parse(detail);
+    return parsed?.providerFallback?.reason ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Inter-row gap (ms) that marks a re-run boundary. Matches the ad-hoc watcher
  *  heuristic seen in L4/L6 monitoring. */
 export const RUN_GAP_MS = 120_000;
@@ -161,6 +179,8 @@ export function getLeafRun(leafId: string): LeafRunStats | null {
     durationMs: r.durationMs ?? null,
     rateLimited: r.rateLimited ?? null,
     parseError: r.parseError ?? null,
+    provider: r.provider ?? null,
+    providerFallbackReason: parseProviderFallbackReason(r.outcomeDetail as string | null | undefined),
     ts: r.ts,
     verdict: r.verdict ?? null,
     inputTokens: r.inputTokens ?? null,
