@@ -25,6 +25,12 @@ afterAll(() => { _closeDb(); rmSync(dir, { recursive: true, force: true }); dele
  * repo root) still succeed.
  */
 describe('createEscalation — transient project path refusal', () => {
+  // Synthetic absolute non-transient project root (non-existent path is fine;
+  // trackingProjectRoot works via string matching only). This constant ensures
+  // tests pass cwd-independence — when the base gate runs with cwd=tmpdir,
+  // process.cwd()-derived values become transient and fail the guard.
+  const REAL_PROJECT = '/Users/collab-fixtures/transient-escalation-repo';
+
   let savedFlag: string | undefined;
 
   beforeEach(() => {
@@ -68,21 +74,20 @@ describe('createEscalation — transient project path refusal', () => {
   });
 
   it('still creates an escalation for a real project path', () => {
-    const realProject = trackingProjectRoot(process.cwd());
     const { escalation, isNew } = createEscalation({
       audience: 'human',
-      project: realProject,
+      project: REAL_PROJECT,
       session: 'test-session-real',
       kind: 'decision',
       questionText: 'test escalation real project',
     });
     expect(isNew).toBe(true);
-    expect(escalation.project).toBe(realProject);
+    expect(escalation.project).toBe(REAL_PROJECT);
 
     // Verify the row was written.
     const db = new Database(join(process.env.MERMAID_SUPERVISOR_DIR!, 'supervisor.db'));
     try {
-      const count = db.query('SELECT COUNT(*) as cnt FROM escalation WHERE project = ?').get(realProject) as { cnt: number };
+      const count = db.query('SELECT COUNT(*) as cnt FROM escalation WHERE project = ?').get(REAL_PROJECT) as { cnt: number };
       expect(count.cnt).toBe(1);
     } finally {
       db.close();
@@ -90,8 +95,7 @@ describe('createEscalation — transient project path refusal', () => {
   });
 
   it('still succeeds for a worktree path, landing under the normalized repo root', () => {
-    const realProject = trackingProjectRoot(process.cwd());
-    const worktreePath = `${realProject}/.collab/agent-sessions/worktrees/lane-1`;
+    const worktreePath = `${REAL_PROJECT}/.collab/agent-sessions/worktrees/lane-1`;
 
     const { escalation, isNew } = createEscalation({
       audience: 'human',
@@ -103,14 +107,14 @@ describe('createEscalation — transient project path refusal', () => {
 
     expect(isNew).toBe(true);
     // The stored project should be the normalized root, not the worktree path.
-    expect(escalation.project).toBe(realProject);
+    expect(escalation.project).toBe(REAL_PROJECT);
 
     // Verify the row exists under the normalized root.
     const db = new Database(join(process.env.MERMAID_SUPERVISOR_DIR!, 'supervisor.db'));
     try {
       const row = db.query('SELECT project FROM escalation WHERE id = ?').get(escalation.id);
       expect(row).toBeDefined();
-      expect((row as { project: string }).project).toBe(realProject);
+      expect((row as { project: string }).project).toBe(REAL_PROJECT);
     } finally {
       db.close();
     }
