@@ -493,12 +493,15 @@ const server = Bun.serve<WsData>({
       if (res) return res;
     }
 
-    // /api/autofix and /api/explorer are served by the orchestrator route table — both are
-    // sibling levers of the daemon level and share its store (orchestrator_config).
+    // /api/autofix, /api/explorer, and /api/campaign are served by the orchestrator route
+    // table — all are sibling levers of the daemon level and share its store
+    // (orchestrator_config). A lever route missing from THIS prefix list 404s even though
+    // its handler exists (the campaign lever shipped dead for one land because of that).
     if (
       url.pathname.startsWith('/api/orchestrator')
       || url.pathname.startsWith('/api/autofix')
       || url.pathname.startsWith('/api/explorer')
+      || url.pathname.startsWith('/api/campaign')
     ) {
       const res = await handleOrchestratorRoutes(req, url);
       if (res) return res;
