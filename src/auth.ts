@@ -38,6 +38,15 @@ export function isPrivatePeer(address: string | undefined | null): boolean {
     const second = Number(m[1]);
     if (second >= 16 && second <= 31) return true;
   }
+  // RFC6598 shared address space 100.64.0.0/10 (100.64 – 100.127) — Tailscale
+  // assigns every tailnet peer from this range, and it is never publicly routable,
+  // so a peer here is a VPN/carrier-NAT neighbor, not the open internet. The token
+  // gate below still applies to it.
+  const cg = v4.match(/^100\.(\d{1,3})\./);
+  if (cg) {
+    const second = Number(cg[1]);
+    if (second >= 64 && second <= 127) return true;
+  }
   // IPv6 link-local fe80::/10  and unique-local fc00::/7 (fc.. / fd..)
   if (a.startsWith('fe8') || a.startsWith('fe9') || a.startsWith('fea') || a.startsWith('feb')) return true;
   if (a.startsWith('fc') || a.startsWith('fd')) return true;
