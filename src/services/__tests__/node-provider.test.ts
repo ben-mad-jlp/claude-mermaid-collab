@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokNeededForKinds, xaiApiNeededForKinds, grokLedgerModel, grokModelForKind, xaiApiLedgerModel, resolveNodeModel } from '../node-provider';
+import { resolveNodeProvider, anyGrokNodeConfigured, anyXaiApiNodeConfigured, grokNeededForKinds, xaiApiNeededForKinds, grokLedgerModel, grokModelForKind, xaiApiLedgerModel, xaiApiModelForKind, resolveNodeModel } from '../node-provider';
 import { setNodeProfileOverride, setProjectNodeProvider, _closeDb } from '../orchestrator-config';
 
 // resolveNodeProvider precedence: mcp → per-kind DB → project DB → per-kind env → project
@@ -50,6 +50,15 @@ describe('resolveNodeProvider — precedence', () => {
   it('xaiApiLedgerModel is the flagship reasoner', () => {
     expect(xaiApiLedgerModel('review')).toBe('grok-4.3');
     expect(xaiApiLedgerModel('blueprint')).toBe('grok-4.3');
+  });
+
+  it('xaiApiModelForKind defaults to the flagship but honors a grok-api model override (e.g. grok-4.6)', () => {
+    expect(xaiApiModelForKind(P, 'review')).toBe('grok-4.3');
+    setNodeProfileOverride(P, 'review', 'grok-4.6', null, 'grok-api');
+    expect(xaiApiModelForKind(P, 'review')).toBe('grok-4.6');
+    // a claude model on a grok-api row is a mismatch → falls back to the default
+    setNodeProfileOverride(P, 'review', 'opus', null, 'grok-api');
+    expect(xaiApiModelForKind(P, 'review')).toBe('grok-4.3');
   });
 
   it('grokModelForKind defaults every kind to the live CLI model but honors a grok model override', () => {
