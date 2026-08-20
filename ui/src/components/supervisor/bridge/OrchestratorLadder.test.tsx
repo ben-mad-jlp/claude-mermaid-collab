@@ -39,7 +39,7 @@ describe('OrchestratorLadder', () => {
       expect(screen.getByTestId('orchestrator-ladder').getAttribute('data-project')).toBe(projectB),
     );
 
-    fireEvent.click(screen.getByTestId('orchestrator-stop-on'));
+    fireEvent.click(screen.getByTestId('daemon-toggle'));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post).toHaveBeenCalledWith({ project: projectB, level: 'on' });
 
@@ -47,7 +47,7 @@ describe('OrchestratorLadder', () => {
     await waitFor(() => new Promise((r) => setTimeout(r, 0)));
 
     expect(screen.getByTestId('orchestrator-ladder').getAttribute('data-level')).toBe('on');
-    expect(screen.getByTestId('orchestrator-stop-on').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('daemon-toggle').getAttribute('data-lever-level')).toBe('on');
   });
 
   it("rerendering to a new project does not present the old project's level as loaded", async () => {
@@ -112,7 +112,7 @@ describe('OrchestratorLadder', () => {
       expect(screen.getByTestId('orchestrator-ladder').getAttribute('data-level')).toBe('off'),
     );
 
-    fireEvent.click(screen.getByTestId('orchestrator-stop-on'));
+    fireEvent.click(screen.getByTestId('daemon-toggle'));
 
     await waitFor(() => {
       expect(postCall).toBeDefined();

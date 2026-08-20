@@ -8,6 +8,7 @@
  */
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { apiFetch } from '@/lib/api';
+import { LeverStop } from './LeverStop';
 
 export type OrchestratorLevel = 'off' | 'on';
 
@@ -16,13 +17,6 @@ const LEVELS: OrchestratorLevel[] = ['off', 'on'];
 const LEVEL_TITLE: Record<OrchestratorLevel, string> = {
   off: 'Off — no daemon activity for this project',
   on: 'On — supervised: builds todos, reconciles, and suggests an action per escalation (you confirm). Never acts unattended.',
-};
-
-/** Per-stop heat: off = neutral gray, on = green (safe/supervised).
- *  Only the selected stop is bright. */
-const STOP_ACTIVE: Record<OrchestratorLevel, string> = {
-  off: 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200',
-  on: 'bg-success-500 dark:bg-success-600 text-white',
 };
 
 export interface OrchestratorLadderProps {
@@ -75,32 +69,36 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project,
     return () => { cancelled = true; };
   }, [project, serverScope]);
 
-  const handleSelect = useCallback(
-    (next: OrchestratorLevel) => {
-      if (busy || !project) return;
+  const onFlip = useCallback(
+    async (next: OrchestratorLevel) => {
       // Supersede any in-flight GET so its resolution can't clobber this click.
       requestIdRef.current++;
-      // Optimistic update.
       const prev = level;
       setLevel(next);
       setBusy(true);
-      void (async () => {
+      try {
+        const body = { project, level: next };
+        const r = await apiFetch(serverScope, '/api/orchestrator/level', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) return { ok: true, level: next };
+        setLevel(prev);
+        let error: string | undefined;
         try {
-          const body = { project, level: next };
-          const r = await apiFetch(serverScope, '/api/orchestrator/level', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-          if (!r.ok) setLevel(prev);
-        } catch {
-          setLevel(prev);
-        } finally {
-          setBusy(false);
-        }
-      })();
+          const data = await r.json();
+          if (data?.error) error = data.error;
+        } catch { /* no body */ }
+        return { ok: false, error };
+      } catch {
+        setLevel(prev);
+        return { ok: false, error: undefined };
+      } finally {
+        setBusy(false);
+      }
     },
-    [busy, project, level, serverScope],
+    [project, level, serverScope],
   );
 
   return (
@@ -118,33 +116,22 @@ export const OrchestratorLadder: React.FC<OrchestratorLadderProps> = ({ project,
         className={`shrink-0 w-1.5 h-1.5 rounded-full mx-1 ${daemonUp == null ? 'bg-gray-300 dark:bg-gray-600' : daemonUp ? 'bg-success-500' : 'bg-danger-500'}`}
         aria-hidden="true"
       />
-      {/* Label so this toggle reads as the DAEMON — parallels the adjacent Conductor ladder. */}
-      <span className="shrink-0 pr-1.5 py-0.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
-        Daemon
-      </span>
-      {LEVELS.map((stop, idx) => {
-        const isActive = stop === level;
-        // ONLY the selected stop is bright — it fills with its OWN heat color
-        // (gray ▸ green ▸ yellow ▸ orange ▸ red). Every other stop stays light/dim,
-        // so the single bright segment reads as "you are here".
-        const dim = 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700';
-        const segColor = isActive ? STOP_ACTIVE[stop] : dim;
-
-        return (
-          <button
-            key={stop}
-            type="button"
-            data-testid={`orchestrator-stop-${stop}`}
-            data-active={isActive}
-            disabled={busy}
-            onClick={() => handleSelect(stop)}
-            title={LEVEL_TITLE[stop]}
-            className={`px-1.5 py-0.5 transition-colors cursor-pointer disabled:cursor-not-allowed ${segColor} ${idx > 0 ? 'border-l border-gray-300 dark:border-gray-600' : ''}`}
-          >
-            {stop}
-          </button>
-        );
-      })}
+      <LeverStop
+        testId="daemon"
+        label="Daemon"
+        project={project}
+        failLabel="daemon"
+        titleOn={LEVEL_TITLE.on}
+        titleOff={LEVEL_TITLE.off}
+        controlledLevel={level}
+        onFlip={onFlip}
+        icon={
+          <>
+            <path d="M12 4v8" />
+            <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+          </>
+        }
+      />
     </div>
   );
 };
