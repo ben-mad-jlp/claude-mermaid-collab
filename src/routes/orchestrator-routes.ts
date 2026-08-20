@@ -19,6 +19,10 @@ import {
   getExplorerLevel,
   setExplorerLevel,
   EXPLORER_LEVELS,
+  getCampaignLevel,
+  setCampaignLevel,
+  CAMPAIGN_LEVELS,
+  type CampaignLevel,
   type ExplorerLevel,
   type AutoFixLevel,
   type OrchestratorLevel,
@@ -96,7 +100,35 @@ export async function handleOrchestratorRoutes(req: Request, url: URL): Promise<
       level,
       autoFix: getAutoFixLevel(project),
       explorer: getExplorerLevel(project),
+      campaign: getCampaignLevel(project),
     });
+  }
+
+  // GET /api/campaign/level?project=<abs path>
+  // The campaign lever. Gates the campaign pass — probe execution, mission forging, AND
+  // chamber convenes (each convene is a full multi-general LLM deliberation, the single
+  // most expensive automated act in the system). DEFAULT 'on'.
+  if (url.pathname === '/api/campaign/level' && req.method === 'GET') {
+    const project = url.searchParams.get('project');
+    if (!project) return jsonError('project is required', 400);
+    return Response.json({ project, level: getCampaignLevel(project) });
+  }
+
+  // POST /api/campaign/level { project, level }
+  if (url.pathname === '/api/campaign/level' && req.method === 'POST') {
+    try {
+      const { project, level } = (await req.json()) as { project?: string; level?: string };
+      if (!project) return jsonError('project is required', 400);
+      if (!level) return jsonError('level is required', 400);
+      if (!(CAMPAIGN_LEVELS as string[]).includes(level)) {
+        return jsonError(`level must be one of: ${CAMPAIGN_LEVELS.join(', ')}`, 400);
+      }
+      setCampaignLevel(project, level as CampaignLevel);
+      // Read back rather than echoing — a transient project path is REFUSED by the setter.
+      return Response.json({ project, level: getCampaignLevel(project) });
+    } catch (err) {
+      return jsonError(err instanceof Error ? err.message : 'Unknown error', 500);
+    }
   }
 
   // GET /api/explorer/level?project=<abs path>

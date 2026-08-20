@@ -13,15 +13,30 @@ import type { JudgmentLLM } from './judgment-llm.ts';
 import {
   getCampaign,
   recordCampaignCompletion,
+  listChamberDecisions,
+  listProbeVerdicts,
   type ChamberDecisionRecord,
   type CompletionVerdict,
 } from './campaign-store.ts';
+import { campaignFront, computeFrontFingerprint } from './campaign-front.ts';
 import {
   listOpenEscalations as liveListOpenEscalations,
   createEscalation as liveCreateEscalation,
 } from './supervisor-store.ts';
 
 export const CHAMBER_QUESTION_KIND = 'chamber-question';
+
+/** Hard ceiling on chamber convenes per campaign per rolling 24h, across BOTH arms
+ *  (completion judge + mission forge — the count is over all chamber_decision rows).
+ *  A convene is a full multi-general LLM deliberation; this breaker exists so a
+ *  debounce bug can never again burn deliberations back-to-back for hours.
+ *  Override with MERMAID_CHAMBER_CONVENES_PER_DAY. */
+export const CHAMBER_CONVENES_PER_DAY_DEFAULT = 6;
+
+function chamberConvenesPerDay(): number {
+  const raw = Number(process.env.MERMAID_CHAMBER_CONVENES_PER_DAY);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : CHAMBER_CONVENES_PER_DAY_DEFAULT;
+}
 
 /**
  * Derive the condition key for a chamber question card.
@@ -52,6 +67,14 @@ export interface ChamberJudgeDeps {
   llm?: JudgmentLLM | ChamberLLMFactory;
   /** Mission forge function, required by ChamberDeps but never invoked in judge mode. */
   forgeMission?: (project: string, input: any) => Promise<any>;
+  /** Derive the campaign front (all probes). Defaults to the live campaignFront. */
+  campaignFront?: typeof campaignFront;
+  /** List recorded verdicts for a probe. Defaults to the live listProbeVerdicts. */
+  listProbeVerdicts?: typeof listProbeVerdicts;
+  /** List chamber decisions for a campaign. Defaults to the live listChamberDecisions. */
+  listChamberDecisions?: typeof listChamberDecisions;
+  /** Clock, for the daily convene budget window. Defaults to Date.now. */
+  now?: () => number;
 }
 
 /**
@@ -66,6 +89,8 @@ export interface ChamberJudgeArmResult {
   raised: boolean;
   /** The condition key for this campaign, or null if the arm did not complete. */
   conditionKey: string | null;
+  /** Why a non-convened arm declined, when it declined deliberately (not an error). */
+  skipped?: 'unchanged-front' | 'convene-budget-exhausted';
 }
 
 /**
@@ -118,10 +143,44 @@ export async function runChamberCompletionArm(
     const llm = deps.llm;
     const forgeMissionFn = deps.forgeMission ?? (async () => null);
 
+    const frontFn = deps.campaignFront ?? campaignFront;
+    const verdictsFn = deps.listProbeVerdicts ?? listProbeVerdicts;
+    const listDecisionsFn = deps.listChamberDecisions ?? listChamberDecisions;
+    const nowFn = deps.now ?? Date.now;
+
     // Step 1: Retrieve the campaign; return empty result if not found or if goal is null.
     const campaign = getCampaignFn(project, campaignId);
     if (campaign == null || campaign.goal == null) {
       return { convened: false, verdict: null, raised: false, conditionKey: null };
+    }
+
+    // Step 1a: Debounce on unchanged evidence. The completion judgment is a pure function
+    // of the campaign's probe evidence; if no probe verdict has changed since the last
+    // recorded decision, a re-convene can only restate it. The fingerprint covers the
+    // front (not-run + failing probes with satisfied deps); an all-pass campaign
+    // fingerprints as '' and debounces once a decision has recorded that state.
+    // This arm previously convened unconditionally every pass: ~12 back-to-back opus
+    // deliberations in one morning, and the tick they ran in starved leaf claims for hours.
+    const fingerprint = computeFrontFingerprint(frontFn(project, campaignId), (id) => {
+      const vs = verdictsFn(project, id);
+      return vs.length > 0 ? vs[vs.length - 1].commitSha : null;
+    });
+    const decisions = listDecisionsFn(project, campaignId);
+    const latest = decisions.length > 0 ? decisions[decisions.length - 1] : undefined;
+    if (latest && latest.frontFingerprint != null && latest.frontFingerprint === fingerprint) {
+      return { convened: false, verdict: null, raised: false, conditionKey: null, skipped: 'unchanged-front' };
+    }
+
+    // Step 1b: Hard budget breaker — even with a changed front, never exceed N convenes
+    // per campaign per rolling 24h. The debounce is the correctness gate; this is the
+    // spend ceiling that holds when the debounce (or a probe re-executor) misbehaves.
+    const windowStart = nowFn() - 24 * 60 * 60 * 1000;
+    const recentCount = decisions.filter((d) => d.createdAt >= windowStart).length;
+    if (recentCount >= chamberConvenesPerDay()) {
+      console.warn(
+        `[chamber-judge] campaign ${campaignId.slice(0, 8)} convene budget exhausted (${recentCount} in 24h, cap ${chamberConvenesPerDay()}) — skipping completion convene`,
+      );
+      return { convened: false, verdict: null, raised: false, conditionKey: null, skipped: 'convene-budget-exhausted' };
     }
 
     // Step 2: Convene the chamber in judge mode (no forgeInput).
@@ -133,6 +192,7 @@ export async function runChamberCompletionArm(
         sessionId: session,
         decidedAtSha: sha,
         llm,
+        frontFingerprint: fingerprint,
         // Notably: no forgeInput, which forces decision mode only.
       },
       { forgeMission: forgeMissionFn },
@@ -143,7 +203,10 @@ export async function runChamberCompletionArm(
     // Step 3: Map the decision outcome to a CompletionVerdict.
     const verdict: CompletionVerdict = decision.outcome === 'decision' ? 'done' : 'not-done';
 
-    // Step 4: Record exactly one completion verdict row.
+    // Step 4: Record exactly one completion verdict row. The examined evidence is the
+    // persisted deliberation itself plus the probe front it judged — the store refuses a
+    // verdict citing nothing (this call threw for every live convene until it cited these,
+    // so chamber decisions accumulated while campaign_completion_verdict stayed empty).
     recordCompletionFn(project, {
       campaignId,
       judge: 'chamber',
@@ -151,6 +214,10 @@ export async function runChamberCompletionArm(
       ruledAtSha: decision.decidedAtSha,
       rationale: decision.refiningGuidance ?? decision.strongestDissent ?? null,
       citedLenses: [...CHAMBER_GENERALS],
+      artifactsRead: [
+        `chamber_decision:${decision.id}`,
+        `campaign-front-fingerprint:${fingerprint === '' ? '(all probes pass)' : fingerprint}`,
+      ],
     });
 
     // Step 5: Raise a question card only when the outcome is 'inaction' and no open card exists.
