@@ -48,3 +48,61 @@ export function classifyProviderFallback(
   // 4. Otherwise not eligible.
   return { eligible: false, reason: null };
 }
+
+export type TransientReviewDetail = 'resource-exhausted' | 'rate-limit' | 'node-timeout';
+
+export type TransientReviewDecision = { transient: boolean; reason: string | null };
+
+type TransientResult = Pick<
+  NodeResult,
+  'ok' | 'exitCode' | 'text' | 'parseError' | 'timedOut' | 'startFailure'
+>;
+
+/** Matcher table for TransientReviewDetail tokens — evaluated in declaration order. */
+const TRANSIENT_REVIEW_MATCHERS: Array<[TransientReviewDetail, RegExp]> = [
+  ['resource-exhausted', /resource[-_ ]?exhausted/i],
+  ['rate-limit', /rate[-_ ]?limit|too many requests|\b429\b/i],
+  ['node-timeout', /node[-_ ]?time[d]?[-_ ]?out/i],
+];
+
+/**
+ * Pure classifier: whether a grok-api/grok-build review failure is transient (worth
+ * re-dispatching) rather than a real review-vacuous verdict.
+ * Rule order is load-bearing — evaluate top-down and return on first match.
+ */
+export function classifyTransientReviewFailure(
+  provider: NodeProvider,
+  res: TransientResult,
+): TransientReviewDecision {
+  // 1. Claude is never transient, even if its text happens to carry a matched token.
+  if (provider === 'claude') {
+    return { transient: false, reason: null };
+  }
+
+  // 2. A successful result with usable text is a real verdict, not a transient failure.
+  if (res.ok === true && (res.text ?? '').trim() !== '') {
+    return { transient: false, reason: null };
+  }
+
+  // 3. Grok node: classify by timeout or matched token in the failure detail.
+  if (provider === 'grok-api' || provider === 'grok-build') {
+    const detail = res.parseError ?? res.startFailure?.detail ?? res.text ?? '';
+    if (res.timedOut === true) {
+      return {
+        transient: true,
+        reason: `grok-transient-review: node-timeout: ${detail.slice(0, 200)}`,
+      };
+    }
+    for (const [token, re] of TRANSIENT_REVIEW_MATCHERS) {
+      if (re.test(detail)) {
+        return {
+          transient: true,
+          reason: `grok-transient-review: ${token}: ${detail.slice(0, 200)}`,
+        };
+      }
+    }
+  }
+
+  // 4. Fallthrough — not transient.
+  return { transient: false, reason: null };
+}
