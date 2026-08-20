@@ -1,8 +1,14 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+
 import {
   formatConductorPass,
   fetchConductorJournalWithNicknames,
   groupConductorPasses,
+  kickConductor,
+  fetchAutoFixLevel,
+  setAutoFixLevel,
+  fetchExplorerLevel,
+  setExplorerLevel,
   type ConductorPassRow,
 } from '../conductorActivity';
 import { formatConductorPass as serverFormatConductorPass } from '@server/services/conductor-pass-format.ts';
@@ -92,6 +98,71 @@ describe('fetchConductorJournalWithNicknames pagination', () => {
   it('degrades to zero rows and zero total on a failed response', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false }) as any;
     expect(await fetchConductorJournalWithNicknames('/proj')).toEqual({ rows: [], nicknames: {}, total: 0 });
+  });
+});
+
+describe('scope-capable lever clients', () => {
+  // No `window.mc` bridge in this (jsdom) test environment, so the internal `apiFetch`
+  // mirror always takes its browser-fallback path: a direct `fetch` against
+  // `/srv/<serverScope><path>` (falling back to the bare `path` for a falsy scope, which
+  // these levers never pass since they all default to 'local'). Asserting on that URL is
+  // the black-box equivalent of asserting the scope argument, since `apiFetch` is no
+  // longer an importable, mockable seam from this module — see the comment above it.
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    global.fetch = fetchMock as any;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('forwards the server scope to apiFetch for fetchAutoFixLevel', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ level: 'on' }) });
+
+    await fetchAutoFixLevel('/abs/p', 'remote-1');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/srv/remote-1');
+  });
+
+  it('forwards the server scope to apiFetch for setExplorerLevel', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ level: 'off' }) });
+
+    await setExplorerLevel('/abs/p', 'off', 'remote-1');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/srv/remote-1');
+  });
+
+  it('forwards the server scope to apiFetch for kickConductor', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+
+    await kickConductor('/abs/p', undefined, 'remote-1');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/srv/remote-1');
+  });
+
+  it('unscoped lever calls resolve on and off through the local scope', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ level: 'on' }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ level: 'off' }) });
+
+    const autoFix = await fetchAutoFixLevel('/abs/p');
+    expect(autoFix.level).toBe('on');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/srv/local');
+
+    const explorer = await fetchExplorerLevel('/abs/p');
+    expect(explorer.level).toBe('off');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/srv/local');
+  });
+
+  it('a failing scoped read still resolves with level on', async () => {
+    fetchMock.mockRejectedValue(new Error('network down'));
+
+    const result = await fetchAutoFixLevel('/abs/p', 'remote-1');
+
+    expect(result).toEqual({ ok: false, level: 'on', error: 'autofix read failed' });
   });
 });
 
