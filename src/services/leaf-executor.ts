@@ -1749,10 +1749,8 @@ export async function runLeaf(
       recordedModel = grokModel;
     } else if (provider === 'grok-api') {
       invoker = deps.xaiInvoker ?? XaiApiNodeInvoker;
-      // Honor the per-kind model override (UI matrix), mirroring the grok-build lane.
-      const xaiModel = xaiApiModelForKind(project, kind);
-      effSpec = { ...spec, model: xaiModel };
-      recordedModel = xaiModel;
+      effSpec = { ...spec, model: xaiApiModelForKind(project, kind) }; // honor the per-kind matrix override
+      recordedModel = effSpec.model!;
     } else {
       invoker = deps.invoker;
       recordedModel = spec.model!;
