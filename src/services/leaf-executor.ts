@@ -67,6 +67,7 @@ import { resolveNodePermissionMode } from './node-permission-mode';
 import { stageUntrackedIntentToAdd } from './stage-untracked';
 import { composeVerdict, defaultGateSpawn, runLeafGate, runBaseGate, gateFindingsText, resolveGateDeclaration, gateResultForDeclaration, isCacheableBaseGateStatus, resolveBaseGreen, consultStoredBaseGreen, escalateLegacyGateResidual, formatGateErrorReason, type LeafGateResult, type LeafGateConfig } from './leaf-gate';
 import { baseGateKey, runBaseGateShared } from './base-gate-coalescer';
+import { detectMainCheckoutGitMutation } from './command-write-classifier';
 export { isCacheableBaseGateStatus, resolveBaseGreen, escalateLegacyGateResidual, formatGateErrorReason } from './leaf-gate';
 import { detectPoisonedCheckout, restorePathsToHead } from './checkout-poison-guard.js';
 import type { GitRunner } from './main-checkout-invariant.js';
@@ -1335,6 +1336,14 @@ export async function runVerifyPipeline(ctx: LeafRunContext): Promise<LeafRunRes
   //     AFTER the verb gate. A spawn failure (ran:false) is INFRA → park blocked; a non-zero
   //     exit (ran:true, ok:false) is a FINDING folded into the report alongside the verdicts.
   if (cfg.command) {
+    // Refuse main-checkout git mutations before the gate can spawn them.
+    const mutation = detectMainCheckoutGitMutation({
+      cmd: cfg.command,
+      cwd,
+      mainCheckoutRoot: ctx.deps.mainCheckoutRoot ?? null,
+      worktreeRoot: cwd,
+    });
+    if (mutation) return ctx.parkBlocked(`main-checkout-mutation-refused: ${mutation.message}`, 'fail');
     const cmd = await ctx.deps.runCommandGate?.(cwd, cfg.command);
     if (!cmd) return ctx.parkBlocked(`verify-command-gate-unwired: ${cfg.command}`, 'fail');
     if (!cmd.ran) return ctx.parkBlocked(`verify-command-gate-failed-to-run: ${cfg.command}`, 'fail');

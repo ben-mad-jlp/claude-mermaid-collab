@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import { detectOutsideWorktreeWrite, type RecordedCommand } from '../node-commands';
+import { detectMainCheckoutGitMutation } from '../command-write-classifier';
 
 const WT = '/home/ben/code/qbs/.collab/agent-sessions/worktrees/leaf-exec-df08b5e3';
 const cmd = (c: string, cwd = WT): RecordedCommand => ({ cmd: c, cwd, exitCode: 0 });
@@ -127,5 +128,69 @@ describe('detectOutsideWorktreeWrite regression suite', () => {
     expect(() =>
       detectOutsideWorktreeWrite({ worktreeRoot: '/nonexistent/root', commands: [cmd('cp a /etc/x')] }),
     ).not.toThrow();
+  });
+});
+
+describe('detectMainCheckoutGitMutation', () => {
+  const MAIN = '/tmp/main';
+  const WORKTREE = '/tmp/main/.collab/agent-sessions/worktrees/leaf-exec-c7dc12d3';
+
+  it('flags `cd /tmp/main && git stash` run from a worktree cwd', () => {
+    const found = detectMainCheckoutGitMutation({
+      cmd: 'cd /tmp/main && git stash',
+      cwd: WORKTREE,
+      mainCheckoutRoot: MAIN,
+      worktreeRoot: WORKTREE,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.subcommand).toBe('stash');
+    expect(found!.resolvedCwd).toBe(MAIN);
+    expect(found!.message).toContain('stash');
+    expect(found!.message).toContain(MAIN);
+    expect(found!.message).toMatch(/no privilege to mutate the main checkout/i);
+  });
+
+  it('flags `cd /tmp/main && git reset --hard`', () => {
+    const found = detectMainCheckoutGitMutation({
+      cmd: 'cd /tmp/main && git reset --hard',
+      cwd: WORKTREE,
+      mainCheckoutRoot: MAIN,
+      worktreeRoot: WORKTREE,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.subcommand).toBe('reset');
+    expect(found!.resolvedCwd).toBe(MAIN);
+  });
+
+  it('flags `cd /tmp/main && git clean -fd`', () => {
+    const found = detectMainCheckoutGitMutation({
+      cmd: 'cd /tmp/main && git clean -fd',
+      cwd: WORKTREE,
+      mainCheckoutRoot: MAIN,
+      worktreeRoot: WORKTREE,
+    });
+    expect(found).not.toBeNull();
+    expect(found!.subcommand).toBe('clean');
+    expect(found!.resolvedCwd).toBe(MAIN);
+  });
+
+  it('returns null for `git stash` that stays inside the worktree', () => {
+    const found = detectMainCheckoutGitMutation({
+      cmd: 'git stash',
+      cwd: WORKTREE,
+      mainCheckoutRoot: MAIN,
+      worktreeRoot: WORKTREE,
+    });
+    expect(found).toBeNull();
+  });
+
+  it('returns null for `cd /tmp/main && git log`', () => {
+    const found = detectMainCheckoutGitMutation({
+      cmd: 'cd /tmp/main && git log',
+      cwd: WORKTREE,
+      mainCheckoutRoot: MAIN,
+      worktreeRoot: WORKTREE,
+    });
+    expect(found).toBeNull();
   });
 });
