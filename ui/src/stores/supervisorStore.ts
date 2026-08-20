@@ -507,6 +507,24 @@ function writeOpen(open: Escalation[]): Pick<SupervisorState, 'openEscalations' 
   return { openEscalations: open, escalations: open };
 }
 
+/** Persist + return the open-set partial for a write that carries only ONE project's
+ *  escalations. Entries for every OTHER project are preserved; only `project`'s slice
+ *  is swapped for `open`.
+ *
+ *  WHY this is not `writeOpen`: the bridge-snapshot read is per-project, so handing its
+ *  result to `writeOpen` REPLACED the whole open set with one project's cards. Refreshing
+ *  the rail then blanked every project card except the last one loaded (each lit up as its
+ *  snapshot resolved, then went gray when the next project's landed). The hydrate/mutation
+ *  callers of `writeOpen` already pass a fully-merged list and must keep replacing. */
+function writeOpenForProject(
+  state: SupervisorState,
+  project: string,
+  open: Escalation[],
+): Pick<SupervisorState, 'openEscalations' | 'escalations'> {
+  const others = state.openEscalations.filter((e) => e.project !== project);
+  return writeOpen([...others, ...open]);
+}
+
 /** Persist + return the state partial for a resolved-set write. */
 function writeResolved(resolved: Escalation[]): Pick<SupervisorState, 'resolvedEscalations'> {
   localStorage.setItem(RESOLVED_ESCALATIONS_KEY, JSON.stringify(resolved));
@@ -1113,11 +1131,13 @@ export const useSupervisorStore = create<SupervisorState>((set, get) => ({
         nextState.todosByProject = todosByProject;
       }
 
-      // Mirror loadEscalations: body.openEscalations → normalize, filter, write with epoch bump
+      // Mirror loadEscalations: body.openEscalations → normalize, filter, write with epoch bump.
+      // MERGED per project (not replaced): this snapshot carries only `project`'s cards, and
+      // the rail renders every watched project from the same open set.
       if (res.body?.openEscalations) {
         const fetched: Escalation[] = (res.body.openEscalations).map(normalizeEscalationAudience);
         const open = fetched.filter(isOpen);
-        const partial = writeOpen(open);
+        const partial = writeOpenForProject(state, project, open);
         nextState.openEscalations = partial.openEscalations;
         nextState.escalations = partial.escalations;
         nextState.hydrateEpoch = state.hydrateEpoch + 1;
