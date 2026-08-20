@@ -7187,6 +7187,34 @@
       "name": "rearm_mission_criterion"
     },
     {
+      "description": "Record mission closure with attribution. When all criteria are met (clean closure), stamps closedAt and closedBy. When criteria remain unmet (dirty closure), records closedBy alongside closure evidence and raises a human-visible escalation card. The mission todo status is stamped terminal in both cases. Validates that the mission exists; returns {missionId, closedAt, closedBy} from a post-closure read.",
+      "inputSchema": {
+        "properties": {
+          "attribution": {
+            "description": "The judge/closer identity (recorded as closedBy in clean closure, or in closure evidence for dirty closure).",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "Optional evidence or rationale for the closure.",
+            "type": "string"
+          },
+          "missionId": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project",
+          "missionId",
+          "attribution"
+        ],
+        "type": "object"
+      },
+      "name": "close_mission"
+    },
+    {
       "description": "Create an EPIC row. A non-bucket epic's terminal land is tracked via the epic's `landedAt` field (stamped on merge into master), derived from live sibling build-child state — no `[LAND]` child leaf is minted. Refuses bucket titles (Inbox/Bugfix inbox/Feature requests — those are quick-capture only, created via file_bugfix/file_feature). `home` is the epic's parent: omit for the caller's active mission, pass a mission id to home explicitly, or pass the JSON literal null to create a ROOT epic with no mission parent. Returns {epicId, epic} (epic is the derived todo view).",
       "inputSchema": {
         "properties": {
