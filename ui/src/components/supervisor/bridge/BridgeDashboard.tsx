@@ -23,6 +23,7 @@ import { useEventStreamStore } from '@/stores/eventStreamStore';
 import { useDiveIn, useSelectSessionInPlace } from '@/hooks/useDiveIn';
 import { useIsDesktop } from '@/hooks/useIsDesktop';
 import { usePolledResource, POLL_INTERVAL_MS } from '@/hooks/usePolledResource';
+import { useProjectServerScope } from '@/hooks/useProjectServerScope';
 import { SplitDeck } from './SplitDeck';
 import { CommandBar } from './CommandBar';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
@@ -114,7 +115,10 @@ export function selectGraphTodos(todos: SessionTodo[]): SessionTodo[] {
 export const BridgeDashboard: React.FC = () => {
   const currentSession = useSessionStore((s) => s.currentSession);
   const upsertSessionTodo = useSessionStore((s) => s.upsertSessionTodo);
-  const serverScope = currentSession?.serverId ?? 'local';
+  // The session's server is only the FALLBACK — `serverScope` below resolves to the
+  // server that owns the SELECTED project, so a session open on one machine cannot
+  // make the Bridge read (or write) another machine's answers for a local project.
+  const sessionScope = currentSession?.serverId ?? 'local';
   const diveIn = useDiveIn();
   const selectInPlace = useSelectSessionInPlace();
   const isDesktop = useIsDesktop();
@@ -145,6 +149,10 @@ export const BridgeDashboard: React.FC = () => {
   const backfillFromAudit = useEventStreamStore((s) => s.backfillFromAudit);
 
   const project = activeProjectPref ?? currentSession?.project ?? supervised[0]?.project ?? '';
+
+  // Scope every Bridge read/write to the server that OWNS this project, falling back to
+  // the session's server while ownership is unknown.
+  const serverScope = useProjectServerScope(project, sessionScope);
 
   const unseen = usePolledResource<Record<string, number>>(
     'bridge-unseen',
