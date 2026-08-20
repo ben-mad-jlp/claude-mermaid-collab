@@ -17,7 +17,7 @@ function formatElapsed(ms: number): string {
 }
 
 export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, landsInFlight = [], nowMs = Date.now(), onSelectPanel }) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Distinguish "not yet fetched" (undefined) from "confirmed zero" (empty array)
   if (unlandedEpics === undefined) {
@@ -68,7 +68,7 @@ export const UnlandedStrip: React.FC<UnlandedStripProps> = ({ unlandedEpics, lan
           </svg>
         </button>
         {!collapsed && (
-          <ul className="space-y-0.5">
+          <ul data-testid="unlanded-epics-list" className="space-y-0.5">
             {unlanded.map((e) => {
               const inFlight = landsInFlight.find((row) => row.epicId.startsWith(e.epicId8));
               return (

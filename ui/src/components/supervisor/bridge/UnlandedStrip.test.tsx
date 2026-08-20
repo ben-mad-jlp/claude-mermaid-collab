@@ -5,7 +5,7 @@
  * and that the component renders unchanged when the job-store read fails (fail-open).
  */
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import { UnlandedStrip } from './UnlandedStrip';
 
 describe('UnlandedStrip landing-now annotation', () => {
@@ -21,6 +21,9 @@ describe('UnlandedStrip landing-now annotation', () => {
         nowMs={nowMs}
       />
     );
+
+    const headerButton = container.querySelector('button[aria-expanded]');
+    fireEvent.click(headerButton!);
 
     // The landing-now span should be rendered with the correct elapsed time
     expect(queryByText(/landing now · 3m 20s/)).toBeDefined();
@@ -47,6 +50,7 @@ describe('UnlandedStrip landing-now annotation', () => {
         landsInFlight={[]}
       />
     );
+    fireEvent.click(a.container.querySelector('button[aria-expanded]')!);
     const aHtml = a.container.innerHTML;
     a.unmount();
 
@@ -56,6 +60,7 @@ describe('UnlandedStrip landing-now annotation', () => {
         unlandedEpics={unlandedEpic}
       />
     );
+    fireEvent.click(b.container.querySelector('button[aria-expanded]')!);
     const bHtml = b.container.innerHTML;
     b.unmount();
 
@@ -69,6 +74,7 @@ describe('UnlandedStrip landing-now annotation', () => {
         landsInFlight={[]}
       />
     );
+    fireEvent.click(c.container.querySelector('button[aria-expanded]')!);
     expect(c.queryByText(/landing now/)).toBeNull();
     c.unmount();
   });
