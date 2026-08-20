@@ -21,18 +21,10 @@ import {
 import { LeverStop } from './LeverStop';
 
 type ConductorLevel = 'off' | 'on';
-const LEVELS: ConductorLevel[] = ['off', 'on'];
 
 const LEVEL_TITLE: Record<ConductorLevel, string> = {
   off: 'Conductor off — no autonomous mission-driving for this project.',
   on: 'Conductor on — autonomously drives the active mission: grounds gaps, files + approves serving epics for the daemon to build & land, and runs the independent verify.',
-};
-
-/** Per-stop heat, matching the daemon ladder: off = neutral gray, on = green. Only the active
- *  stop is bright. */
-const STOP_ACTIVE: Record<ConductorLevel, string> = {
-  off: 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200',
-  on: 'bg-success-500 dark:bg-success-600 text-white',
 };
 
 /** A 'pass-ran' heartbeat older than this is treated as NOT running (a crashed/hung node leaves
@@ -93,12 +85,12 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project, serve
 
   const disabled = busy || daemonOn === false;
 
-  const handleSelect = useCallback(
-    (next: ConductorLevel) => {
-      if (disabled || !project || next === level) return;
-      void setEnabled(next === 'on');
+  const handleFlip = useCallback(
+    async (next: ConductorLevel) => {
+      await setEnabled(next === 'on');
+      return { ok: true as const, level: next };
     },
-    [disabled, project, level, setEnabled],
+    [setEnabled],
   );
 
   // OPERATOR KICK — the escape hatch, sitting with the on/off stops because that is where an
@@ -140,27 +132,25 @@ export const ConductorLadder: React.FC<ConductorLadderProps> = ({ project, serve
             className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-warning-500 animate-pulse' : 'bg-success-500'}`}
           />
         )}
-        Conductor
       </span>
-      {LEVELS.map((stop) => {
-        const isActive = stop === level;
-        const dim = 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700';
-        const segColor = isActive ? STOP_ACTIVE[stop] : dim;
-        return (
-          <button
-            key={stop}
-            type="button"
-            data-testid={`conductor-stop-${stop}`}
-            data-active={isActive}
-            disabled={disabled}
-            onClick={() => handleSelect(stop)}
-            title={daemonOff ? 'Turn the daemon on first — the conductor has nothing to drive without it.' : LEVEL_TITLE[stop]}
-            className={`px-1.5 py-0.5 transition-colors cursor-pointer disabled:cursor-not-allowed border-l border-gray-300 dark:border-gray-600 ${segColor}`}
-          >
-            {stop}
-          </button>
-        );
-      })}
+      <LeverStop
+        testId="conductor"
+        label="Conductor"
+        project={project}
+        failLabel="conductor"
+        controlledLevel={enabled === null ? null : enabled ? 'on' : 'off'}
+        onFlip={handleFlip}
+        titleOn={LEVEL_TITLE.on}
+        titleOff={LEVEL_TITLE.off}
+        disabled={disabled}
+        disabledTitle="Turn the daemon on first — the conductor has nothing to drive without it."
+        icon={
+          <>
+            <path d="M5 19 16 8" />
+            <circle cx="18" cy="6" r="2.5" />
+          </>
+        }
+      />
       {/* KICK — a lightning bolt in the same stroked 24-viewBox style as the Bridge header icons.
           Forces exactly ONE pass past the fingerprint debounce; the flag is consumed by that pass
           and never sticks. `title` carries the outcome so the ladder stays one compact row. */}
