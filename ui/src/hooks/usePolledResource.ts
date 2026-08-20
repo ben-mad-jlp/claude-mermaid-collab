@@ -140,7 +140,13 @@ export function usePolledResource<T>(
       tickRef.current();
     };
     const unsubscribe = subscribeTick(onTick);
-    tickRef.current();
+    // Switching projects does NOT refetch: the operator asked for one shared timer plus the
+    // manual refresh, so a switch paints this project's cached data and waits for the next
+    // tick. The ONE exception is a cold cache — with nothing to paint there is no
+    // stale-while-revalidate to do, only a blank panel, so fetch once to fill it.
+    if (cacheKey === null || !cache.has(cacheKey)) {
+      tickRef.current();
+    }
 
     return () => {
       unsubscribe();
