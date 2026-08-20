@@ -3143,21 +3143,21 @@ export async function runLeaf(
       }
       gateDeclared = mech.declared;
 
-      // A GATE THAT COULD NOT RUN IS NOT A FAILING GATE. An INCIDENT, not a finding:
-      // park blocked, escalate, spawn NO fix node (80bacbc4, one layer down).
+      // GATE COULD NOT RUN = INCIDENT: park/escalate, no fix (80bacbc4). Stamp baseRed when a
+      // failing file is outside declaredFiles (leaf-gate-could-not-run infra).
       if (mech.status === 'error') {
         try { await deps.bumpRetry?.(project, leaf.id); } catch { /* telemetry — never break the park */ }
-        return parkBlocked(formatGateErrorReason(mech));
+        const failingFiles = extractGateFailingFiles(mech.output ?? ''), command = mech.command ?? 'gate';
+        return failingFiles.length > 0 && failingFiles.some((f) => !isInChangeSet(f, declaredFiles))
+          ? parkBlocked(formatGateErrorReason(mech), null, { command, failingFiles, signature: gateFailureSignature(command, failingFiles) })
+          : parkBlocked(formatGateErrorReason(mech));
       }
 
-      // A mechanically-red tree NEVER spends a review node. The LLM's opinion on broken
-      // code is worth exactly nothing, and it costs an opus call to obtain.
+      // Mechanically-red: never spend a review node — LLM opinion on broken code is worthless.
       let llm: LeafReviewVerdict | null = null;
       let findings: string;
-      // Set when a PROSE gate RETRIES (not parks): forces findings=synth + llm='fail' so
-      // the revise loop re-runs implement, and makes the unconditional
-      // `findings = (review.text).trim()` below MUTUALLY EXCLUSIVE with the retry path —
-      // otherwise it clobbers the synthesized findings (the defect that livelocked prior attempts).
+      // PROSE gate RETRY: findings=synth+llm=fail so revise re-runs implement; makes
+      // `findings=(review.text).trim()` below mutually exclusive with retry (else clobbers synth).
       let proseRetryFindings: string | null = null;
       // crit 1 (falsifiability): set when a GENUINE review FAIL on a GREEN mechanical gate
       // cites NO falsifiable defect (grounding vacuous/abstain = "can't verify" / "nothing to

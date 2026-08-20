@@ -151,6 +151,18 @@ describe('classifyInfraRejection', () => {
     expect(classifyInfraRejection(null)).toBeNull();
     expect(classifyInfraRejection('empty diff: the leaf changed nothing')).toBeNull();
   });
+
+  test('routes a leaf gate-could-not-run outside declaredFiles to the leaf infra cause', () => {
+    const leafReason =
+      'gate-could-not-run: npx tsc --noEmit — ui/src/Foo.tsx(3,1): error TS2307: x';
+    expect(
+      classifyInfraRejection(leafReason, ['src/services/leaf-gate.ts']),
+    ).toBe('leaf-gate-could-not-run');
+    expect(classifyInfraRejection(leafReason, ['ui/src/Foo.tsx'])).toBeNull();
+    expect(
+      classifyInfraRejection('epic-base-gate-could-not-run: npx tsc --noEmit'),
+    ).toBe('epic-base-gate-could-not-run');
+  });
 });
 
 describe('runInfraRejectionArm', () => {
