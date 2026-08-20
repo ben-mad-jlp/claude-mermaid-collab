@@ -147,6 +147,12 @@ export const CAMPAIGN_TOOL_DEFS = [
   },
 ];
 
+/** Read the campaign level fail-open: the level is decoration on READ verbs, and a
+ *  config-db hiccup (e.g. SQLITE_IOERR under test parallelism) must never fail a read. */
+function campaignLevelOrDefault(project: string): 'on' | 'off' {
+  try { return getCampaignLevel(project); } catch { return 'on'; }
+}
+
 export async function handleCampaignTool(name: string, args: any): Promise<string | null> {
   switch (name) {
     case 'forge_campaign': {
@@ -169,7 +175,7 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const { project } = args as { project?: string };
       if (!project) throw new Error('Missing required: project');
       const campaigns = listCampaigns(project);
-      const level = getCampaignLevel(project);
+      const level = campaignLevelOrDefault(project);
       // Enrich each campaign with its probe count and campaign level
       const enriched = campaigns.map((row) => ({
         ...row,
@@ -191,7 +197,7 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       const front = campaignFront(project, campaignId);
       const latest = latestCampaignCompletion(project, campaignId);
       const completion = deriveCampaignCompletion({ probes, verdict: latest });
-      return JSON.stringify({ campaignId, campaignLevel: getCampaignLevel(project), goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
+      return JSON.stringify({ campaignId, campaignLevel: campaignLevelOrDefault(project), goal: campaign?.goal ?? null, probes: enriched, front, completion }, null, 2);
     }
     case 'drop_campaign': {
       const { project, campaignId } = args as { project?: string; campaignId?: string };
@@ -205,7 +211,7 @@ export async function handleCampaignTool(name: string, args: any): Promise<strin
       if (!project) throw new Error('Missing required: project');
       if (!level) throw new Error('Missing required: level');
       setCampaignLevel(project, level as CampaignLevel);
-      return JSON.stringify({ project, level: getCampaignLevel(project) }, null, 2);
+      return JSON.stringify({ project, level: campaignLevelOrDefault(project) }, null, 2);
     }
     default:
       return null;
