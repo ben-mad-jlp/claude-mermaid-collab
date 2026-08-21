@@ -1,6 +1,23 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const supervisorDir = mkdtempSync(join(tmpdir(), 'sup-oi1-reconcile-land-'));
+process.env.MERMAID_SUPERVISOR_DIR = supervisorDir;
+
 import { oi1ReconcileLandStep, type Oi1LandWorktree, type Oi1LandDeps } from '../coordinator-live';
+import { _closeDb as _closeSupervisorDb } from '../supervisor-store';
 import type { LandTypecheckProof } from '../land-typecheck-floor';
+
+let projectRoot: string;
+beforeAll(() => { projectRoot = mkdtempSync(join(tmpdir(), 'oi1-reconcile-land-')); });
+afterAll(() => {
+  _closeSupervisorDb();
+  try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+  rmSync(supervisorDir, { recursive: true, force: true });
+  delete process.env.MERMAID_SUPERVISOR_DIR;
+});
 
 describe('oi1ReconcileLandStep', () => {
   describe('typecheck floor fail case', () => {
@@ -31,7 +48,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -78,7 +95,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -135,7 +152,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -191,7 +208,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -241,7 +258,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -276,7 +293,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
@@ -317,7 +334,7 @@ describe('oi1ReconcileLandStep', () => {
       };
 
       const result = await oi1ReconcileLandStep({
-        project: 'test-proj',
+        project: projectRoot,
         todoId: 'todo-123',
         epicId: 'epic-abc',
         intRef: 'origin/master',
