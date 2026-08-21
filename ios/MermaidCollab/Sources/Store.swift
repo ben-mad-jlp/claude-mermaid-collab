@@ -1,4 +1,5 @@
 import Foundation
+import MermaidCollabCore
 
 // ZenStore — connects to the sidecar's collab WebSocket and keeps the live set of session
 // summaries. On connect the server pushes its cached snapshot (hydrate), then live
@@ -6,6 +7,8 @@ import Foundation
 // token; a real device over Tailscale will set the bearer header (v2).
 @MainActor
 final class ZenStore: ObservableObject {
+    static let localFallbackServerId = "local"
+
     @Published var summaries: [String: ZenSummary] = [:]
     @Published var escalations: [String: Escalation] = [:] // keyed by escalation id (open only)
     @Published var connected = false
@@ -14,8 +17,19 @@ final class ZenStore: ObservableObject {
     private var closed = false
     /// Default host: the simulator shares the Mac's localhost → the sidecar on :9002.
     /// (A real device over Tailscale is configured with the tailnet host + bearer token.)
-    var host = "localhost:9002"
+    var registry = ServerRegistry(entries: [
+        ServerEntry(id: ZenStore.localFallbackServerId, label: "This Mac", host: "localhost:9002", source: .manual)
+    ])
+    var projectsByServerId: [String: [String]] = [:]
+    var selectedServerId: String = ZenStore.localFallbackServerId
+    var localServerId: String? = ZenStore.localFallbackServerId
+    var tokenStore: ServerTokenStore = InMemoryServerTokenStore()
+    /// Legacy/selected fallback token, kept for pairing's back-compat call shape.
     var token: String?
+
+    var host: String {
+        registry.entries.first { $0.id == selectedServerId }?.host ?? "localhost:9002"
+    }
 
     /// Fired when an authenticated HTTP call returns 401 (stale/rotated token).
     /// AppModel hooks this to drop creds and show the PairingView (re-pair). The
@@ -25,11 +39,17 @@ final class ZenStore: ObservableObject {
 
     /// Point the store at a paired sidecar (host:port + bearer token).
     func configure(host: String, token: String) {
-        self.host = host
+        if let i = registry.entries.firstIndex(where: { $0.id == selectedServerId }) {
+            registry.entries[i].host = host
+        } else {
+            let entry = ServerEntry(id: ZenStore.localFallbackServerId, label: "This Mac", host: host, source: .paired)
+            registry.entries.append(entry)
+            selectedServerId = entry.id
+        }
         self.token = token
+        tokenStore.setToken(token, forServerId: selectedServerId)
     }
     private var wsURL: URL { URL(string: "ws://\(host)/ws")! }
-    private func apiURL(_ path: String) -> URL { URL(string: "http://\(host)\(path)")! }
 
     var ordered: [ZenSummary] {
         summaries.values.sorted { a, b in
@@ -56,7 +76,7 @@ final class ZenStore: ObservableObject {
     /// Probe the gated liveness endpoint. A 401 means the token is stale/rotated
     /// → onUnauthorized (handled inside `send`). 200/other = creds still valid.
     func verifyAuth() async {
-        _ = await send(request("/api/auth/check"))
+        _ = await send(request(serverId: selectedServerId, path: "/api/auth/check"))
     }
 
     func stop() {
@@ -122,15 +142,30 @@ final class ZenStore: ObservableObject {
 
     // MARK: HTTP
 
-    private func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest {
-        var r = URLRequest(url: apiURL(path))
+    private func request(serverId: String, path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest {
+        let route = ServerRequestRouter.route(serverId: serverId, path: path, registry: registry)
+        let url = route.url ?? URL(string: "http://\(host)\(path)")!
+        var r = URLRequest(url: url)
         r.httpMethod = method
-        if let token { r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let bearer = tokenStore.token(forServerId: serverId) ?? token
+        if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let body {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
         return r
+    }
+
+    private func request(project: String, path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest {
+        let route = ServerRequestRouter.route(
+            forProject: project,
+            path: path,
+            registry: registry,
+            projectsByServerId: projectsByServerId,
+            selectedServerId: selectedServerId,
+            localServerId: localServerId
+        )
+        return request(serverId: route.serverId, path: path, method: method, body: body)
     }
 
     /// Single authenticated-HTTP path: returns the body on 2xx, nil otherwise.
@@ -150,7 +185,7 @@ final class ZenStore: ObservableObject {
     }
 
     func hydrateEscalations() async {
-        guard let data = await send(request("/api/supervisor/escalations?status=open")) else { return }
+        guard let data = await send(request(serverId: selectedServerId, path: "/api/supervisor/escalations?status=open")) else { return }
         guard let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data) else { return }
         for e in resp.escalations { escalations[e.id] = e }
     }
@@ -160,7 +195,7 @@ final class ZenStore: ObservableObject {
             s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
         }
         let path = "/api/supervisor/missions?project=\(enc(project))&session=\(enc(session))"
-        guard let data = await send(request(path)) else { return nil }
+        guard let data = await send(request(project: project, path: path)) else { return nil }
         guard let resp = try? JSONDecoder().decode(MissionsResponse.self, from: data) else { return nil }
         return resp.missions.first(where: { $0.mission.active }) ?? resp.missions.first
     }
@@ -170,7 +205,7 @@ final class ZenStore: ObservableObject {
             s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
         }
         let path = "/api/transcript/recent?project=\(enc(project))&session=\(enc(session))&limit=\(limit)"
-        guard let data = await send(request(path)) else { return nil }
+        guard let data = await send(request(project: project, path: path)) else { return nil }
         guard let resp = try? JSONDecoder().decode(TranscriptResponse.self, from: data) else { return nil }
         return resp
     }
@@ -178,7 +213,7 @@ final class ZenStore: ObservableObject {
     func fetchDocuments(project: String, session: String) async -> [DocRef] {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         let path = "/api/documents?project=\(enc(project))&session=\(enc(session))"
-        guard let data = await send(request(path)) else { return [] }
+        guard let data = await send(request(project: project, path: path)) else { return [] }
         guard let resp = try? JSONDecoder().decode(DocumentsResponse.self, from: data) else { return [] }
         return resp.documents
     }
@@ -186,14 +221,14 @@ final class ZenStore: ObservableObject {
     func fetchDocument(id: String, project: String, session: String) async -> DocumentContent? {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         let path = "/api/document/\(enc(id))?project=\(enc(project))&session=\(enc(session))"
-        guard let data = await send(request(path)) else { return nil }
+        guard let data = await send(request(project: project, path: path)) else { return nil }
         return try? JSONDecoder().decode(DocumentContent.self, from: data)
     }
 
     func fetchImages(project: String, session: String) async -> [ImageRef] {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         let path = "/api/images?project=\(enc(project))&session=\(enc(session))"
-        guard let data = await send(request(path)) else { return [] }
+        guard let data = await send(request(project: project, path: path)) else { return [] }
         guard let resp = try? JSONDecoder().decode(ImagesResponse.self, from: data) else { return [] }
         return resp.images
     }
@@ -201,7 +236,7 @@ final class ZenStore: ObservableObject {
     func fetchImageData(id: String, project: String, session: String) async -> Data? {
         func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         let path = "/api/image/\(enc(id))/content?project=\(enc(project))&session=\(enc(session))"
-        return await send(request(path))
+        return await send(request(project: project, path: path))
     }
 
     // MARK: Actions
@@ -210,14 +245,14 @@ final class ZenStore: ObservableObject {
     func decide(_ escalationId: String, optionId: String) {
         escalations.removeValue(forKey: escalationId)
         Task {
-            await send(request("/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
+            await send(request(serverId: selectedServerId, path: "/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
         }
     }
 
     /// Answer a pane-derived question by nudging text into the session.
     func answer(project: String, session: String, text: String) {
         Task {
-            await send(request("/api/supervisor/nudge", method: "POST", body: ["project": project, "session": session, "text": text]))
+            await send(request(project: project, path: "/api/supervisor/nudge", method: "POST", body: ["project": project, "session": session, "text": text]))
         }
     }
 
@@ -226,7 +261,7 @@ final class ZenStore: ObservableObject {
     /// resulting state change arrives over the WS like any other update.
     func approvePush(project: String, session: String) {
         Task {
-            await send(request("/api/supervisor/approve-push", method: "POST", body: ["project": project, "session": session]))
+            await send(request(project: project, path: "/api/supervisor/approve-push", method: "POST", body: ["project": project, "session": session]))
         }
     }
 }
