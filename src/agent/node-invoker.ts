@@ -1218,6 +1218,8 @@ export function _resetGrokBinCache(): void { cachedGrokBin = null; }
 interface GrokAuthFile {
   expires_at?: string | number;
   access_token?: string;
+  refresh_token?: string;
+  [key: string]: unknown;
 }
 
 interface GrokAuthStatus {
@@ -1257,11 +1259,18 @@ export function authModeFromGrokStatus(s: GrokAuthStatus | GrokAuthFile | Record
   return 'unknown';
 }
 
-async function readGrokAuthStatus(): Promise<GrokAuthStatus | GrokAuthFile | null> {
-  try {
-    // ASYNC spawn (never spawnSync) — this one-shot auth probe runs in the sidecar
-    // before spawning nodes (crit-6, mission 693bbc27).
-    const p = Bun.spawn([resolveGrokBin(), 'auth', 'status', '--json'], {
+/** Injectable seam for the grok auth probe — real defaults spawn `grok auth refresh` via
+ *  Bun.spawn and read `~/.grok/auth.json`; tests override to record calls without touching
+ *  the filesystem or a real grok binary. */
+export interface GrokAuthDeps {
+  spawn(argv: string[]): Promise<{ exitCode: number; stdout: string }>;
+  authFilePath(): string;
+  binPresent(): boolean;
+}
+
+const realGrokAuthDeps: GrokAuthDeps = {
+  async spawn(argv: string[]): Promise<{ exitCode: number; stdout: string }> {
+    const p = Bun.spawn(argv, {
       stdout: 'pipe',
       stderr: 'pipe',
       env: process.env,
@@ -1271,12 +1280,30 @@ async function readGrokAuthStatus(): Promise<GrokAuthStatus | GrokAuthFile | nul
       p.stdout ? new Response(p.stdout).text() : Promise.resolve(''),
       p.exited,
     ]);
-    if (out.trim() && exitCode === 0) {
-      return JSON.parse(out) as GrokAuthStatus;
-    }
-  } catch { /* fall through to auth.json */ }
+    return { exitCode, stdout: out };
+  },
+  authFilePath(): string {
+    return join(homedir(), '.grok', 'auth.json');
+  },
+  binPresent(): boolean {
+    return !!Bun.which(resolveGrokBin());
+  },
+};
+
+let grokAuthDeps: GrokAuthDeps = realGrokAuthDeps;
+
+/** For tests: override the grok auth probe's spawn / auth-file-path / bin-presence seam.
+ *  `null` restores the real Bun.spawn / ~/.grok/auth.json defaults. A partial overrides
+ *  only the named members. */
+export function _setGrokAuthDeps(d: Partial<GrokAuthDeps> | null): void {
+  grokAuthDeps = d === null ? realGrokAuthDeps : { ...realGrokAuthDeps, ...d };
+}
+
+/** Read the current grok auth snapshot from disk alone — NO spawn. Resolves solely from
+ *  `deps.authFilePath()` contents; any missing/empty/unparseable file yields `null`. */
+export async function readGrokAuthStatus(): Promise<GrokAuthStatus | GrokAuthFile | null> {
   try {
-    const raw = readFileSync(join(homedir(), '.grok', 'auth.json'), 'utf-8');
+    const raw = readFileSync(grokAuthDeps.authFilePath(), 'utf-8');
     if (!raw.trim()) return null;
     return JSON.parse(raw) as GrokAuthFile;
   } catch {
@@ -1284,39 +1311,71 @@ async function readGrokAuthStatus(): Promise<GrokAuthStatus | GrokAuthFile | nul
   }
 }
 
+/** Does this record (or any of its nested `<issuer>::<client_id>` members) carry a
+ *  non-empty refresh_token? */
+function grokSnapshotHasRefreshToken(s: Record<string, unknown>): boolean {
+  if (typeof s.refresh_token === 'string' && s.refresh_token.length > 0) return true;
+  for (const v of Object.values(s)) {
+    if (v && typeof v === 'object' && typeof (v as Record<string, unknown>).refresh_token === 'string'
+      && ((v as Record<string, unknown>).refresh_token as string).length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** If the snapshot doesn't already resolve to 'grok' but carries a refresh_token, issue
+ *  EXACTLY ONE `grok auth refresh` spawn and re-read the auth file once more. No
+ *  refresh_token, or a spawn that throws, returns the original snapshot untouched. */
+async function refreshGrokAuthIfExpired(
+  snapshot: GrokAuthStatus | GrokAuthFile | null,
+): Promise<GrokAuthStatus | GrokAuthFile | null> {
+  if (authModeFromGrokStatus(snapshot) === 'grok') return snapshot;
+  if (!snapshot || typeof snapshot !== 'object' || !grokSnapshotHasRefreshToken(snapshot as Record<string, unknown>)) {
+    return snapshot;
+  }
+  try {
+    await grokAuthDeps.spawn([resolveGrokBin(), 'auth', 'refresh']);
+  } catch {
+    return snapshot;
+  }
+  return readGrokAuthStatus();
+}
+
+/** Shared probe: bin-presence check → read auth.json → one-shot refresh-if-expired →
+ *  resolve mode. Spawns nothing beyond at most one `auth refresh` call. */
+async function probeGrokAuthMode(): Promise<AuthMode> {
+  if (!grokAuthDeps.binPresent()) return 'unknown';
+  return authModeFromGrokStatus(await refreshGrokAuthIfExpired(await readGrokAuthStatus()));
+}
+
 let cachedGrokAuthMode: AuthMode | null = null;
 
 /**
- * Pre-flight Grok OIDC guard — memoized, FAIL-CLOSED. Separate cache from Claude.
- * Verifies `grok` is on PATH (or GROK_BIN) and credentials look valid.
+ * Pre-flight Grok OIDC guard — memoized ONLY on a positive verdict, FAIL-CLOSED.
+ * Separate cache from Claude. A non-grok verdict is never memoized, so every call
+ * re-probes (and, if a refresh_token is present, re-attempts a one-shot refresh)
+ * until the machine is actually logged in.
  */
 export async function assertGrokAuth(): Promise<AuthMode> {
-  if (cachedGrokAuthMode === null) {
-    if (!Bun.which(resolveGrokBin())) {
-      cachedGrokAuthMode = 'unknown';
-    } else {
-      cachedGrokAuthMode = authModeFromGrokStatus(await readGrokAuthStatus());
-    }
+  if (cachedGrokAuthMode === 'grok') return cachedGrokAuthMode;
+  const mode = await probeGrokAuthMode();
+  if (mode === 'grok') {
+    cachedGrokAuthMode = mode;
+    return mode;
   }
-  if (cachedGrokAuthMode !== 'grok') {
-    throw new Error(
-      `refusing to run grok nodes: active auth is '${cachedGrokAuthMode}', expected grok OIDC ` +
-        `(grok on PATH + valid ~/.grok/auth.json or grok auth status). ` +
-        `Run 'grok login' or set GROK_BIN.`,
-    );
-  }
-  return cachedGrokAuthMode;
+  throw new Error(
+    `refusing to run grok nodes: active auth is '${mode}', expected grok OIDC ` +
+      `(grok on PATH + valid ~/.grok/auth.json or grok auth status). ` +
+      `Run 'grok login' or set GROK_BIN.`,
+  );
 }
 
 async function resolveGrokAuthMode(): Promise<AuthMode> {
-  if (cachedGrokAuthMode === null) {
-    if (!Bun.which(resolveGrokBin())) {
-      cachedGrokAuthMode = 'unknown';
-    } else {
-      cachedGrokAuthMode = authModeFromGrokStatus(await readGrokAuthStatus());
-    }
-  }
-  return cachedGrokAuthMode;
+  if (cachedGrokAuthMode === 'grok') return cachedGrokAuthMode;
+  const mode = await probeGrokAuthMode();
+  if (mode === 'grok') cachedGrokAuthMode = mode;
+  return mode;
 }
 
 /** For tests: drop memoized grok auth. */
