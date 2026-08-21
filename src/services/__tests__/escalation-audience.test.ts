@@ -27,16 +27,35 @@ describe('escalation-audience', () => {
     delete process.env.MERMAID_SUPERVISOR_DIR;
   });
 
-  it('deriveAudience: operatorGated=true always returns human', () => {
-    expect(deriveAudience('leaf-infra-rejected', true)).toBe('human');
+  // POLICY CHANGE 2026-08-21 (operator: "spend + explicit decisions" only). The audience
+  // rule was an allowlist of five machine kinds with everything else defaulting to human,
+  // and operatorGated forcing human. That badged the conductor's own work as the
+  // operator's: operatorGated is set on 4,412 criterion-serve-cap cards, 975
+  // parentless-leaf and 571 mission-stalled, none of which a person can action. The
+  // assertions below encode the inverted rule.
+  it('deriveAudience: a gated MACHINE kind is internal — gating marks irreversibility, not audience', () => {
+    expect(deriveAudience('leaf-infra-rejected', true)).toBe('internal');
+    expect(deriveAudience('criterion-serve-cap', true)).toBe('internal');
+    expect(deriveAudience('parentless-leaf', true)).toBe('internal');
   });
 
   it('deriveAudience: hygiene kind returns internal', () => {
     expect(deriveAudience('infra-park', false)).toBe('internal');
   });
 
-  it('deriveAudience: unknown kind returns human', () => {
+  it('deriveAudience: an UNKNOWN kind is internal, not human', () => {
+    expect(deriveAudience('some-future-machine-kind', false)).toBe('internal');
+  });
+
+  it('deriveAudience: spend and explicit-decision kinds are human', () => {
     expect(deriveAudience('question', false)).toBe('human');
+    expect(deriveAudience('decision', false)).toBe('human');
+    expect(deriveAudience('repair-mission-approval', true)).toBe('human');
+    expect(deriveAudience('mission-over-budget-rebet', true)).toBe('human');
+  });
+
+  it('deriveAudience: a card offering structured options is a human choice by construction', () => {
+    expect(deriveAudience('some-machine-kind', false, { hasOptions: true })).toBe('human');
   });
 
   it('mapEscalationRow: NULL audience coalesces to human', () => {
@@ -116,7 +135,11 @@ describe('escalation-audience', () => {
     expect(getEscalation('legacy-non-hygiene')!.audience).toBe('human');
   });
 
-  it('createEscalation: operatorGated override wins over audience input', () => {
+  // POLICY CHANGE 2026-08-21: the operatorGated override is GONE. It re-stamped cards
+  // their author had deliberately marked 'internal', which is how conductor-owned gated
+  // work ended up counted as "needs you". Gating marks an irreversible action; the caller
+  // decides the audience.
+  it('createEscalation: the caller audience survives operatorGated', () => {
     const { escalation } = createEscalation({
       project: 'test-proj',
       session: 'test-sess',
@@ -125,11 +148,11 @@ describe('escalation-audience', () => {
       operatorGated: true,
       audience: 'internal',
     });
-    expect(escalation.audience).toBe('human');
+    expect(escalation.audience).toBe('internal');
 
     // Verify persistence via refetch
     const refetched = getEscalation(escalation.id);
-    expect(refetched!.audience).toBe('human');
+    expect(refetched!.audience).toBe('internal');
   });
 
   it('createEscalation: invalid audience throws', () => {
@@ -209,5 +232,30 @@ describe('escalation-audience', () => {
 
     setEscalationOperatorGated(escalation.id, true);
     expect(getEscalation(escalation.id)!.audience).toBe('human');
+  });
+});
+
+/**
+ * createEscalation must not re-stamp a caller's audience.
+ *
+ * It coerced audience to 'human' whenever operatorGated was set, so a card its author
+ * deliberately marked 'internal' came back 'human' and was counted as "needs you"
+ * (2026-08-21). Gating marks an irreversible action, not an audience.
+ */
+describe('createEscalation audience is the caller\'s', () => {
+  it('keeps an explicit internal audience on a gated card', () => {
+    const { escalation } = createEscalation({
+      project: 'aud-proj', session: 'aud-sess', kind: 'criterion-serve-cap',
+      questionText: 'machine business', operatorGated: true, audience: 'internal',
+    });
+    expect(escalation.audience).toBe('internal');
+  });
+
+  it('keeps an explicit human audience on a gated card', () => {
+    const { escalation } = createEscalation({
+      project: 'aud-proj', session: 'aud-sess', kind: 'repair-mission-approval',
+      questionText: 'spend 25 USD', operatorGated: true, audience: 'human',
+    });
+    expect(escalation.audience).toBe('human');
   });
 });

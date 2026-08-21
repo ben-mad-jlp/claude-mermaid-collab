@@ -20,7 +20,7 @@
 import React from 'react';
 import { useSupervisorStore, type Escalation } from '@/stores/supervisorStore';
 import type { SessionTodo } from '@/types/sessionTodo';
-import { selectHumanActionableEscalations, selectMachineHandledCount } from '@/lib/statusSelectors';
+import { selectHumanActionableEscalations, selectMachineHandledCount, selectMachineHandledEscalations } from '@/lib/statusSelectors';
 import { selectRecentlyAiResolved } from '@/lib/escalationLifecycle';
 import { BridgeEscalationInbox } from './BridgeEscalationInbox';
 
@@ -52,6 +52,7 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
 }) => {
   const open = selectHumanActionableEscalations(escalations, { kind: 'project', project });
   const machineHandled = selectMachineHandledCount(escalations, { kind: 'project', project });
+  const machineEscalations = selectMachineHandledEscalations(escalations, { kind: 'project', project });
 
   // Keep the zone mounted while a recently AI-resolved escalation is still
   // lingering for this project (fd934fb7) — otherwise the "All clear" branch would
@@ -78,7 +79,30 @@ export const NeedsYouZone: React.FC<NeedsYouZoneProps> = ({
     <div data-testid="needs-you-zone" data-needs-you={open.length}>
       {body}
       {machineHandled > 0 && (
-        <div data-testid="machine-items-handled" className="text-3xs text-gray-500 dark:text-gray-400 px-1 pt-1">{machineHandled} machine item{machineHandled === 1 ? '' : 's'} handled</div>
+        // PURPLE = the conductor's, not yours. Red stays reserved for the cards that
+        // genuinely need a person (spend, or an explicit decision). Previously these were
+        // a grey one-line count, so the operator could see THAT there were machine cards
+        // but never WHICH — and, worse, they were being counted as "needs you".
+        <div
+          data-testid="machine-handled-group"
+          className="mt-2 rounded border-l-2 border-purple-400 dark:border-purple-500 bg-purple-50/60 dark:bg-purple-900/20 pl-2 py-1"
+        >
+          <div
+            data-testid="machine-items-handled"
+            className="text-3xs font-medium text-purple-700 dark:text-purple-300 px-1 pb-1"
+          >
+            {machineHandled} handled by the conductor — not yours to action
+          </div>
+          <BridgeEscalationInbox
+            escalations={machineEscalations}
+            serverScope={serverScope}
+            variant={variant}
+            bare
+            onJump={onJump}
+            project={project}
+            onSelectTodo={onSelectTodo}
+          />
+        </div>
       )}
     </div>
   );

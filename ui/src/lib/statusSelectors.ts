@@ -178,6 +178,17 @@ export function selectHumanActionableEscalations(open: Escalation[], scope: Stat
  * (audience==='internal' only) — the "excluded-but-open" count. Does not
  * apply lifecycle or triageInFlight filters.
  */
+/**
+ * The machine-audience open escalations inside `scope` — the LIST behind
+ * selectMachineHandledCount. These are shown, not hidden: the operator asked to see the
+ * conductor's cards in their own colour rather than as a bare "N machine items handled"
+ * footnote, so a card that is not theirs is still legible at a glance (2026-08-21).
+ */
+export function selectMachineHandledEscalations(open: Escalation[], scope: StatusScope): Escalation[] {
+  if (!Array.isArray(open)) return [];
+  return open.filter((e) => isOpen(e) && escalationInScope(e, scope) && e.audience === 'internal');
+}
+
 export function selectMachineHandledCount(open: Escalation[], scope: StatusScope): number {
   if (!Array.isArray(open)) return 0;
   let n = 0;
