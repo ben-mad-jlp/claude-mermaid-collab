@@ -12,10 +12,17 @@
  * ever happens for a loopback caller (the desktop UI's "Phone access" panel).
  */
 
-import { networkInterfaces } from 'node:os';
+import { hostname, networkInterfaces } from 'node:os';
 import { isLoopbackPeer } from '../auth.ts';
 import { getAuthToken, generateAuthToken, setAuthToken } from '../services/config-file.ts';
 import { config } from '../config.ts';
+import { readDesktopFleet, type FleetServer } from '../services/desktop-fleet.ts';
+import {
+  PAIRING_PAYLOAD_VERSION,
+  buildPairingPayloadV2,
+  buildPairingQrValue,
+  type PairingServerEntry,
+} from '../services/pairing-payload.ts';
 
 function jsonError(message: string, status: number): Response {
   return Response.json({ error: message }, { status });
@@ -55,13 +62,15 @@ function boundToLoopback(): boolean {
   return isLoopbackPeer(config.HOST) || config.HOST === 'localhost';
 }
 
-/** Build the pairing payload (token + reachable hosts + QR deep link). */
-function pairingPayload(): {
+/** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
+function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
+  version: typeof PAIRING_PAYLOAD_VERSION;
   token: string;
   port: number;
   bound: string;
   hosts: HostCandidate[];
-  qr: string | null;
+  servers: PairingServerEntry[];
+  qr: string;
   warning?: string;
 } {
   // Ensure a token exists (auto-provision on first pair — loopback caller only).
@@ -73,13 +82,28 @@ function pairingPayload(): {
   const port = config.PORT;
   const hosts = discoverHosts();
   const best = hosts[0]?.address;
-  const qr = best ? `mermaidcollab://pair?host=${best}:${port}&token=${token}` : null;
+
+  // Fleet readout must degrade to [] even if the injected reader throws, so a
+  // broken desktop servers.json never blocks pairing with this server alone.
+  let fleet: FleetServer[];
+  try {
+    fleet = readFleet();
+  } catch {
+    fleet = [];
+  }
+  const selfHost = `${best ?? config.HOST}:${port}`;
+  const servers: PairingServerEntry[] =
+    fleet.length > 0
+      ? fleet.map((f) => ({ id: f.id, label: f.label, host: `${f.host}:${f.port}`, token: f.token ?? token }))
+      : [{ id: selfHost, label: hostname(), host: selfHost, token }];
+
+  const qr = buildPairingQrValue(buildPairingPayloadV2(servers));
   const warning = boundToLoopback()
     ? `Server is bound to ${config.HOST} (loopback) — your phone can't reach it. Relaunch with MERMAID_BIND_HOST=0.0.0.0 (or the tailnet IP) so the phone can connect.`
     : hosts.length === 0
       ? 'No non-loopback network interface found — connect to a network (e.g. Tailscale) so the phone has a route.'
       : undefined;
-  return { token, port, bound: config.HOST, hosts, qr, warning };
+  return { version: PAIRING_PAYLOAD_VERSION, token, port, bound: config.HOST, hosts, servers, qr, warning };
 }
 
 /**
