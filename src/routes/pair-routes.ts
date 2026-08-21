@@ -12,6 +12,7 @@
  * ever happens for a loopback caller (the desktop UI's "Phone access" panel).
  */
 
+import { spawnSync } from 'node:child_process';
 import { hostname, networkInterfaces } from 'node:os';
 import { isLoopbackPeer } from '../auth.ts';
 import { getAuthToken, generateAuthToken, setAuthToken } from '../services/config-file.ts';
@@ -67,6 +68,47 @@ function isLoopbackHost(host: string): boolean {
   return host === 'localhost' || host === '::1' || isLoopbackPeer(host);
 }
 
+/** Candidate tailscale CLI locations, macOS app bundle first. */
+const TAILSCALE_BINARIES = [
+  '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+  '/usr/local/bin/tailscale',
+  '/usr/bin/tailscale',
+  'tailscale',
+];
+
+/** Memoized across requests: shelling out per /api/pair call would be wasteful. */
+let magicDnsMemo: string | null | undefined;
+
+/**
+ * This machine's MagicDNS name (e.g. `bens-macbook-pro.tail445728.ts.net`), or null.
+ *
+ * WHY a NAME and not the 100.x IP: iOS App Transport Security exempts cleartext by
+ * DOMAIN, never by address, and Tailscale's CGNAT range is not covered by
+ * NSAllowsLocalNetworking. A payload carrying the raw tailnet IP is refused by the
+ * phone before the request is even sent. `MERMAID_TAILNET_HOST` overrides for tests
+ * and for hosts where the CLI is absent.
+ */
+export function selfMagicDnsHost(): string | null {
+  const override = process.env.MERMAID_TAILNET_HOST?.trim();
+  if (override) return override;
+  if (magicDnsMemo !== undefined) return magicDnsMemo;
+  magicDnsMemo = null;
+  for (const bin of TAILSCALE_BINARIES) {
+    try {
+      const out = spawnSync(bin, ['status', '--json'], { encoding: 'utf8', timeout: 4000 });
+      if (out.status !== 0 || !out.stdout) continue;
+      const name = JSON.parse(out.stdout)?.Self?.DNSName;
+      if (typeof name === 'string' && name.length > 1) {
+        magicDnsMemo = name.replace(/\.$/, '');
+        break;
+      }
+    } catch {
+      // Any failure just means "no MagicDNS name" — the IP fallback still works.
+    }
+  }
+  return magicDnsMemo;
+}
+
 /** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
 function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   version: typeof PAIRING_PAYLOAD_VERSION;
@@ -96,7 +138,7 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   } catch {
     fleet = [];
   }
-  const selfHost = `${best ?? config.HOST}:${port}`;
+  const selfHost = `${selfMagicDnsHost() ?? best ?? config.HOST}:${port}`;
   const servers: PairingServerEntry[] =
     fleet.length > 0
       ? fleet.map((f) => ({
@@ -108,7 +150,7 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
           // then sat on "can't reach the server" no matter how often it was scanned
           // (observed 2026-08-21). Substitute the best routable address we discovered
           // for the LOCAL entry; remote entries already carry a reachable host.
-          host: `${isLoopbackHost(f.host) ? (best ?? f.host) : f.host}:${f.port}`,
+          host: `${isLoopbackHost(f.host) ? (selfMagicDnsHost() ?? best ?? f.host) : f.host}:${f.port}`,
           token: f.token ?? token,
         }))
       : [{ id: selfHost, label: hostname(), host: selfHost, token }];
