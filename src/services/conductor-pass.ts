@@ -8,7 +8,7 @@
  * no material change spends nothing, the conductor LANDS (only on converged+verify-green), per-project
  * toggle (default OFF — opt-in autonomy).
  */
-import { getConductorEnabled, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation, reopenResolvedEscalationByConditionKey, type ConductorPassReason } from './supervisor-store.js';
+import { getConductorEnabled, listOpenEscalations, listEscalationsResolvedSince, setConductorLastPass, createEscalation, resolveEscalation, reopenResolvedEscalationByConditionKey, type ConductorPassReason } from './supervisor-store.js';
 import {
   listMissions,
   getMission,
@@ -22,13 +22,14 @@ import {
   resetCriterionAttemptCounters,
   type MissionRecheck,
 } from './mission-store.js';
-import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP, CONDUCTOR_EMPTY_CONDUCT_CAP } from './harness-caps.js';
+import { CONDUCTOR_SERVE_RETRY_CAP, CONDUCTOR_NODE_TIMEOUT_MS, CONDUCTOR_TIMEOUT_RECUR_CAP, CONDUCTOR_SERVE_BATCH_MAX, CRITERION_SERVE_ATTEMPT_CAP, CONDUCTOR_EMPTY_CONDUCT_CAP, VERIFY_OWED_BACKSTOP_MS } from './harness-caps.js';
 import { raiseOverBudgetRebetCard } from './mission-budget-gate.js';
 import { runInfraRejectionArm, classifyInfraRejection, defaultEpicBaseProbe, type EpicBaseProbe, type InfraArmResult } from './conductor-infra-arm.js';
 import { runRedecomposeArm, type RedecomposeArmResult } from './conductor-redecompose-arm.js';
 import { runTestOnlyCloseArm } from './conductor-test-only-close-arm.js';
 import { runVerifyPanelArm, type VerifyPanelArmResult } from './conductor-verify-panel-arm.js';
-import { runVerifyOwedArm } from './conductor-verify-owed-arm.js';
+import { runVerifyOwedArm, VERIFY_OWED_BACKSTOP_KIND } from './conductor-verify-owed-arm.js';
+import { isVerifyOwedPastThreshold } from './mission-stall-predicate.js';
 import { runCardTriageArm, type CardTriageArmResult } from './conductor-card-triage-arm.js';
 import { runConductorLandArm, type LandArmResult } from './conductor-land-arm.js';
 import { runUnlandedEpicLandArm, type UnlandedEpicArmResult } from './conductor-unlanded-epic-arm.js';
@@ -331,6 +332,9 @@ export interface ConductorPassDeps {
   /** Injectable for the serve-cap escalation (test spy). Defaults to the store fns. */
   createEscalation?: typeof createEscalation;
   listOpenEscalations?: typeof listOpenEscalations;
+  /** Injectable escalation resolve (test spy). Defaults to the store fn. Used to clear the
+   *  verify-owed-backstop card once nothing is owed. */
+  resolveEscalation?: typeof resolveEscalation;
   /** Injectable resolved-card reopen (test spy). Defaults to the store fn. */
   reopenResolvedEscalation?: typeof reopenResolvedEscalationByConditionKey;
   /** Injectable resolved-card read for the WAKE CONTEXT block. Defaults to the store fn. */
@@ -505,6 +509,72 @@ function seal(project: string, rowId: string | null, patch: Parameters<typeof fi
     getWebSocketHandler()?.broadcast({ type: 'conductor_pass', project, row });
   } catch {
     /* fail-open */
+  }
+}
+
+export interface VerifyOwedBackstopResolveDeps {
+  listCriteriaWithActions?: typeof listCriteriaWithActions;
+  listOpenEscalations?: typeof listOpenEscalations;
+  resolveEscalation?: typeof resolveEscalation;
+  now?: () => number;
+  thresholdMs?: number;
+}
+
+/**
+ * Clear path for the verify-owed-backstop card: once every previously-owed criterion is
+ * verified (and none remain owed), resolve any open backstop card scoped to this mission.
+ * The raise key (verifyOwedConditionKey) hashes the OWED SET, so once that set is empty the
+ * exact key can't be recomputed — this matches the mission-scoped conditionKey PREFIX
+ * (`verify-owed:<missionId>:`) instead, never a rebuilt hash. Fail-open throughout: any
+ * throwing read or write degrades to an empty result, never sinks the conductor pass.
+ */
+export function resolveVerifyOwedBackstopCards(
+  project: string,
+  missionId: string,
+  deps: VerifyOwedBackstopResolveDeps = {},
+): { resolved: string[]; verified: string[]; owed: string[] } {
+  try {
+    const listCriteria = deps.listCriteriaWithActions ?? listCriteriaWithActions;
+    const now = deps.now ?? Date.now;
+    const thresholdMs = deps.thresholdMs ?? VERIFY_OWED_BACKSTOP_MS;
+
+    const criteria = listCriteria(project, missionId);
+    const nowMs = now();
+
+    const owed: string[] = [];
+    for (const c of criteria) {
+      try {
+        if (isVerifyOwedPastThreshold(c, nowMs, thresholdMs)) owed.push(c.id);
+      } catch {
+        // fail-open per-criterion: one malformed row must not sink the scan.
+      }
+    }
+
+    if (owed.length > 0) return { resolved: [], verified: [], owed };
+
+    const verified = criteria.filter((c) => c.met === true || c.verifiedAt != null).map((c) => c.id);
+    if (verified.length === 0) return { resolved: [], verified: [], owed };
+
+    const listOpen = deps.listOpenEscalations ?? listOpenEscalations;
+    const prefix = `verify-owed:${missionId}:`;
+    const matches = listOpen({ project, kind: VERIFY_OWED_BACKSTOP_KIND }).filter(
+      (e) => e.todoId === missionId && (e.conditionKey ?? '').startsWith(prefix),
+    );
+
+    const resolve = deps.resolveEscalation ?? resolveEscalation;
+    const resolved: string[] = [];
+    for (const card of matches) {
+      try {
+        resolve(card.id, 'resolved', 'ai', `verify-owed cleared: ${verified.join(', ')} verified`);
+        resolved.push(card.id);
+      } catch {
+        // fail-open per-card: one bad row must not abort the rest.
+      }
+    }
+
+    return { resolved, verified, owed };
+  } catch {
+    return { resolved: [], verified: [], owed: [] };
   }
 }
 
@@ -1342,6 +1412,7 @@ async function runConductorPassInner(project: string, deps: ConductorPassDeps = 
   // only raises a card, it never returns a pass result itself.
   try {
     await (deps.verifyOwedArm ?? runVerifyOwedArm)(project, missionId, session, {});
+    resolveVerifyOwedBackstopCards(project, missionId, deps);
   } catch {
     // fail-open: an arm fault must not affect the rest of the pass.
   }
