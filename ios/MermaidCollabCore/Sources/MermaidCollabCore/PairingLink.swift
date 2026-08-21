@@ -78,6 +78,12 @@ public struct PairingLink: Codable, Equatable, Sendable {
         let token: String
     }
 
+    /// Version-2 wrapper around a multi-entry pairing payload.
+    private struct PayloadEnvelopeDTO: Decodable {
+        let version: Int
+        let servers: [PayloadServerDTO]
+    }
+
     public static func parsePayload(_ urlString: String) -> PairingPayload? {
         guard let url = URL(string: urlString) else { return nil }
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
@@ -86,7 +92,16 @@ public struct PairingLink: Codable, Equatable, Sendable {
         let queryItems = comps.queryItems ?? []
         if let serversParam = queryItems.first(where: { $0.name == "servers" })?.value, !serversParam.isEmpty {
             guard let data = decodeBase64(serversParam) else { return nil }
-            guard let dtos = try? JSONDecoder().decode([PayloadServerDTO].self, from: data) else { return nil }
+
+            let dtos: [PayloadServerDTO]
+            if let env = try? JSONDecoder().decode(PayloadEnvelopeDTO.self, from: data) {
+                guard env.version == 2 else { return nil }
+                dtos = env.servers
+            } else if let bareDtos = try? JSONDecoder().decode([PayloadServerDTO].self, from: data) {
+                dtos = bareDtos
+            } else {
+                return nil
+            }
 
             var servers: [PairingPayloadServer] = []
             servers.reserveCapacity(dtos.count)
