@@ -8,8 +8,11 @@
  * the raw upstream bytes.
  *
  * Stages of `crossServerCall`:
- *   ① allowPeer  — pairing gate. A no-op pass-through until P4 wires real
- *                  peer-pairing; kept here so P4 only fills in the body.
+ *   ① entry/pairing — entry-existence gate (an unknown/typo'd/removed serverId
+ *                  is rejected as `server-entry-missing`, distinct from a real
+ *                  peer the operator declined to pair), THEN the allowPeer
+ *                  pairing gate. Both are no-op pass-throughs until their deps
+ *                  are supplied; kept here so later phases only fill in the body.
  *   ② invoke     — the actual main-process invoker (token injection stays in
  *                  main, in index.ts `invokeOnServer`); passed in as a dep so
  *                  this module is pure and unit-testable.
@@ -39,6 +42,10 @@ export type RemoteInvoker = (
  *  the caller (the ConnectionStore.isPaired bound in main). */
 export type IsPaired = (serverId: string) => boolean;
 
+/** Entry-existence predicate: does this serverId have a ConnectionStore entry
+ *  at all? Supplied by the caller (the ConnectionStore.get bound in main). */
+export type HasEntry = (serverId: string) => boolean;
+
 /** ① Pairing gate (P4a §2). With no predicate this is a pass-through (the P2
  *  behaviour). With a predicate, a peer is allowed only when it is paired — the
  *  'local'/empty sentinel (the desktop's own primary) is always allowed. */
@@ -61,6 +68,12 @@ export function audit(_event: { serverId: string; path: string; ok: boolean; sta
 /** The fail-closed body returned when a known route's payload fails validation.
  *  A stable sentinel so callers/tests can match on it; never the raw bytes. */
 export const INVALID_REMOTE_PAYLOAD = { error: 'invalid_remote_payload' } as const;
+
+/** The fail-closed body returned when `serverId` has no ConnectionStore entry
+ *  at all — distinct from `peer_not_paired` (a real, known peer the operator
+ *  simply hasn't paired yet). A stable sentinel so callers/tests can match on
+ *  it; never mutate this — spread it into the response body instead. */
+export const SERVER_ENTRY_MISSING = { error: 'server-entry-missing' } as const;
 
 /** Per-known-route response schemas. Lenient (`.catchall(unknown)` keeps extra
  *  keys so version-skew doesn't break a real peer) but they REJECT a non-object
@@ -105,15 +118,24 @@ export async function crossServerCall(
   serverId: string,
   opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> },
   isPaired?: IsPaired,
+  hasEntry?: HasEntry,
 ): Promise<RemoteEnvelope> {
-  // ① pairing gate (P4a): a non-paired peer is rejected before any invoke.
+  // ① entry-existence gate: the 'local'/empty sentinel (the desktop's own
+  // primary) has no ConnectionStore entry and must always short-circuit as
+  // allowed, so this check runs only for a non-local id, strictly before the
+  // pairing gate below (an unknown id is a distinct condition from a known,
+  // unpaired one).
+  if (serverId && serverId !== 'local' && hasEntry && !hasEntry(serverId)) {
+    return { ok: false, status: 404, body: { ...SERVER_ENTRY_MISSING } };
+  }
+  // ② pairing gate (P4a): a non-paired peer is rejected before any invoke.
   if (!allowPeer(serverId, isPaired)) {
     return { ok: false, status: 403, body: { error: 'peer_not_paired' } };
   }
-  // ② invoke (token injection stays in main, inside `invoke`)
+  // ③ invoke (token injection stays in main, inside `invoke`)
   const res = await invoke(serverId, opts);
   audit({ serverId, path: opts.path, ok: res.ok, status: res.status }); // no-op seam
-  // ③+④ validate / fail-closed
+  // ④+⑤ validate / fail-closed
   return validateRemotePayload(opts.path, res);
 }
 
