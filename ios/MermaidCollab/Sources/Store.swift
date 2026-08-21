@@ -15,17 +15,32 @@ final class ZenStore: ObservableObject {
 
     private var task: URLSessionWebSocketTask?
     private var closed = false
+    private let registryStore: ServerRegistryPersisting
     /// Default host: the simulator shares the Mac's localhost → the sidecar on :9002.
     /// (A real device over Tailscale is configured with the tailnet host + bearer token.)
-    var registry = ServerRegistry(entries: [
-        ServerEntry(id: ZenStore.localFallbackServerId, label: "This Mac", host: "localhost:9002", source: .manual)
-    ])
+    /// Persisted on every mutation via `registryStore`; the `init` assignment deliberately
+    /// does not trigger a re-save (didSet doesn't fire from init).
+    var registry: ServerRegistry {
+        didSet { registryStore.save(registry) }
+    }
     var projectsByServerId: [String: [String]] = [:]
     var selectedServerId: String = ZenStore.localFallbackServerId
     var localServerId: String? = ZenStore.localFallbackServerId
     var tokenStore: ServerTokenStore = KeychainServerTokenStore()
     /// Legacy/selected fallback token, kept for pairing's back-compat call shape.
     var token: String?
+
+    /// Defaulted so `ZenStore()` (`Pairing.swift:23`) keeps compiling with no arguments.
+    init(registryStore: ServerRegistryPersisting = FileServerRegistryStore(url: ZenStore.defaultRegistryURL)) {
+        self.registryStore = registryStore
+        self.registry = registryStore.load()
+    }
+
+    private static var defaultRegistryURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return dir.appendingPathComponent("server-registry.json")
+    }
 
     var host: String {
         registry.entries.first { $0.id == selectedServerId }?.host ?? "localhost:9002"
