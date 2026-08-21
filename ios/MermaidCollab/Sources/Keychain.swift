@@ -92,20 +92,3 @@ enum Keychain {
         SecItemDelete(query as CFDictionary)
     }
 }
-
-/// `ServerTokenStore` conformer backed by the Keychain, keyed per server id.
-struct KeychainServerTokenStore: ServerTokenStore {
-    init() {}
-
-    func token(forServerId serverId: String) -> String? {
-        Keychain.loadServerToken(serverId: serverId)
-    }
-
-    func setToken(_ token: String, forServerId serverId: String) {
-        Keychain.saveServerToken(token, serverId: serverId)
-    }
-
-    func removeToken(forServerId serverId: String) {
-        Keychain.deleteServerToken(serverId: serverId)
-    }
-}

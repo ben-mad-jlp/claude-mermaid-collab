@@ -23,7 +23,7 @@ final class ZenStore: ObservableObject {
     var projectsByServerId: [String: [String]] = [:]
     var selectedServerId: String = ZenStore.localFallbackServerId
     var localServerId: String? = ZenStore.localFallbackServerId
-    var tokenStore: ServerTokenStore = InMemoryServerTokenStore()
+    var tokenStore: ServerTokenStore = KeychainServerTokenStore()
     /// Legacy/selected fallback token, kept for pairing's back-compat call shape.
     var token: String?
 
