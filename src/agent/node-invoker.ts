@@ -15,10 +15,10 @@
  * conformance pattern.
  */
 
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync, existsSync } from 'node:fs';
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, writeFileSync, unlinkSync, rmdirSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir, homedir } from 'node:os';
+import { tmpdir, homedir, userInfo } from 'node:os';
 import { resolveGrokModel } from './grok-model.js';
 import { SETTING_SOURCES_ARGS } from './contracts.js';
 import { registerLeafProc, unregisterLeafProc, groupKillPid } from '../services/leaf-subprocess-registry.js';
@@ -88,11 +88,42 @@ export function worktreeSpawnEnv(cwd: string, base: NodeJS.ProcessEnv = process.
  *  calls for the same port overwrite the same path rather than accumulating files.
  *  Exported for unit testing. */
 const mcpConfigPaths = new Map<number, string>();
+
+/**
+ * PER-USER config directory.
+ *
+ * This was a fixed shared name — `<tmp>/mermaid-node-mcp-config` — so on a multi-user box
+ * whichever server booted first created it under ITS uid with a umask-derived mode, and
+ * every other user's server then hit EACCES writing its own config. Launching a conductor
+ * node writes this file first, so the node never started, no pass was ever recorded, and
+ * the mission simply sat with lastPassAt null. Observed 2026-08-21 on a shared Linux box:
+ * user `alec`'s server (port 9205) owned the directory at 0775 and user `ben`'s server
+ * (port 9002) could not create mcp-config-9002-1614.json in it.
+ *
+ * The FILE name was already port+pid scoped; only the directory was shared. tmp itself is
+ * fine — it self-cleans and does not depend on HOME, which this module rewrites for grok
+ * nodes. Scoping the DIRECTORY by uid removes the collision permanently and survives the
+ * reboot that wipes tmp and re-runs the race.
+ *
+ * Exported for tests.
+ */
+export function mcpConfigDir(uid: string | number = process.getuid?.() ?? userInfo().username): string {
+  return join(tmpdir(), `mermaid-node-mcp-config-${uid}`);
+}
+
 export function mcpConfigFor(port: number): string {
   const cached = mcpConfigPaths.get(port);
   if (cached) return cached;
-  const dir = join(tmpdir(), 'mermaid-node-mcp-config');
+  const dir = mcpConfigDir();
   mkdirSync(dir, { recursive: true });
+  // mkdir's mode is masked by umask, so set it explicitly: this directory holds only this
+  // user's node configs and nobody else needs to read, let alone write, into it.
+  try {
+    chmodSync(dir, 0o700);
+  } catch {
+    // A pre-existing directory owned by someone else cannot be chmod'd — but with a
+    // per-uid name that cannot be OUR directory, so leave it and let the write decide.
+  }
   const path = join(dir, `mcp-config-${port}-${process.pid}.json`);
   const body = {
     mcpServers: {
@@ -145,8 +176,15 @@ export function nodeSettingsFile(): string | null {
   if (!hook) return null;
   const cached = nodeSettingsPaths.get(hook);
   if (cached) return cached;
-  const dir = join(tmpdir(), 'mermaid-node-settings');
+  // Per-user for the same reason as mcpConfigDir: a fixed shared name in tmp is squatted
+  // by whichever user's server boots first, and every other user then hits EACCES.
+  const dir = join(tmpdir(), `mermaid-node-settings-${process.getuid?.() ?? userInfo().username}`);
   mkdirSync(dir, { recursive: true });
+  try {
+    chmodSync(dir, 0o700);
+  } catch {
+    // Not ours to chmod; with a per-uid name that cannot happen, so let the write decide.
+  }
   // Key the filename by pid so concurrent servers don't clobber; idempotent per (hook,pid).
   const path = join(dir, `node-settings-${process.pid}.json`);
   const body = {
