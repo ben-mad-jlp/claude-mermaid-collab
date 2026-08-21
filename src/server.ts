@@ -484,7 +484,7 @@ const server = Bun.serve<WsData>({
     // before the catch-all; checkAuth already ran (pairing routes 403 non-loopback
     // themselves; /api/auth/check is gated normally).
     if (url.pathname === '/api/pair' || url.pathname === '/api/pair/rotate' || url.pathname === '/api/auth/check') {
-      const res = handlePairRoutes(req, url, server.requestIP(req)?.address);
+      const res = await handlePairRoutes(req, url, server.requestIP(req)?.address);
       if (res) return res;
     }
 

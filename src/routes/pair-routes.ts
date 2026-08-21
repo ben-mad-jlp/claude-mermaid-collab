@@ -109,8 +109,40 @@ export function selfMagicDnsHost(): string | null {
   return magicDnsMemo;
 }
 
+
+/**
+ * The fleet WITH real per-server tokens, asked of the Electron main process.
+ *
+ * `servers.json` stores a peer's credential as `encryptedToken`, sealed with the OS
+ * keystore — only main can open it. Reading the file here yields entries with NO token,
+ * and the old `f.token ?? token` fallback then advertised peers with THIS server's
+ * credential; the phone was rejected by that peer and unpaired itself in a loop
+ * (2026-08-21). Main serves them over the existing loopback + bearer control channel, so
+ * tokens are never written to disk or placed in an environment variable. Falls back to
+ * the on-disk fleet when the control channel is absent (a bare `bun run src/server.ts`).
+ */
+async function fleetWithTokens(readFleet: () => FleetServer[]): Promise<FleetServer[]> {
+  const base = process.env.MC_DESKTOP_CONTROL_URL;
+  const controlToken = process.env.MC_DESKTOP_CONTROL_TOKEN;
+  if (base && controlToken) {
+    try {
+      const res = await fetch(`${base}/fleet/tokens`, {
+        headers: { authorization: `Bearer ${controlToken}` },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { servers?: FleetServer[] };
+        if (Array.isArray(body.servers) && body.servers.length > 0) return body.servers;
+      }
+    } catch {
+      // Main unreachable or wedged — fall through to the on-disk fleet.
+    }
+  }
+  return readFleet();
+}
+
 /** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
-function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
+async function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): Promise<{
   version: typeof PAIRING_PAYLOAD_VERSION;
   token: string;
   port: number;
@@ -119,7 +151,7 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   servers: PairingServerEntry[];
   qr: string;
   warning?: string;
-} {
+}> {
   // Ensure a token exists (auto-provision on first pair — loopback caller only).
   let token = getAuthToken();
   if (!token) {
@@ -134,14 +166,22 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   // broken desktop servers.json never blocks pairing with this server alone.
   let fleet: FleetServer[];
   try {
-    fleet = readFleet();
+    fleet = await fleetWithTokens(readFleet);
   } catch {
     fleet = [];
   }
   const selfHost = `${selfMagicDnsHost() ?? best ?? config.HOST}:${port}`;
+  // A fleet entry with NO token of its own must NOT inherit THIS server's token: the
+  // phone would then call that peer with a credential it never accepts, get a 401, and
+  // (before the client-side scoping fix) tear down the whole pairing. Observed
+  // 2026-08-21: trimaxion was advertised with the Mac's token, so the phone bounced back
+  // to the pairing screen in a loop while the Mac itself logged nothing. A peer we cannot
+  // hand a working credential for is better left out of the payload than misdescribed.
+  const selfIsLoopback = (f: FleetServer) => isLoopbackHost(f.host);
+  const usableFleet = fleet.filter((f) => Boolean(f.token) || selfIsLoopback(f));
   const servers: PairingServerEntry[] =
-    fleet.length > 0
-      ? fleet.map((f) => ({
+    usableFleet.length > 0
+      ? usableFleet.map((f) => ({
           id: f.id,
           label: f.label,
           // A pairing payload is consumed on ANOTHER device, where a loopback address
@@ -174,7 +214,7 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
  *                             (from checkAuth, when the token is stale) drives re-pair.
  * Returns null when the path isn't ours (so the server falls through to other routes).
  */
-export function handlePairRoutes(req: Request, url: URL, peerAddress?: string | null): Response | null {
+export async function handlePairRoutes(req: Request, url: URL, peerAddress?: string | null): Promise<Response | null> {
   // /api/auth/check is gated by checkAuth (NOT loopback-only) — reaching here means
   // the caller already presented a valid token (or is loopback). Just confirm.
   if (url.pathname === '/api/auth/check' && req.method === 'GET') {
@@ -188,11 +228,11 @@ export function handlePairRoutes(req: Request, url: URL, peerAddress?: string | 
       return jsonError('Pairing is only available from the local machine (loopback).', 403);
     }
     if (url.pathname === '/api/pair' && req.method === 'GET') {
-      return Response.json(pairingPayload());
+      return Response.json(await pairingPayload());
     }
     if (url.pathname === '/api/pair/rotate' && req.method === 'POST') {
       setAuthToken(generateAuthToken());
-      return Response.json(pairingPayload());
+      return Response.json(await pairingPayload());
     }
     return jsonError('Method not allowed', 405);
   }
