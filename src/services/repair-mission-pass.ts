@@ -16,7 +16,7 @@ import { isBucketItem, reopenConsumedFor, consumerDelivered } from './bucket-con
 import { listTodos, getTodo, type Todo } from './todo-store.js';
 import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, type MissionSummary } from './mission-store.js';
 import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
-import { createEscalation, listOpenEscalations, type EscalationOption } from './supervisor-store.js';
+import { createEscalation, listOpenEscalations, resolveEscalation, type EscalationOption } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
 import { getConfig } from './config-service.js';
 import { classifyCriterion } from './criteria-citability.js';
@@ -71,6 +71,47 @@ export function missionsAwaitingApprovalPastThreshold(
   });
 }
 
+/**
+ * Sweep open repair-mission-approval cards and resolve the ones whose mission has since
+ * been approved. Reads the mission node only from the supplied `allTodos` snapshot — no
+ * extra todo-store scan. Fail-open: a per-card resolve throw does not abort the sweep, and
+ * the whole sweep never throws out. Returns the count of cards resolved.
+ */
+export function resolveApprovedRepairMissionCards(
+  project: string,
+  deps: {
+    allTodos: Todo[];
+    listOpenEscalations?: (project: string) => ReturnType<typeof listOpenEscalations>;
+    resolveEscalation?: typeof resolveEscalation;
+  },
+): number {
+  const listOpenEscalationsFn = deps.listOpenEscalations ?? ((p: string) => listOpenEscalations({ project: p }));
+  const resolveEscalationFn = deps.resolveEscalation ?? resolveEscalation;
+  let resolved = 0;
+
+  try {
+    const openEscalations = listOpenEscalationsFn(project);
+    const approvalCards = openEscalations.filter(
+      (card) => card.kind === REPAIR_MISSION_APPROVAL_KIND && card.conditionKey === `repair-forge:${card.todoId}`,
+    );
+
+    for (const card of approvalCards) {
+      const node = deps.allTodos.find((t) => t.id === card.todoId);
+      if (!node || node.approvedAt == null) continue;
+      try {
+        resolveEscalationFn(card.id, 'resolved', 'ai', `mission approved at ${node.approvedAt}`);
+        resolved++;
+      } catch (err) {
+        // Per-card resolve failure is non-fatal; continue to next card.
+      }
+    }
+  } catch (err) {
+    // Sweep failure is non-fatal; never throw out of the sweep.
+  }
+
+  return resolved;
+}
+
 export interface RepairForgeDeps {
   /** Read todos for a project. Default: listTodos. */
   listTodos?: (project: string) => Todo[];
@@ -97,6 +138,9 @@ export interface RepairForgeDeps {
   abandonMission?: typeof setMissionAbandoned;
   /** List open escalations for dedup. Default: listOpenEscalations({ project }). */
   listOpenEscalations?: (project: string) => ReturnType<typeof listOpenEscalations>;
+  /** Resolve an escalation card. Default: resolveEscalation. Must be injectable for tests
+   *  (the real one opens the supervisor DB and throws on tmp project paths). */
+  resolveEscalation?: typeof resolveEscalation;
   /** Log function for diagnostic messages. Default: console.warn. */
   log?: (msg: string) => void;
   /** Batch size threshold. Default: REPAIR_BATCH_K or REPAIR_FORGE_THRESHOLD env. */
@@ -132,6 +176,7 @@ export async function runRepairForgePass(
   const recordAutoActionFn = deps.recordAutoAction ?? recordAutoAction;
   const abandonMissionFn = deps.abandonMission ?? setMissionAbandoned;
   const listOpenEscalationsFn = deps.listOpenEscalations ?? ((p: string) => listOpenEscalations({ project: p }));
+  const resolveEscalationFn = deps.resolveEscalation ?? resolveEscalation;
   const logFn = deps.log ?? ((m: string) => console.warn(m));
   const threshold = deps.threshold ?? (Number(getConfig('REPAIR_FORGE_THRESHOLD', '') || 0) || REPAIR_BATCH_K);
   const ageMs = deps.ageMs ?? REPAIR_AGE_MS;
@@ -150,6 +195,18 @@ export async function runRepairForgePass(
   // snapshot in (audit 7a); standalone callers fall back to one fresh scan. The
   // tick-todos-snapshot counting test pins that this pass adds ZERO extra scans.
   const allTodos = deps.todosSnapshot ?? listTodosFn(project);
+
+  // Resolve any repair-mission-approval cards whose mission has already been approved —
+  // must run before STEP 1.5 so a now-approved mission is not re-carded as stale.
+  try {
+    resolveApprovedRepairMissionCards(project, {
+      allTodos,
+      listOpenEscalations: listOpenEscalationsFn,
+      resolveEscalation: resolveEscalationFn,
+    });
+  } catch (err) {
+    // Fail-open; never change the pass outcome.
+  }
 
   // STEP 1: CAP FIRST — check for an already-open repair mission (mutation-probe target).
   // If any mission is non-terminal AND auto-forged, refuse.
