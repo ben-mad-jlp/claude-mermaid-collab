@@ -84,6 +84,7 @@ final class ZenStore: ObservableObject {
             // instead of the WS silently looping on a bad token.
             await verifyAuth()
             await hydrateEscalations()
+            await refreshProjects()
         }
         connect()
     }
@@ -203,6 +204,21 @@ final class ZenStore: ObservableObject {
         guard let data = await send(request(serverId: selectedServerId, path: "/api/supervisor/escalations?status=open")) else { return }
         guard let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data) else { return }
         for e in resp.escalations { escalations[e.id] = e }
+    }
+
+    /// One shared pass over `registry.entries`: a single request per server, populating
+    /// `projectsByServerId` so `request(project:)` can resolve the owning server instead of
+    /// falling back to `selectedServerId`. A server that fails or returns undecodable JSON
+    /// contributes no key — it does not abort the pass for the remaining entries.
+    func refreshProjects() async {
+        var results: [(serverId: String, projects: [String])] = []
+        for entry in registry.entries {
+            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/projects")),
+                  let resp = try? JSONDecoder().decode(WatchedProjectsResponse.self, from: data)
+            else { continue }
+            results.append((serverId: entry.id, projects: resp.projects.map(\.project)))
+        }
+        projectsByServerId = ServerProjectsMapping.mapping(from: results)
     }
 
     func fetchMission(project: String, session: String) async -> MissionSummary? {
