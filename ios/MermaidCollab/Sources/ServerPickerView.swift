@@ -59,6 +59,13 @@ struct ServerPickerView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        WatchingView()
+                    } label: {
+                        Label("Watching", systemImage: "eye")
+                    }
+                    .accessibilityIdentifier("watching-link")
+
                     Button {
                         showScanner = true
                     } label: {

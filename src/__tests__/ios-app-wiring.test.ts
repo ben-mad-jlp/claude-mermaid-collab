@@ -32,6 +32,7 @@ const watchListCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/WatchListTests.swift',
   import.meta.url
 );
+const watchingViewPath = new URL('../../ios/MermaidCollab/Sources/WatchingView.swift', import.meta.url);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -150,5 +151,16 @@ describe('ios app wiring', () => {
     expect(watchListCoreTest).toContain('test1_');
     expect(watchListCoreTest).toContain('test2_');
     expect(watchListCoreTest).toContain('test3_');
+  });
+
+  it('19. WatchingView.swift drives the watch verbs and ServerPickerView reaches it', () => {
+    const watchingView = readFileSync(watchingViewPath, 'utf8');
+    expect(watchingView).toContain('store.watchProject');
+    expect(watchingView).toContain('store.unwatchProject');
+    expect(watchingView).toContain('store.watchSession');
+    expect(watchingView).toContain('store.unwatchSession');
+    expect(watchingView).toContain('swipeActions');
+    const serverPickerView = readFileSync(serverPickerViewPath, 'utf8');
+    expect(serverPickerView).toContain('WatchingView');
   });
 });
