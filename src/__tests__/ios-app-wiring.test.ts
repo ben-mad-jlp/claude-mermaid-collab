@@ -24,6 +24,10 @@ const serverPickerRowCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerPickerRowTests.swift',
   import.meta.url
 );
+const escalationMergeCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/EscalationMergeTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -91,5 +95,14 @@ describe('ios app wiring', () => {
     expect(serverPickerRowCoreTest).toContain('test1_');
     expect(serverPickerRowCoreTest).toContain('test2_');
     expect(serverPickerRowCoreTest).toContain('test3_');
+  });
+
+  it('12. Store.swift routes the escalation decide path through a server id taken from the card', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toContain('EscalationMerge.decideRoute');
+    expect(store).not.toMatch(/serverId: selectedServerId, path: "\/api\/supervisor\/escalation/);
+    const escalationMergeCoreTest = readFileSync(escalationMergeCoreTestPath, 'utf8');
+    expect(escalationMergeCoreTest).toContain('test1_');
+    expect(escalationMergeCoreTest).toContain('test2_');
   });
 });

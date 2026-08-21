@@ -200,10 +200,21 @@ final class ZenStore: ObservableObject {
         }
     }
 
+    /// One request per reachable server, folded through `EscalationMerge.merged` and rebuilt
+    /// as a fresh dict so a card resolved on any server disappears rather than lingering from
+    /// a previous pass. A server that fails or returns undecodable JSON contributes nothing and
+    /// does not abort the loop — mirrors `refreshProjects()`.
     func hydrateEscalations() async {
-        guard let data = await send(request(serverId: selectedServerId, path: "/api/supervisor/escalations?status=open")) else { return }
-        guard let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data) else { return }
-        for e in resp.escalations { escalations[e.id] = e }
+        var results: [(serverId: String, escalations: [Escalation])] = []
+        for entry in registry.entries where entry.reachability == .reachable {
+            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/escalations?status=open")),
+                  let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data)
+            else { continue }
+            results.append((entry.id, resp.escalations))
+        }
+        var merged: [String: Escalation] = [:]
+        for e in EscalationMerge.merged(results) { merged[e.id] = e }
+        escalations = merged
     }
 
     /// One shared pass over `registry.entries`: a single request per server, populating
@@ -274,9 +285,11 @@ final class ZenStore: ObservableObject {
 
     /// Decide a structured escalation. Optimistically clears it.
     func decide(_ escalationId: String, optionId: String) {
+        guard let card = escalations[escalationId] else { return }
         escalations.removeValue(forKey: escalationId)
+        let route = EscalationMerge.decideRoute(for: card, registry: registry, selectedServerId: selectedServerId)
         Task {
-            await send(request(serverId: selectedServerId, path: "/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
+            await send(request(serverId: route.serverId, path: "/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
         }
     }
 
