@@ -17,8 +17,18 @@ export interface SessionRegistryData {
 // MERMAID_DATA_DIR lets tests isolate sessions.json off the real ~/.mermaid-collab
 // (else a test's session register() leaks a project into the live app via the
 // session-derived project discovery). Mirrors MERMAID_SUPERVISOR_DIR elsewhere.
-const DATA_DIR = process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
-const REGISTRY_PATH = join(DATA_DIR, 'sessions.json');
+// Resolved PER CALL, not once at module load. Bun runs every test file in one process
+// and caches modules, so a module-load constant captures whatever the FIRST importer's
+// environment happened to be. mailbox-isolation.test.ts sets MERMAID_DATA_DIR before its
+// own dynamic import, but by then a sibling had already loaded this module without it —
+// so the registry wrote to the real ~/.mermaid-collab and the hermetic tripwire threw,
+// failing two tests only when the directory ran together (2026-08-21).
+function dataDir(): string {
+  return process.env.MERMAID_DATA_DIR ?? join(homedir(), '.mermaid-collab');
+}
+function defaultRegistryPath(): string {
+  return join(dataDir(), 'sessions.json');
+}
 
 /**
  * Throttle interval for the on-disk session-discovery/backfill pass inside
@@ -130,7 +140,8 @@ export function sessionDirHasArtifacts(sessionPath: string, depthLimit = 4): boo
 }
 
 export class SessionRegistry {
-  private registryPath: string;
+  /** Explicit path from a caller; when absent the default is resolved per use. */
+  private readonly explicitRegistryPath?: string;
   // Serializes all load→mutate→save sequences within a single process.
   // Cross-process concurrency is NOT covered by this mutex.
   private writeMutex = new Mutex();
@@ -138,8 +149,12 @@ export class SessionRegistry {
   // Gates the O(projects) fs scan in list() to SESSION_BACKFILL_INTERVAL_MS.
   private lastBackfillAt = 0;
 
-  constructor(registryPath: string = REGISTRY_PATH) {
-    this.registryPath = registryPath;
+  constructor(registryPath?: string) {
+    this.explicitRegistryPath = registryPath;
+  }
+
+  private get registryPath(): string {
+    return this.explicitRegistryPath ?? defaultRegistryPath();
   }
 
   private get backupPath(): string {
@@ -582,7 +597,7 @@ export class SessionRegistry {
     // Only cross-reference the global project registry for the default
     // singleton. Test instances (and any non-default registryPath) stay
     // isolated to their own file rather than pulling in the real registry.
-    if (this.registryPath !== REGISTRY_PATH) {
+    if (this.registryPath !== defaultRegistryPath()) {
       return [...roots];
     }
     try {
