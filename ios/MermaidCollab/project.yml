@@ -31,8 +31,19 @@ targets:
         # exception for local-network apps, NOT the red-flag NSAllowsArbitraryLoads. The
         # bearer token is the gate; v2 adds self-signed TLS + cert pinning (fingerprint slot
         # reserved in Credentials). Covers the sim (localhost) and a device (192.168.x LAN).
+        # NSAllowsLocalNetworking covers unqualified hostnames, .local, and RFC1918 /
+        # link-local addresses. It does NOT cover Tailscale's CGNAT range (100.64.0.0/10),
+        # so cleartext to a tailnet peer was refused BEFORE the request left the phone —
+        # the app said "can't reach the server" while that same server answered 200 and a
+        # WebSocket 101 from another machine (2026-08-21). ATS exceptions match NAMES, not
+        # raw IPs, which is why the pairing payload advertises the MagicDNS hostname.
+        # Still no NSAllowsArbitraryLoads.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         # Bonjour discovery of the desktop server (design §3). NWBrowser on iOS 14+ requires
         # both the usage description (Local Network permission prompt) and the service list.
         NSCameraUsageDescription: "Collab uses the camera only to scan the pairing QR code shown by the desktop app."
