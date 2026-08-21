@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import MermaidCollabCore
 
 struct ContentView: View {
     @EnvironmentObject var store: ZenStore
@@ -37,9 +38,68 @@ struct ContentView: View {
         }
         .onReceive(tick) { _ in now = Date().timeIntervalSince1970 * 1000 }
         .sheet(item: $drillInTarget) { s in
-            MissionDetailView(project: s.project, session: s.session)
+            MissionsListView(project: s.project, session: s.session)
                 .environmentObject(store)
         }
+    }
+}
+
+/// List of missions for a project, sourced from the bridge snapshot's `missionRows`. Each row
+/// drills into `MissionDetailView`, which then fetches the per-mission diagnostic.
+struct MissionsListView: View {
+    let project: String
+    let session: String
+    @EnvironmentObject var store: ZenStore
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(store.missionRows) { row in
+                    NavigationLink {
+                        MissionDetailView(project: project, session: session, missionId: row.id, row: row)
+                    } label: {
+                        MissionRowLabel(row: row)
+                    }
+                }
+            }
+            .navigationTitle("Missions")
+        }
+        .task {
+            _ = await store.fetchBridgeSnapshot(project: project)
+        }
+    }
+}
+
+private struct MissionRowLabel: View {
+    let row: MissionListRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(row.nickname ?? row.title)
+                .font(.zenSessionName)
+
+            if row.rollupConfirmed == false {
+                HStack(spacing: Space.xs) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("unconfirmed")
+                }
+                .font(.zenMeta)
+                .foregroundStyle(.tertiary)
+
+                Text(statusLine)
+                    .font(.zenMeta)
+                    .foregroundStyle(.tertiary)
+                    .italic()
+            } else {
+                Text(statusLine)
+                    .font(.zenMeta)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var statusLine: String {
+        "\(row.rollupStatus ?? row.status) · goal \(row.capabilityMet)/\(row.capabilityTotal) · build \(row.mechanicalDone)/\(row.mechanicalTotal)"
     }
 }
 
