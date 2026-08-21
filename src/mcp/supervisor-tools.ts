@@ -217,6 +217,12 @@ export async function handleSupervisorTool(name: string, args: any): Promise<str
               const { status: canonicalStatus } = supervisorStore.normalizeEscalationStatus(status, note);
               expected = canonicalStatus;
               supervisorStore.resolveEscalation(fullId, status, undefined, note);
+              const { repairApprovalDecisionFromStatus, applyCardKindResolution } = await import('../services/escalation-decide.js');
+              const row = supervisorStore.getEscalation(fullId);
+              if (row) {
+                const decision = repairApprovalDecisionFromStatus(canonicalStatus);
+                await applyCardKindResolution(row, decision, fullId);
+              }
             }
 
             const updated = supervisorStore.getEscalation(fullId);
