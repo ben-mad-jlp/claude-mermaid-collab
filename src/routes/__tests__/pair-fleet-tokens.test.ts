@@ -69,13 +69,15 @@ describe('pairing payload fleet source', () => {
   it('presents the control token request with a bearer header', async () => {
     process.env.MC_DESKTOP_CONTROL_URL = 'http://127.0.0.1:1';
     process.env.MC_DESKTOP_CONTROL_TOKEN = 'ctl';
-    let seen: string | null = null;
-    globalThis.fetch = (async (_u: unknown, init: RequestInit) => {
-      seen = (init.headers as Record<string, string>).authorization;
+    // Captured on an object, not a `let`: TypeScript narrows a let assigned only inside a
+    // callback to its initializer type and then rejects the comparison.
+    const captured: { auth?: string } = {};
+    globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
+      captured.auth = ((init?.headers ?? {}) as Record<string, string>).authorization;
       return new Response(JSON.stringify({ servers: [] }), { status: 200 });
     }) as unknown as typeof fetch;
     await servers();
-    expect(seen).toBe('Bearer ctl');
+    expect(captured.auth).toBe('Bearer ctl');
   });
 
   it('falls back to the on-disk fleet when main is unreachable', async () => {
