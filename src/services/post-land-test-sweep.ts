@@ -53,6 +53,13 @@ export interface PostLandSweepDeps {
   createTodo?: (project: string, input: CreateTodoInput) => Promise<Awaited<ReturnType<typeof createTodo>>>;
 }
 
+/** Trace record describing what the sweep filed (or why it filed nothing). */
+export interface PostLandSweepTrace {
+  filedIds: string[];
+  testNames: string[];
+  reason?: string;
+}
+
 /** Live default: read and parse scripts/backend-test-baseline.json */
 function readBaselineNamesLive(): string[] {
   try {
@@ -110,7 +117,7 @@ export async function runPostLandTestSweep(
   project: string,
   ctx: { epicId: string; landSha: string; targetProject?: string },
   deps: PostLandSweepDeps = {},
-): Promise<{ filed: string[]; skipped: string[]; error?: string }> {
+): Promise<{ filed: string[]; skipped: string[]; error?: string; trace: PostLandSweepTrace }> {
   try {
     const readBaselineNames = deps.readBaselineNames ?? readBaselineNamesLive;
     const runSuiteFailingNames = deps.runSuiteFailingNames ?? runSuiteFailingNamesLive;
@@ -124,13 +131,15 @@ export async function runPostLandTestSweep(
 
     // No new failures: skip bucket/todo creation.
     if (fresh.length === 0) {
-      return { filed: [], skipped: [] };
+      return { filed: [], skipped: [], trace: { filedIds: [], testNames: [], reason: 'nothing-to-file' } };
     }
 
     // Ensure the bugfix bucket exists.
     const bucketId = await ensureBucketFn(project, 'bugfix');
     const filed: string[] = [];
     const skipped: string[] = [];
+    const filedIds: string[] = [];
+    const testNames: string[] = [];
 
     const stamp = `epicId=${ctx.epicId} landSha=${ctx.landSha}`;
 
@@ -175,7 +184,7 @@ export async function runPostLandTestSweep(
         fixedMeans: filingInput.fixedMeans,
       };
 
-      await createTodoFn(project, {
+      const created = await createTodoFn(project, {
         ownerSession: '__post_land_test_sweep__',
         parentId: bucketId,
         title,
@@ -186,10 +195,12 @@ export async function runPostLandTestSweep(
         bugfixSpec,
       });
 
+      filedIds.push(created.id);
+      testNames.push(name);
       filed.push(name);
     }
 
-    return { filed, skipped };
+    return { filed, skipped, trace: { filedIds, testNames } };
   } catch (e) {
     // Fail-open: record the error and return it without rejecting.
     try {
@@ -202,6 +213,7 @@ export async function runPostLandTestSweep(
     } catch {
       // Ignore a throwing audit record.
     }
-    return { filed: [], skipped: [], error: String((e as Error)?.message ?? e) };
+    const msg = String((e as Error)?.message ?? e);
+    return { filed: [], skipped: [], error: msg, trace: { filedIds: [], testNames: [], reason: `sweep-error: ${msg}` } };
   }
 }
