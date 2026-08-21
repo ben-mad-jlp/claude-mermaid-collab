@@ -99,7 +99,7 @@ const ALLOWLIST: AllowEntry[] = [
   // (FALLBACK + STRING) revalidateStaleEpic resolves via detectBaseBranch (fixed by
   // mission da532749) + two user-facing "on branch other than master" messages + runProofStage
   // pre-merge snapshot capture fallback (mission f2e4708f).
-  { file: 'src/services/coordinator-land.ts', count: 5, reason: 'revalidateStaleEpic detectBaseBranch fallback + user-facing checkout-branch messages + runProofStage snapshot-capture fallback + runStewardPrecheck sha-capture fallback (measure-once threading)' },
+  { file: 'src/services/coordinator-land.ts', count: 6, reason: 'revalidateStaleEpic detectBaseBranch fallback + user-facing checkout-branch messages + runProofStage snapshot-capture fallback + runStewardPrecheck sha-capture fallback (measure-once threading) + sweepStrandedEpics tipOf cache key, which reads the TRUNK tip out of an already-fetched tips map and must accept either name (master ?? main) because the key exists to notice trunk advancing' },
 
   // (FALLBACK) both sweep entrypoints now resolve baseRef via
   // detectBaseBranch().catch(()=>"master") (trunk-ref Part B).
