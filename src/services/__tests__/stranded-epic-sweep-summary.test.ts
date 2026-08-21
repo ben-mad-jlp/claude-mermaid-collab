@@ -3,16 +3,21 @@ import { sweepStrandedEpics } from '../coordinator-land';
 import { createCachedSweepState, runCachedSweep } from '../sweep-verdict-cache';
 
 describe('stranded-epic sweep summary', () => {
-  it('the throttled early return yields a zeroed SweepSummary with all six fields, not an empty array', async () => {
+  it('the throttled early return yields a zeroed SweepSummary, not an empty array', async () => {
     // lastStrandedEpicSweepAt is unset for this project, so the throttle compares
     // 1000 - 0 < 90000 → true → the early-return path, never reaching listTodos.
     const result = await sweepStrandedEpics('/tmp/nonexistent-project', { now: 1000 });
     expect(result).toEqual({
       sweepKind: 'stranded',
+      candidates: 0,
       scanned: 0,
       checked: 0,
       cachedHits: 0,
+      skippedUnchanged: 0,
+      skippedMissingBranch: 0,
       errors: 0,
+      cursorStart: 0,
+      cursorEnd: 0,
       nextCursor: null,
       resurfaced: [],
     });
