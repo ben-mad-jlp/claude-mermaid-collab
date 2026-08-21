@@ -73,7 +73,15 @@ export interface SupervisorOpts {
    */
   workdir?: string;
   session: string;
+  /** Address used to CONNECT to the sidecar (health polls, proxy). Always reachable
+   *  from this machine — keep it loopback. */
   host: string;
+  /**
+   * Address the sidecar BINDS to. Distinct from `host`: binding 0.0.0.0 is what lets a
+   * phone on the tailnet reach the server, while health checks must still dial a real
+   * address. Defaults to `host` (loopback-only) when unset.
+   */
+  bindHost?: string;
   port?: number;
   token?: string;
   cdpPort?: number;
@@ -548,10 +556,10 @@ export class ServerSupervisor {
       // Repair the minimal PATH a GUI/login-item launch inherits.
       PATH: augmentedPath(),
       PORT: String(port),
-      HOST: this.opts.host,
+      HOST: this.opts.bindHost ?? this.opts.host,
       MERMAID_PROJECT: this.opts.project,
       MERMAID_SESSION: this.opts.session,
-      MERMAID_BIND_HOST: this.opts.host,
+      MERMAID_BIND_HOST: this.opts.bindHost ?? this.opts.host,
     };
     if (this.opts.cdpPort != null) {
       env.CDP_PORT = String(this.opts.cdpPort);
