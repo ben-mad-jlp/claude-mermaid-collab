@@ -40,6 +40,11 @@ export interface PanelJoin {
   dissent?: string;
   /** Set when every supplied verdict was indeterminate. */
   indeterminate?: boolean;
+  /** Count of EFFECTIVE (post-indeterminate-filter) verdicts that contributed to the vote. */
+  lensCount: number;
+  /** Report-only quorum label. Never participates in the majority computation — see the
+   *  doc comment above joinPanelVerdicts. */
+  quorum: 'provisional' | 'majority';
 }
 
 /** Strip markdown formatting characters that can obscure VERDICT lines.
@@ -236,27 +241,32 @@ Do not wrap the VERDICT line in backticks, quotes, or a code fence.`;
  *  (The runner used to AND an extra unanimity requirement on top of this result, so a
  *  2-of-3 array graded met:false through the runner but met:true through the tool.)
  *  Indeterminate verdicts (infra faults) are filtered before the majority vote.
+ *  `lensCount` is the count of EFFECTIVE verdicts — i.e. AFTER the indeterminate filter, never
+ *  `verdicts.length`. `quorum` is a REPORT field only ('provisional' when lensCount < 2, else
+ *  'majority') and never participates in the majority computation — it must never gate or
+ *  branch met; met is decided solely by the metCount*2 > effective.length comparison below.
  *  Empty input ⇒ fail-closed { met: false, split: true }.
  *  All indeterminate ⇒ { met: false, split: true, indeterminate: true, dissent: '…(infra)' }.
  *  Majority met ⇒ { met: true } (any dissenting lens stays visible in the verdicts array).
  *  Majority not met ⇒ { met: false, split: true, dissent: "<lens1>: <reason1>; <lens2>: <reason2>" }. */
 export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
   if (verdicts.length === 0) {
-    return { met: false, split: true, dissent: 'no verdicts received' };
+    return { met: false, split: true, dissent: 'no verdicts received', lensCount: 0, quorum: 'provisional' };
   }
 
   // Filter out indeterminate (infra fault) verdicts before majority computation.
   const effective = verdicts.filter(v => v.indeterminate !== true);
 
   if (effective.length === 0) {
-    return { met: false, split: true, indeterminate: true, dissent: 'all lenses indeterminate (infra)' };
+    return { met: false, split: true, indeterminate: true, dissent: 'all lenses indeterminate (infra)', lensCount: 0, quorum: 'provisional' };
   }
 
   const metCount = effective.filter(v => v.met).length;
   const isMet = metCount * 2 > effective.length;
+  const quorum: 'provisional' | 'majority' = effective.length < 2 ? 'provisional' : 'majority';
 
   if (isMet) {
-    return { met: true };
+    return { met: true, lensCount: effective.length, quorum };
   }
 
   const dissentParts = effective
@@ -264,7 +274,14 @@ export function joinPanelVerdicts(verdicts: PanelVerdict[]): PanelJoin {
     .map(v => `${v.lens}: ${v.reason}`);
   const dissent = dissentParts.join('; ');
 
-  return { met: false, split: true, dissent };
+  return { met: false, split: true, dissent, lensCount: effective.length, quorum };
+}
+
+/** Human-readable note for a provisional-quorum PanelJoin, or '' when quorum is not provisional.
+ *  Pure: no I/O, no clock, no store — reads only its argument. */
+export function panelQuorumNote(join: PanelJoin): string {
+  if (join.quorum !== 'provisional') return '';
+  return `provisional quorum — ${join.lensCount} effective lens verdict${join.lensCount === 1 ? '' : 's'}, below the 2-lens majority threshold`;
 }
 
 /** Normalize the `panelVerdicts` argument as it arrives at a tool/route boundary.
