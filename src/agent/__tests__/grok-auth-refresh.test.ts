@@ -76,4 +76,62 @@ describe('grok auth probe', () => {
     expect(authModeFromGrokStatus(await readGrokAuthStatus())).toBe('grok');
     expect(calls).toHaveLength(0);
   });
+
+  it('expired snapshot re-probes on the next call', async () => {
+    let probeCalls = 0;
+    _setGrokAuthDeps({
+      spawn: async (argv: string[]) => {
+        calls.push(argv);
+        writeFileSync(
+          authPath,
+          JSON.stringify({ access_token: 'tok', expires_at: Date.now() + 60_000 }),
+        );
+        return { exitCode: 0, stdout: '' };
+      },
+      authFilePath: () => authPath,
+      binPresent: () => {
+        probeCalls++;
+        return true;
+      },
+    });
+    writeFileSync(
+      authPath,
+      JSON.stringify({ access_token: 'tok', expires_at: Date.now() - 60_000 }),
+    );
+    await expect(assertGrokAuth()).rejects.toThrow();
+    expect(probeCalls).toBe(1);
+    writeFileSync(
+      authPath,
+      JSON.stringify({ access_token: 'tok', expires_at: Date.now() + 60_000 }),
+    );
+    expect(await assertGrokAuth()).toBe('grok');
+    expect(probeCalls).toBe(2);
+  });
+
+  it("a 'grok' verdict is memoized without re-probing", async () => {
+    let probeCalls = 0;
+    _setGrokAuthDeps({
+      spawn: async (argv: string[]) => {
+        calls.push(argv);
+        writeFileSync(
+          authPath,
+          JSON.stringify({ access_token: 'tok', expires_at: Date.now() + 60_000 }),
+        );
+        return { exitCode: 0, stdout: '' };
+      },
+      authFilePath: () => authPath,
+      binPresent: () => {
+        probeCalls++;
+        return true;
+      },
+    });
+    writeFileSync(
+      authPath,
+      JSON.stringify({ access_token: 'tok', expires_at: Date.now() + 60_000 }),
+    );
+    expect(await assertGrokAuth()).toBe('grok');
+    expect(probeCalls).toBe(1);
+    expect(await assertGrokAuth()).toBe('grok');
+    expect(probeCalls).toBe(1);
+  });
 });
