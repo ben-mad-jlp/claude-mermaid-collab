@@ -1,9 +1,15 @@
 import Foundation
 
-public struct PairingLink: Equatable {
+public struct PairingLink: Codable, Equatable, Sendable {
     public let host: String
     public let port: Int
     public let token: String
+
+    public init(host: String, port: Int, token: String) {
+        self.host = host
+        self.port = port
+        self.token = token
+    }
 
     public var hostPort: String {
         "\(host):\(port)"
