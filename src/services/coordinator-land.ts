@@ -1715,7 +1715,8 @@ export async function landEpic(
         await resetCampaignProbesForLandedPaths(project, land.landedPaths ?? []);
       } catch { /* advisory — a probe reset must never fail a completed land */ }
       try {
-        await deps.runPostLandTestSweep(project, { epicId, landSha: land.masterSha!, targetProject });
+        const sweep = await deps.runPostLandTestSweep(project, { epicId, landSha: land.masterSha!, targetProject });
+        recordSupervisorAudit({ kind: 'post-land-sweep-trace', project, session: resolvingSession, detail: JSON.stringify({ epicId, landSha: land.masterSha, ...(sweep?.trace ?? {}) }) });
       } catch { /* advisory — a post-land sweep must never fail a completed land */ }
       const selfLand = isSelfProject(targetProject);
       if (selfLand) recordSelfLand(Date.now());
