@@ -6,6 +6,10 @@ const coreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/KeychainServerTokenStoreTests.swift',
   import.meta.url
 );
+const registryCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerRegistryStoreTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -22,5 +26,18 @@ describe('ios app wiring', () => {
     const coreTest = readFileSync(coreTestPath, 'utf8');
     expect(coreTest).toContain('test1_');
     expect(coreTest).toContain('test2_');
+  });
+
+  it('4. Store.swift names the registry persistence type at its registry property', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toContain('ServerRegistryPersisting');
+    expect(store).not.toMatch(/var registry\s*=\s*ServerRegistry\(entries:\s*\[/);
+  });
+
+  it('5. Core ServerRegistryStoreTests declares the three numbered cases', () => {
+    const registryCoreTest = readFileSync(registryCoreTestPath, 'utf8');
+    expect(registryCoreTest).toContain('test1_');
+    expect(registryCoreTest).toContain('test2_');
+    expect(registryCoreTest).toContain('test3_');
   });
 });
