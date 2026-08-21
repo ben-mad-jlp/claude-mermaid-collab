@@ -13,6 +13,14 @@ export interface SubscribedSession {
    */
   serverHost?: string;
   serverPort?: number;
+  /**
+   * Human label of the owning server, captured alongside host:port. A server
+   * deleted and replaced by an entry for the SAME machine reachable on a
+   * different port (re-pair, port change) shares no host:port, but does share
+   * the label — so the label is the last-resort stable identity, used only when
+   * it is unambiguous (exactly one current server carries it).
+   */
+  serverLabel?: string;
   project: string;
   session: string;
   claudeSessionId?: string;
@@ -43,7 +51,13 @@ interface SubscriptionState {
   updateContextPercent: (serverId: string, project: string, session: string, pct: number) => void;
   applyUnseenCounts: (counts: Record<string, number>) => void;
   migrateLegacyEntries: (defaultServerId: string | null) => void;
-  reconcileServerIds: (servers: Array<{ id: string; host: string; port: number; source?: string }>) => void;
+  /**
+   * Move every subscription owned by `fromId` onto `toId`, re-keying it and the
+   * order list. Used by the delete-with-replacement path in ServerContext, where
+   * the caller already knows which surviving entry replaces the removed one.
+   */
+  migrateServerId: (fromId: string, toId: string, to?: { host?: string; port?: number; label?: string }) => void;
+  reconcileServerIds: (servers: Array<{ id: string; host: string; port: number; source?: string; label?: string }>) => void;
 }
 
 const STORAGE_KEY = 'session-subscriptions';
@@ -99,6 +113,7 @@ function hydrateSubscriptions(): Record<string, SubscribedSession> {
         serverId: typeof v.serverId === 'string' ? v.serverId : '',
         serverHost: typeof v.serverHost === 'string' ? v.serverHost : undefined,
         serverPort: typeof v.serverPort === 'number' ? v.serverPort : undefined,
+        serverLabel: typeof v.serverLabel === 'string' ? v.serverLabel : undefined,
         project: v.project,
         session: v.session,
         status: coerced,
@@ -280,6 +295,45 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
   },
 
   /**
+   * Directed retag: every subscription on `fromId` moves to `toId`. Unlike
+   * `reconcileServerIds` this needs no identity heuristic — the caller (the
+   * delete-with-replacement path in ServerContext) already resolved which
+   * surviving server entry replaces the removed one. Entries owned by other
+   * servers are copied through untouched, and a no-match call writes nothing.
+   */
+  migrateServerId: (fromId, toId, to) => {
+    set((state) => {
+      let matched = false;
+      const nextSubs: Record<string, SubscribedSession> = {};
+      const oldToNewKey = new Map<string, string>();
+
+      for (const [oldKey, entry] of Object.entries(state.subscriptions)) {
+        if (entry.serverId !== fromId) {
+          nextSubs[oldKey] = entry;
+          continue;
+        }
+        matched = true;
+        const newKey = compositeKey(toId, entry.project, entry.session);
+        if (newKey !== oldKey) oldToNewKey.set(oldKey, newKey);
+        // Last write wins if the survivor already carries this project/session.
+        nextSubs[newKey] = {
+          ...entry,
+          serverId: toId,
+          serverHost: to?.host ?? entry.serverHost,
+          serverPort: to?.port ?? entry.serverPort,
+          serverLabel: to?.label ?? entry.serverLabel,
+        };
+      }
+
+      if (!matched) return state;
+      const nextOrder = state.order.map((k) => oldToNewKey.get(k) ?? k);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSubs));
+      localStorage.setItem(ORDER_KEY, JSON.stringify(nextOrder));
+      return { subscriptions: nextSubs, order: nextOrder };
+    });
+  },
+
+  /**
    * Keep subscriptions bound to the right server across remove/re-add. A server
    * id is a random UUID minted on add, so re-adding the same machine yields a new
    * id and strands every subscription on the dead id (→ peer_not_paired when the
@@ -290,6 +344,9 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
    *     it. This is how new orphans become self-healing.
    *  2. RETAG — for a subscription whose serverId is NOT known but whose captured
    *     host:port matches a current server, adopt that server's id (and re-key).
+   *  2b. LABEL — still stranded, but the captured label is carried by exactly ONE
+   *     current server (the machine came back on a different port): adopt it.
+   *     A label shared by two or more current servers is ambiguous → no adoption.
    *  3. LEGACY FALLBACK — a stranded subscription with no captured host:port
    *     (created before step 1 existed) can't be matched precisely; if there is
    *     exactly ONE remote (non-local) server it's unambiguous, so adopt it.
@@ -301,6 +358,13 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       const byHostPort = new Map(servers.map((s) => [`${s.host}:${s.port}`, s]));
       const remotes = servers.filter((s) => s.source !== 'local');
       const soleRemote = remotes.length === 1 ? remotes[0] : null;
+      // Label → the SOLE current server carrying it, or null when two or more
+      // do (ambiguous ⇒ never adopted; the subscription stays on the dead id).
+      const labelIndex = new Map<string, (typeof servers)[number] | null>();
+      for (const s of servers) {
+        if (s.label == null) continue;
+        labelIndex.set(s.label, labelIndex.has(s.label) ? null : s);
+      }
 
       let changed = false;
       const nextSubs: Record<string, SubscribedSession> = {};
@@ -310,13 +374,15 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
         let serverId = entry.serverId;
         let serverHost = entry.serverHost;
         let serverPort = entry.serverPort;
+        let serverLabel = entry.serverLabel;
 
         const known = byId.get(serverId);
         if (known) {
           // (1) Backfill the stable identity while the id is valid.
-          if (serverHost !== known.host || serverPort !== known.port) {
+          if (serverHost !== known.host || serverPort !== known.port || serverLabel !== known.label) {
             serverHost = known.host;
             serverPort = known.port;
+            serverLabel = known.label;
             changed = true;
           }
         } else if (serverId && serverId !== 'local') {
@@ -326,12 +392,15 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
             (serverHost != null && serverPort != null
               ? byHostPort.get(`${serverHost}:${serverPort}`)
               : undefined) ??
+            // (2b) label: the sole current server carrying the captured label.
+            (serverLabel != null ? labelIndex.get(serverLabel) ?? undefined : undefined) ??
             // (3) legacy: no captured host:port + a single remote → adopt it.
             (serverHost == null ? soleRemote ?? undefined : undefined);
           if (match) {
             serverId = match.id;
             serverHost = match.host;
             serverPort = match.port;
+            serverLabel = match.label;
             changed = true;
           }
         }
@@ -340,7 +409,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
         if (newKey !== oldKey) oldToNewKey.set(oldKey, newKey);
         // Last write wins if a retag collides with an existing key (same
         // project/session already on the new id) — acceptable dedupe.
-        nextSubs[newKey] = { ...entry, serverId, serverHost, serverPort };
+        nextSubs[newKey] = { ...entry, serverId, serverHost, serverPort, serverLabel };
       }
 
       if (!changed) return state;

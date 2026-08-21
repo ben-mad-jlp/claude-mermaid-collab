@@ -116,6 +116,21 @@ function browserLocalServer(): ServerInfo {
   };
 }
 
+/**
+ * After a server entry is deleted, find the entry in the post-delete list that
+ * represents the SAME machine, so its watching-list subscriptions can move over
+ * instead of stranding on the dead id. Same host:port is conclusive; otherwise a
+ * label carried by exactly one survivor (the machine re-paired on another port)
+ * is enough. Anything ambiguous yields undefined — no guessing.
+ */
+function findSurvivor(deleted: ServerInfo | undefined, fresh: ServerInfo[], removedId: string): ServerInfo | undefined {
+  if (!deleted) return undefined;
+  const precise = fresh.find((s) => s.host === deleted.host && s.port === deleted.port && s.id !== removedId);
+  if (precise) return precise;
+  const byLabel = fresh.filter((s) => s.label === deleted.label && s.id !== removedId);
+  return byLabel.length === 1 ? byLabel[0] : undefined;
+}
+
 export function ServerProvider({ children }: { children: React.ReactNode }) {
   const mc = typeof window !== 'undefined' ? window.mc : undefined;
   const available = !!mc;
@@ -141,12 +156,20 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     [mc]
   );
 
-  const refresh = useCallback(async () => {
-    if (!mc) return;
+  // Reload the registry AND hand the caller the fresh list. `servers` state is
+  // not readable synchronously after setServers, and the delete-with-replacement
+  // path has to inspect the post-delete list to find the survivor.
+  const refreshList = useCallback(async (): Promise<ServerInfo[]> => {
+    if (!mc) return [];
     const list = await mc.listServers();
     setServers(list.map((s) => ({ ...s, status: 'connecting' })));
     void probe(list);
+    return list;
   }, [mc, probe]);
+
+  const refresh = useCallback(async () => {
+    await refreshList();
+  }, [refreshList]);
 
   // Re-probe a SINGLE server on demand (per-server "recheck" button). Updates
   // only that server's dot in place — no global 'connecting' reset — so it can
@@ -191,7 +214,10 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     // Retag watching-list subscriptions onto the current server ids BEFORE
     // validating the session — a server removed and re-added gets a new id, and
     // without this the persisted subscription stays bound to the dead id and
-    // clicking it 403s with peer_not_paired.
+    // clicking it 403s with peer_not_paired. This covers the re-add-LATER case
+    // (match by captured host:port, else by an unambiguous label); the
+    // delete-while-a-replacement-already-exists case is handled eagerly by
+    // migrateServerId in removeServer/unpairServer.
     useSubscriptionStore.getState().reconcileServerIds(servers);
     validateAgainstServers(servers);
   }, [servers]);
@@ -211,18 +237,27 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
     async (opts: { label: string; host: string; port: number; token?: string }) => {
       if (!mc) return;
       await mc.addServer(opts);
-      await refresh();
+      // The label-aware reconcileServerIds in the servers effect adopts any
+      // subscription stranded by an earlier delete of this same machine.
+      await refreshList();
     },
-    [mc, refresh]
+    [mc, refreshList]
   );
 
   const removeServer = useCallback(
     async (id: string) => {
       if (!mc) return;
+      const deleted = servers.find((s) => s.id === id);
       await mc.removeServer(id);
-      await refresh();
+      const fresh = await refreshList();
+      const survivor = findSurvivor(deleted, fresh, id);
+      if (survivor) {
+        useSubscriptionStore
+          .getState()
+          .migrateServerId(id, survivor.id, { host: survivor.host, port: survivor.port, label: survivor.label });
+      }
     },
-    [mc, refresh]
+    [mc, servers, refreshList]
   );
 
   const pairServer = useCallback(
@@ -237,10 +272,17 @@ export function ServerProvider({ children }: { children: React.ReactNode }) {
   const unpairServer = useCallback(
     async (id: string) => {
       if (!mc?.unpairServer) return;
+      const deleted = servers.find((s) => s.id === id);
       await mc.unpairServer(id);
-      await refresh();
+      const fresh = await refreshList();
+      const survivor = findSurvivor(deleted, fresh, id);
+      if (survivor) {
+        useSubscriptionStore
+          .getState()
+          .migrateServerId(id, survivor.id, { host: survivor.host, port: survivor.port, label: survivor.label });
+      }
     },
-    [mc, refresh]
+    [mc, servers, refreshList]
   );
 
   const setServerToken = useCallback(
