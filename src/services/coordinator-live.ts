@@ -161,6 +161,7 @@ export {
   readEpicBranchTips,
 } from './coordinator-land';
 export type { SweepSummary } from './sweep-verdict-cache';
+import { createCachedSweepState, runCachedSweep, zeroSweepSummary, type CachedSweepState, type SweepSummary } from './sweep-verdict-cache';
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
@@ -1555,29 +1556,37 @@ export async function sweepStrandedAccepted(
 export const CORRUPT_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt but not per-tick
 /** module-level last-corrupt-sweep-time per project (key = tracking project root). */
 const lastCorruptEpicSweepAt = new Map<string, number>();
+/** Per-project verdict-cache state + paging cursor for the item-form runCachedSweep. */
+const corruptSweepStates = new Map<string, CachedSweepState>();
+const corruptSweepCursors = new Map<string, string | null>();
+
+/** Exported for tests: reset the corrupt-sweep verdict cache + paging cursor. */
+export function _resetSweepCursors(): void {
+  corruptSweepStates.clear();
+  corruptSweepCursors.clear();
+}
 
 /** Exported for tests: reset the corrupt-sweep throttle so the next sweep runs immediately. */
 export function _resetCorruptEpicSweepState(): void {
   lastCorruptEpicSweepAt.clear();
+  _resetSweepCursors();
 }
 
 export async function sweepCorruptEpics(
   project: string,
   opts?: { force?: boolean; now?: number; report?: EpicBranchStatusReport },
-): Promise<string[]> {
+): Promise<SweepSummary & { reopened: string[] }> {
   const now = opts?.now ?? Date.now();
   const last = lastCorruptEpicSweepAt.get(project) ?? 0;
-  if (!opts?.force && now - last < CORRUPT_EPIC_SWEEP_INTERVAL_MS) return [];
+  if (!opts?.force && now - last < CORRUPT_EPIC_SWEEP_INTERVAL_MS) {
+    return { ...zeroSweepSummary('corrupt'), reopened: [] };
+  }
   lastCorruptEpicSweepAt.set(project, now);
 
   const report = opts?.report ?? (await getEpicBranchStatus(project));
   const reopened: string[] = [];
-  for (const e of report.epics) {
-    // Handle corrupt (land done + ahead > 0) OR hollow (false stamp + new commits exist)
-    const liveEpic = getTodo(project, e.epicId);
-    const isHollow = liveEpic?.hollowLandedAt != null && effectiveNewCount(e) > 0;
-    if (!e.corrupt && !isHollow) continue;
 
+  async function healEpic(e: EpicBranchStatusReport['epics'][number]): Promise<void> {
     try {
       // Step 1: clear the false timestamp
       const cleared = clearEpicLandedAt(project, e.epicId);
@@ -1660,7 +1669,34 @@ export async function sweepCorruptEpics(
       }
     } catch { /* one bad epic never aborts the sweep */ }
   }
-  return reopened;
+
+  let state = corruptSweepStates.get(project);
+  if (!state) {
+    state = createCachedSweepState();
+    corruptSweepStates.set(project, state);
+  }
+
+  const summary = await runCachedSweep(state, {
+    sweepKind: 'corrupt',
+    items: report.epics,
+    idOf: (e) => e.epicId,
+    tipOf: (e) => `${e.branch}|${e.exists}|${e.ahead ?? 'n'}|${e.newCount ?? 'n'}|${e.landLeafDone ?? 'n'}`,
+    check: async (e) => {
+      // Handle corrupt (land done + ahead > 0) OR hollow (false stamp + new commits exist)
+      const liveEpic = getTodo(project, e.epicId);
+      const isHollow = liveEpic?.hollowLandedAt != null && effectiveNewCount(e) > 0;
+      if (!e.corrupt && !isHollow) return false;
+      await healEpic(e);
+      return true;
+    },
+    onHit: async (e, verdict) => {
+      if (verdict) await healEpic(e);
+    },
+    cursor: corruptSweepCursors.get(project) ?? null,
+  });
+  corruptSweepCursors.set(project, summary.nextCursor);
+
+  return { ...summary, reopened };
 }
 
 // --- Dropped-epic worktree release (H6a) -----------------------------------------------

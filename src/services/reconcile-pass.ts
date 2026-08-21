@@ -473,7 +473,10 @@ export async function runReconcilePass(project: string): Promise<void> {
   // -------------------------------------------------------------------------
   await yieldToLoop();
   try {
-    await sweepCorruptEpics(project);
+    const corruptSummary = await sweepCorruptEpics(project);
+    if (corruptSummary.errors > 0) {
+      console.warn(`[reconcile-pass] corrupt-epic sweep had ${corruptSummary.errors} error(s) for ${project}`);
+    }
   } catch (err) {
     console.warn(
       `[reconcile-pass] corrupt-epic sweep failed for ${project}:`,
