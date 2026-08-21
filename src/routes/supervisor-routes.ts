@@ -33,9 +33,10 @@ import {
   getTypedContractGating,
   setTypedContractGating,
   isWorkerSessionName,
+  normalizeEscalationStatus,
 } from '../services/supervisor-store.ts';
 import { verifyEpic } from '../services/verify-epic.ts';
-import { decideEscalation } from '../services/escalation-decide.ts';
+import { decideEscalation, repairApprovalDecisionFromStatus, applyCardKindResolution } from '../services/escalation-decide.ts';
 import { TOKEN_BURN_KIND } from '../services/burn-watch.ts';
 import { getInjectionFlags } from '../services/runtime-config.ts';
 import { CONDUCTOR_INTERVAL_MS } from '../services/orchestrator-live.js';
@@ -659,6 +660,10 @@ export async function handleSupervisorRoutes(req: Request, url: URL): Promise<Re
       if (!id || !status) return jsonError('id and status are required', 400);
       const esc = getEscalation(id);
       resolveEscalation(id, status, 'human'); // user clicked Resolve (fd934fb7)
+      if (esc) {
+        const { status: canonical } = normalizeEscalationStatus(status);
+        await applyCardKindResolution(esc, repairApprovalDecisionFromStatus(canonical), id);
+      }
       getWebSocketHandler()?.broadcast({
         type: 'escalation_created',
         project: esc?.project ?? '', session: esc?.session ?? '', kind: esc?.kind ?? '',

@@ -1772,7 +1772,7 @@ const lastStrandedEpicSweepAt = new Map<string, number>();
 // (the caller's identity), not the epic's own targetProject, so one project's paging
 // state never leaks into a sibling's.
 const strandedSweepStates = new Map<string, CachedSweepState>();
-const strandedSweepCursors = new Map<string, string | null>();
+const strandedSweepCursors = new Map<string, number>();
 
 /** Pure: the done+accepted epics that are stranded-acceptance CANDIDATES. The git
  *  ahead-of-master filter (the impure part) is applied by the sweep. Exported for test. */
@@ -1847,8 +1847,10 @@ export async function sweepStrandedEpics(
       const root = epic.targetProject ?? project;
       const tips = await tipsForRoot(root);
       const wm = getWorktreeManager(root);
+      const tip = tips.get(wm.epicBranchName(epic.id));
+      if (tip === undefined) return null;
       // trunk must be in the key — master advancing is what turns ahead>0 into 0.
-      return `${tips.get(wm.epicBranchName(epic.id)) ?? 'none'}|${tips.get('master') ?? tips.get('main') ?? ''}`;
+      return `${tip}|${tips.get('master') ?? tips.get('main') ?? ''}`;
     },
     check: async (epic: Todo) => {
       const wm = getWorktreeManager(epic.targetProject ?? project);
@@ -1872,7 +1874,7 @@ export async function sweepStrandedEpics(
     cursor: strandedSweepCursors.get(project) ?? null,
   });
 
-  strandedSweepCursors.set(project, summary.nextCursor);
+  strandedSweepCursors.set(project, summary.cursorEnd);
 
   if (resurfaced.length > 0) {
     recordSupervisorAudit({

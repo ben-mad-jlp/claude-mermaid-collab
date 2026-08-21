@@ -214,6 +214,18 @@ function openDb(): Database {
     if (!ebgc.some((c) => c.name === 'failAttempts')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN failAttempts INTEGER');
     if (!ebgc.some((c) => c.name === 'treeSha')) db.exec('ALTER TABLE epic_base_gate ADD COLUMN treeSha TEXT');
   }
+  // Durable per-(sweep, epic) verdict memo, keyed on the epic branch tip sha — a moved tip
+  // invalidates the memo (cache MISS), never serves a stale verdict. Independent sweeps
+  // memoising the same epic (or the same sweep memoising different epics) are independent
+  // rows: pruning is scoped to (sweepKind, epicId) only.
+  db.exec(`CREATE TABLE IF NOT EXISTS sweep_verdict (
+    sweepKind TEXT NOT NULL,
+    epicId TEXT NOT NULL,
+    branchTipSha TEXT NOT NULL,
+    verdict INTEGER NOT NULL,
+    checkedAt INTEGER NOT NULL,
+    PRIMARY KEY (sweepKind, epicId, branchTipSha)
+  )`);
   // Durable SHARED base-gate verdict, keyed by WHAT WAS MEASURED (the coalescer's
   // project+baseSha+lane key, extended with the active-quarantine-set hash) — not by who
   // asked. epic_base_gate above stays as the per-epic bookkeeping layer; THIS row is what
@@ -1038,6 +1050,57 @@ export function invalidateEpicBaseGate(epicId: string): { deleted: boolean; row:
   const row: EpicBaseGateRow = { ...raw, baselineFailures: safeParse(raw.baselineFailures), failAttempts: raw.failAttempts ?? 0 };
   const result = db.prepare('DELETE FROM epic_base_gate WHERE epicId=?').run(epicId);
   return { deleted: result.changes > 0, row };
+}
+
+/** Upsert one sweep's verdict for an epic at its current branch tip, then prune any row
+ *  for a DIFFERENT (stale) tip of the same (sweepKind, epicId) — the tip moved, so the old
+ *  memo no longer describes a tree that exists. Best-effort: a ledger write failure must
+ *  degrade to a cache MISS on the next read, never throw into a sweep pass. */
+export function recordSweepVerdict(
+  e: { sweepKind: string; epicId: string; branchTipSha: string; verdict: boolean },
+  now: number = Date.now(),
+): void {
+  try {
+    const db = openDb();
+    db.prepare(
+      `INSERT OR REPLACE INTO sweep_verdict (sweepKind, epicId, branchTipSha, verdict, checkedAt)
+       VALUES (?,?,?,?,?)`,
+    ).run(e.sweepKind, e.epicId, e.branchTipSha, e.verdict ? 1 : 0, now);
+    db.prepare(
+      'DELETE FROM sweep_verdict WHERE sweepKind=? AND epicId=? AND branchTipSha<>?',
+    ).run(e.sweepKind, e.epicId, e.branchTipSha);
+  } catch { /* best-effort */ }
+}
+
+/** Read a sweep's cached verdict for an epic, valid ONLY for `branchTipSha`. A tip
+ *  mismatch (or no row) is a cache MISS (null), not a verdict — the whole point of keying
+ *  on branchTipSha is that a moved tip invalidates the memo. Never throws. */
+export function getSweepVerdict(
+  sweepKind: string,
+  epicId: string,
+  branchTipSha: string,
+): { verdict: boolean; checkedAt: number } | null {
+  try {
+    const raw = openDb()
+      .prepare('SELECT verdict, checkedAt FROM sweep_verdict WHERE sweepKind=? AND epicId=? AND branchTipSha=?')
+      .get(sweepKind, epicId, branchTipSha) as { verdict: number; checkedAt: number } | undefined;
+    if (!raw) return null;
+    return { verdict: raw.verdict === 1, checkedAt: raw.checkedAt };
+  } catch { return null; }
+}
+
+/** Delete every sweep_verdict row for an epic (across all tips of this sweepKind),
+ *  returning the deleted row count. An explicit operator/retirement action: unlike the
+ *  read/write pair above, a DB error propagates rather than being swallowed. */
+export function retireSweepVerdict(sweepKind: string, epicId: string): number {
+  const db = openDb();
+  const result = db.prepare('DELETE FROM sweep_verdict WHERE sweepKind=? AND epicId=?').run(sweepKind, epicId);
+  return result.changes;
+}
+
+/** For tests: clear the whole sweep_verdict table. */
+export function _resetSweepVerdicts(): void {
+  openDb().exec('DELETE FROM sweep_verdict');
 }
 
 export function listPassingBaseGatesSince(project: string, sinceMs: number): EpicBaseGateRow[] {
