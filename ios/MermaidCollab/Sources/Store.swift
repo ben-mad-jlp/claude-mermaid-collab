@@ -11,6 +11,7 @@ final class ZenStore: ObservableObject {
 
     @Published var summaries: [String: ZenSummary] = [:]
     @Published var escalations: [String: Escalation] = [:] // keyed by escalation id (open only)
+    @Published var missionRows: [MissionListRow] = []
     @Published var connected = false
 
     private var task: URLSessionWebSocketTask?
@@ -242,6 +243,27 @@ final class ZenStore: ObservableObject {
         return resp.missions.first(where: { $0.mission.active }) ?? resp.missions.first
     }
 
+    func fetchBridgeSnapshot(project: String) async -> [MissionListRow] {
+        func enc(_ s: String) -> String {
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        let path = "/api/supervisor/bridge-snapshot?project=\(enc(project))"
+        guard let data = await send(request(project: project, path: path)) else { return [] }
+        guard let resp = try? JSONDecoder().decode(BridgeSnapshotResponse.self, from: data) else { return [] }
+        missionRows = resp.missions
+        return resp.missions
+    }
+
+    func fetchMissionDiagnostic(project: String, missionId: String) async -> MissionDiagnostic? {
+        func enc(_ s: String) -> String {
+            s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        }
+        let path = "/api/supervisor/missions/diagnostic?project=\(enc(project))&missionId=\(enc(missionId))"
+        guard let data = await send(request(project: project, path: path)) else { return nil }
+        guard let resp = try? JSONDecoder().decode(MissionDiagnostic.self, from: data) else { return nil }
+        return resp
+    }
+
     func fetchTranscript(project: String, session: String, limit: Int = 20) async -> TranscriptResponse? {
         func enc(_ s: String) -> String {
             s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
@@ -308,4 +330,10 @@ final class ZenStore: ObservableObject {
             await send(request(project: project, path: "/api/supervisor/approve-push", method: "POST", body: ["project": project, "session": session]))
         }
     }
+}
+
+/// Envelope for GET /api/supervisor/bridge-snapshot — mission rows are `MissionSummary`
+/// (`{ node, rollup }`) shaped, matching `MissionListRow.init(from:)`.
+struct BridgeSnapshotResponse: Codable {
+    let missions: [MissionListRow]
 }
