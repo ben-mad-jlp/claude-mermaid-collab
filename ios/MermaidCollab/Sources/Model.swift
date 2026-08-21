@@ -42,6 +42,11 @@ struct Escalation: Codable, Equatable, Identifiable {
 /// Wrapper for GET /api/supervisor/escalations.
 struct EscalationsResponse: Codable { let escalations: [Escalation] }
 
+/// One row of GET /api/supervisor/projects. Extra JSON fields (addedAt, flags) are
+/// ignored by Codable — decode only the `project` path.
+struct WatchedProjectRef: Codable { let project: String }
+struct WatchedProjectsResponse: Codable { let projects: [WatchedProjectRef] }
+
 /// The `escalation_created` WS message carries the full escalation under `escalation`.
 struct EscalationCreatedMsg: Codable {
     let type: String

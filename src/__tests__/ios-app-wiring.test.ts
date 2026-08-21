@@ -10,6 +10,10 @@ const registryCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerRegistryStoreTests.swift',
   import.meta.url
 );
+const mappingCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerProjectsMappingTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -39,5 +43,20 @@ describe('ios app wiring', () => {
     expect(registryCoreTest).toContain('test1_');
     expect(registryCoreTest).toContain('test2_');
     expect(registryCoreTest).toContain('test3_');
+  });
+
+  it('6. Store.swift polls the supervisor projects endpoint', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toContain('/api/supervisor/projects');
+  });
+
+  it('7. Store.swift assigns projectsByServerId', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toMatch(/projectsByServerId\s*=/);
+  });
+
+  it('8. Core ServerProjectsMappingTests declares its numbered case', () => {
+    const mappingCoreTest = readFileSync(mappingCoreTestPath, 'utf8');
+    expect(mappingCoreTest).toContain('test1_twoServersYieldOneKeyEachWithTheirOwnProjects');
   });
 });
