@@ -106,6 +106,48 @@ final class ZenStore: ObservableObject {
     /// that paired a second machine had no way to look at it (2026-08-21). Re-points the
     /// selection, restores that server's own bearer, and restarts the socket — the WS
     /// carries the token, so it must be rebuilt rather than left on the old server.
+    /// Forget ONE server: drop its registry entry and its Keychain token.
+    ///
+    /// The picker could add and switch but never remove, so a mis-scanned or retired
+    /// machine stayed forever and kept being polled (2026-08-21). If the removed server
+    /// was the selected one, selection moves to whatever remains and the socket is
+    /// rebuilt against it; removing the last server leaves the app unpaired, which is
+    /// the honest state rather than a phantom selection.
+    func removeServer(_ serverId: String) {
+        guard registry.entries.contains(where: { $0.id == serverId }) else { return }
+        let wasSelected = serverId == selectedServerId
+        registry.entries.removeAll { $0.id == serverId }
+        tokenStore.removeToken(forServerId: serverId)
+        projectsByServerId.removeValue(forKey: serverId)
+        guard wasSelected else { return }
+        stop()
+        summaries.removeAll()
+        escalations.removeAll()
+        if let next = registry.entries.first {
+            selectedServerId = next.id
+            token = tokenStore.token(forServerId: next.id)
+            start()
+        } else {
+            selectedServerId = ZenStore.localFallbackServerId
+            token = nil
+            connected = false
+        }
+    }
+
+    /// Forget EVERY server — the "start over" path. Clears entries, tokens and cached
+    /// cards, then stops: the app is unpaired and the next scan begins from nothing.
+    func removeAllServers() {
+        stop()
+        for entry in registry.entries { tokenStore.removeToken(forServerId: entry.id) }
+        registry.entries.removeAll()
+        projectsByServerId.removeAll()
+        summaries.removeAll()
+        escalations.removeAll()
+        selectedServerId = ZenStore.localFallbackServerId
+        token = nil
+        connected = false
+    }
+
     func selectServer(_ serverId: String) {
         guard registry.entries.contains(where: { $0.id == serverId }) else { return }
         guard serverId != selectedServerId else { return }

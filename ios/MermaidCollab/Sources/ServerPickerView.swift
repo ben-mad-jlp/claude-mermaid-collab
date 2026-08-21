@@ -13,6 +13,7 @@ struct ServerPickerView: View {
     @EnvironmentObject var app: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var showScanner = false
+    @State private var confirmRemoveAll = false
 
     var body: some View {
         NavigationStack {
@@ -45,6 +46,14 @@ struct ServerPickerView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("server-row-\(row.id)")
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    store.removeServer(row.id)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                                .accessibilityIdentifier("server-remove-\(row.id)")
+                            }
                         }
                     }
                 }
@@ -56,6 +65,15 @@ struct ServerPickerView: View {
                         Label("Add a server", systemImage: "qrcode.viewfinder")
                     }
                     .accessibilityIdentifier("add-server-button")
+
+                    if !store.registry.entries.isEmpty {
+                        Button(role: .destructive) {
+                            confirmRemoveAll = true
+                        } label: {
+                            Label("Remove all servers", systemImage: "trash")
+                        }
+                        .accessibilityIdentifier("remove-all-servers-button")
+                    }
                 } footer: {
                     Text("On the desktop, press the info button beside a server and scan its code. One server per code.")
                 }
@@ -66,6 +84,16 @@ struct ServerPickerView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .confirmationDialog(
+            "Remove all \(store.registry.entries.count) server\(store.registry.entries.count == 1 ? "" : "s")?",
+            isPresented: $confirmRemoveAll,
+            titleVisibility: .visible
+        ) {
+            Button("Remove all", role: .destructive) { store.removeAllServers() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Their saved tokens are deleted from this phone. You will need to scan each server's code again.")
         }
         .sheet(isPresented: $showScanner) {
             QRScannerView(onScan: { scanned in
