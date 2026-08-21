@@ -1,8 +1,20 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, basename, resolve, relative, isAbsolute } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 
-export const LEAF_SCRATCH_ROOT = join(tmpdir(), 'mermaid-leaf-scratch');
+/**
+ * Per-user scratch root.
+ *
+ * A fixed shared name in tmp is squatted by whichever user's server boots first: it is
+ * created under that uid, and every other user's server then fails to write into it. The
+ * same defect in the MCP-config directory stopped conductor nodes from starting at all on
+ * a shared box (2026-08-21). Scoping by uid removes the collision and survives the reboot
+ * that wipes tmp and re-runs the race.
+ */
+export const LEAF_SCRATCH_ROOT = join(
+  tmpdir(),
+  `mermaid-leaf-scratch-${process.getuid?.() ?? userInfo().username}`,
+);
 
 export function leafScratchFor(worktreePath: string): string {
   return join(LEAF_SCRATCH_ROOT, basename(worktreePath));
