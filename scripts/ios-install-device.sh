@@ -18,8 +18,13 @@ xcodegen generate
 DEVICE_NAME="${DEVICE_NAME:-Ben's iPhone}"
 DERIVED="$(mktemp -d)"
 
+# -allowProvisioningUpdates lets Xcode mint a profile for com.mermaidcollab.app.
+# Without it a device build fails with "No profiles for 'com.mermaidcollab.app'
+# were found ... Automatic signing is disabled and unable to generate a profile",
+# because no profile for this bundle id has ever been issued.
 xcodebuild -project MermaidCollab.xcodeproj -scheme MermaidCollab \
-  -destination 'generic/platform=iOS' -derivedDataPath "$DERIVED" build
+  -destination 'generic/platform=iOS' -derivedDataPath "$DERIVED" \
+  -allowProvisioningUpdates build
 
 APP_PATH="$DERIVED/Build/Products/Debug-iphoneos/MermaidCollab.app"
 

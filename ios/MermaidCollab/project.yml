@@ -52,5 +52,10 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         GENERATE_INFOPLIST_FILE: NO
-        DEVELOPMENT_TEAM: "3FYX7956PV"
+        # The team that actually has an Xcode account and issued profiles on this
+        # Mac. 3FYX7956PV appears in the "Apple Development: Benjamin Maderazo
+        # (3FYX7956PV)" certificate NAME but has no account, so building against it
+        # fails with `No Account for Team "3FYX7956PV"`. Read the team from a
+        # provisioning profile (TeamIdentifier), never from the certificate label.
+        DEVELOPMENT_TEAM: "N8N4CQ6RT3"
         CODE_SIGN_STYLE: Automatic
