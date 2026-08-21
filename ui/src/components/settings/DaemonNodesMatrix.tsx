@@ -11,7 +11,7 @@
  * GET  /api/orchestrator/node-profiles?project=<abs>
  *   → { rows: [{ kind, …, modelOverride, effortOverride, providerOverride,
  *                effectiveModel, effectiveEffort, effectiveProvider, mcpForced }],
- *        claudeModels, grokModels, providers, levels }
+ *        claudeModels, grokModels, grokApiModels, providers, levels }
  * POST /api/orchestrator/node-profiles { project, kind, model, effort, provider }
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -60,6 +60,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
   const [rows, setRows] = useState<Row[]>([]);
   const [claudeModels, setClaudeModels] = useState<string[]>([]);
   const [grokModels, setGrokModels] = useState<string[]>([]);
+  const [grokApiModels, setGrokApiModels] = useState<string[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
   const [levels, setLevels] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -84,6 +85,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
     }
     setClaudeModels(Array.isArray(data.claudeModels) ? data.claudeModels : (Array.isArray(data.models) ? data.models : []));
     setGrokModels(Array.isArray(data.grokModels) ? data.grokModels : []);
+    setGrokApiModels(Array.isArray(data.grokApiModels) ? data.grokApiModels : []);
     setProviders(Array.isArray(data.providers) ? data.providers : ['claude', 'grok-build']);
     setLevels(Array.isArray(data.levels) ? data.levels : []);
     setLoaded(true);
@@ -146,7 +148,7 @@ export const DaemonNodesMatrix: React.FC<{ project: string }> = ({ project }) =>
     // grok-api → the flagship reasoner (fixed); else claude models.
     const modelChoices =
       r.effectiveProvider === 'grok-build' ? grokModels :
-      r.effectiveProvider === 'grok-api' ? ['grok-4.3'] :
+      r.effectiveProvider === 'grok-api' ? grokApiModels :
       claudeModels;
     const effortLevels = r.effectiveProvider === 'grok-build' ? levels.filter((l) => l !== GROK_BUILD_EFFORT_EXCLUDED) : levels;
     const effortDisabled = r.effectiveProvider === 'grok-api' || busy;

@@ -11,6 +11,7 @@ const GET_BODY = {
   project: '/abs/p',
   claudeModels: ['opus', 'sonnet', 'haiku'],
   grokModels: ['grok-build', 'grok-composer-2.5-fast'],
+  grokApiModels: ['grok-4.3', 'grok-4.5', 'grok-4.6'],
   providers: ['claude', 'grok-build'],
   levels: ['low', 'medium', 'high', 'xhigh', 'max'],
   rows: [
@@ -99,6 +100,19 @@ describe('DaemonNodesMatrix — effort gating', () => {
     await waitFor(() => expect(screen.getByTestId('node-effort-blueprint')).toBeTruthy());
     expect(within(screen.getByTestId('node-effort-blueprint')).getByText('max')).toBeTruthy();
     expect(within(screen.getByTestId('node-effort-report')).getByText('max')).toBeTruthy();
+  });
+});
+
+describe('DaemonNodesMatrix — grok-api model choices', () => {
+  it('grok-api model select renders an option for every payload grokApiModels entry including grok-4.6', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(GET_BODY) }) as any;
+    render(<DaemonNodesMatrix project="/abs/p" />);
+    await waitFor(() => expect(screen.getByTestId('node-model-review')).toBeTruthy());
+    const select = within(screen.getByTestId('node-model-review'));
+    for (const m of GET_BODY.grokApiModels) {
+      expect(select.getByText(m)).toBeTruthy();
+    }
+    expect(select.getByText('grok-4.6')).toBeTruthy();
   });
 });
 
