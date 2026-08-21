@@ -44,6 +44,7 @@ import { snapshotEpicWorkGraph, diffWorkGraphSnapshot, restoreWorkGraphSnapshot 
 import { listCampaigns } from './campaign-store';
 import { resetProbesForLand } from './campaign-probe-rerun';
 import { runPostLandTestSweep } from './post-land-test-sweep.js';
+import { createCachedSweepState, runCachedSweep, zeroSweepSummary, type CachedSweepState, type SweepSummary } from './sweep-verdict-cache';
 
 /** Timeout honesty: how long an 'epic-ready-to-land' card is PROMISED to live before
  *  the reconcile stale sweep may reap it. Before expiresAt existed, the sweep killed
@@ -1767,6 +1768,11 @@ export async function landEpic(
 export const STRANDED_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt but not per-tick
 export const STRANDED_EPIC_MAX_GIT_CHECKS = 30;
 const lastStrandedEpicSweepAt = new Map<string, number>();
+// Per-project cache state + cursor for the item-form sweep below — keyed by `project`
+// (the caller's identity), not the epic's own targetProject, so one project's paging
+// state never leaks into a sibling's.
+const strandedSweepStates = new Map<string, CachedSweepState>();
+const strandedSweepCursors = new Map<string, string | null>();
 
 /** Pure: the done+accepted epics that are stranded-acceptance CANDIDATES. The git
  *  ahead-of-master filter (the impure part) is applied by the sweep. Exported for test. */
@@ -1774,32 +1780,100 @@ export function strandedEpicCandidates(todos: Todo[]): Todo[] {
   return todos.filter((t) => t.kind === 'epic' && t.status === 'done' && t.acceptanceStatus === 'accepted');
 }
 
+/** ONE `git for-each-ref` batch read of every local branch tip in `root`, used as the
+ *  sweep's cheap tip fingerprint source (worktree-manager.ts:1399-1406 is the same
+ *  batched idiom). Never throws — a repo-less/slow project degrades to an empty map,
+ *  every `tipOf` misses, and the sweep falls back to today's per-epic git behaviour. */
+export async function readEpicBranchTips(root: string): Promise<Map<string, string>> {
+  const tips = new Map<string, string>();
+  try {
+    const result = await execAsync(
+      ['git', 'for-each-ref', '--format=%(refname:short) %(objectname)', 'refs/heads/'],
+      { cwd: root, capture: true },
+    );
+    if (result.code !== 0) return tips;
+    for (const line of result.stdout.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const idx = trimmed.lastIndexOf(' ');
+      if (idx < 0) continue;
+      const branch = trimmed.slice(0, idx);
+      const sha = trimmed.slice(idx + 1);
+      if (branch && sha) tips.set(branch, sha);
+    }
+  } catch {
+    return new Map();
+  }
+  return tips;
+}
+
 export async function sweepStrandedEpics(
   project: string,
   opts?: { force?: boolean; now?: number },
-): Promise<string[]> {
+): Promise<SweepSummary & { resurfaced: string[] }> {
   const now = opts?.now ?? Date.now();
   const last = lastStrandedEpicSweepAt.get(project) ?? 0;
-  if (!opts?.force && now - last < STRANDED_EPIC_SWEEP_INTERVAL_MS) return [];
+  if (!opts?.force && now - last < STRANDED_EPIC_SWEEP_INTERVAL_MS) {
+    return { ...zeroSweepSummary('stranded'), resurfaced: [] };
+  }
   lastStrandedEpicSweepAt.set(project, now);
 
   const resurfaced: string[] = [];
   const candidates = strandedEpicCandidates(listTodos(project, { includeCompleted: true }));
-  let gitChecks = 0;
-  for (const epic of candidates) {
-    if (gitChecks >= STRANDED_EPIC_MAX_GIT_CHECKS) break;
-    try {
+
+  let state = strandedSweepStates.get(project);
+  if (!state) {
+    state = createCachedSweepState();
+    strandedSweepStates.set(project, state);
+  }
+
+  // Memoise the batch tip read per resolved root WITHIN this one sweep call — a
+  // project whose epics span multiple targetProjects reads each root's refs once.
+  const tipsCache = new Map<string, Map<string, string>>();
+  async function tipsForRoot(root: string): Promise<Map<string, string>> {
+    let tips = tipsCache.get(root);
+    if (!tips) {
+      tips = await readEpicBranchTips(root);
+      tipsCache.set(root, tips);
+    }
+    return tips;
+  }
+
+  const summary = await runCachedSweep(state, {
+    sweepKind: 'stranded',
+    items: candidates,
+    idOf: (epic: Todo) => epic.id,
+    tipOf: async (epic: Todo) => {
+      const root = epic.targetProject ?? project;
+      const tips = await tipsForRoot(root);
+      const wm = getWorktreeManager(root);
+      // trunk must be in the key — master advancing is what turns ahead>0 into 0.
+      return `${tips.get(wm.epicBranchName(epic.id)) ?? 'none'}|${tips.get('master') ?? tips.get('main') ?? ''}`;
+    },
+    check: async (epic: Todo) => {
       const wm = getWorktreeManager(epic.targetProject ?? project);
-      if (!(await wm.isGitRepoPublic())) continue;
-      gitChecks++;
+      if (!(await wm.isGitRepoPublic())) return false;
       const ahead = await wm.epicAheadOfMaster(epic.id);
-      if (ahead <= 0) continue; // landed / branch gone → nothing to do
+      if (ahead <= 0) return false; // landed / branch gone → nothing to do
       // Done+accepted but still ahead of master → re-surface. Idempotent (dedups the
       // card; auto-lands at level 'auto' via the same safe path the rollup uses).
       await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator' });
       resurfaced.push(epic.id);
-    } catch { /* one bad epic never aborts the sweep */ }
-  }
+      return true;
+    },
+    onHit: async (epic: Todo, verdict: boolean) => {
+      // The card must keep re-surfacing after a human resolves it — only the
+      // (expensive) epicAheadOfMaster git call is skipped on a cache HIT.
+      if (!verdict) return;
+      await surfaceEpicLand(project, epic.id, { sessionHint: 'coordinator' });
+      resurfaced.push(epic.id);
+    },
+    pageSize: STRANDED_EPIC_MAX_GIT_CHECKS,
+    cursor: strandedSweepCursors.get(project) ?? null,
+  });
+
+  strandedSweepCursors.set(project, summary.nextCursor);
+
   if (resurfaced.length > 0) {
     recordSupervisorAudit({
       kind: 'reconcile',
@@ -1808,5 +1882,5 @@ export async function sweepStrandedEpics(
       detail: JSON.stringify({ source: 'reconcile-pass', strandedEpicResurface: resurfaced }),
     });
   }
-  return resurfaced;
+  return { ...summary, resurfaced };
 }
