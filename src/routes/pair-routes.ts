@@ -62,6 +62,11 @@ function boundToLoopback(): boolean {
   return isLoopbackPeer(config.HOST) || config.HOST === 'localhost';
 }
 
+/** True for an address that means "this device" — useless inside a pairing payload. */
+function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host === '::1' || isLoopbackPeer(host);
+}
+
 /** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
 function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   version: typeof PAIRING_PAYLOAD_VERSION;
@@ -94,7 +99,18 @@ function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): {
   const selfHost = `${best ?? config.HOST}:${port}`;
   const servers: PairingServerEntry[] =
     fleet.length > 0
-      ? fleet.map((f) => ({ id: f.id, label: f.label, host: `${f.host}:${f.port}`, token: f.token ?? token }))
+      ? fleet.map((f) => ({
+          id: f.id,
+          label: f.label,
+          // A pairing payload is consumed on ANOTHER device, where a loopback address
+          // means THAT device. The desktop stores its own server as 127.0.0.1, and
+          // emitting it verbatim handed the phone an address pointing at itself — it
+          // then sat on "can't reach the server" no matter how often it was scanned
+          // (observed 2026-08-21). Substitute the best routable address we discovered
+          // for the LOCAL entry; remote entries already carry a reachable host.
+          host: `${isLoopbackHost(f.host) ? (best ?? f.host) : f.host}:${f.port}`,
+          token: f.token ?? token,
+        }))
       : [{ id: selfHost, label: hostname(), host: selfHost, token }];
 
   const qr = buildPairingQrValue(buildPairingPayloadV2(servers));
