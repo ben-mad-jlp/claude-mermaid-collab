@@ -247,20 +247,27 @@ describe('leaf-executor grok→claude provider fallback', () => {
     expect(String(detail.providerFallback.reason)).toContain('HALT: node refused');
   });
 
-  it('the claude fallback result is used as-is — an empty claude result triggers no second fallback (the grok invoker is called exactly once)', async () => {
-    // Cap the master budget so the prose-gate retry cannot start a second review
-    // cycle (which would call grok again). After blueprint+implement+review(+fallback
-    // hop) nodesSpent is 4; budget 3 makes the post-review checkBudget fail and park.
+  it('the bounded transient re-run stops after one in-place grok re-run and one forced-claude review hop — the claude result is used as-is and triggers no further fallback', async () => {
+    // The grok review results are transient but NOT fallback-eligible: non-empty text
+    // keeps classifyProviderFallback's empty-text rule off (and there is no HALT), while
+    // the rate-limit token trips TRANSIENT_REVIEW_MATCHERS. So the bounded in-place
+    // re-run loop runs: re-run #1 stays on grok, re-run #2 is forced onto claude.
+    // The empty claude result is used as-is — no further fallback — and the capped
+    // master budget stops the post-review retry cycle from starting a second review.
     const { deps, spies } = makeFallbackDeps({
-      grokReviews: [emptyResult()],
+      grokReviews: [
+        emptyResult({ text: 'grok: rate limit exceeded (429)' }),
+        emptyResult({ text: 'grok: rate limit exceeded (429)' }),
+      ],
       claudeReviews: [emptyResult({ authMode: 'subscription' })],
       nodeBudget: 3,
     });
     const res = await runLeaf('proj', makeLeaf(), deps);
-    expect(spies.grokSpecs.length).toBe(1);
+    expect(spies.grokSpecs.filter(isReviewSpec).length).toBe(2);
+    expect(spies.grokSpecs.length).toBe(2);
     expect(spies.claudeSpecs.filter(isReviewSpec).length).toBe(1);
-    // No loop: one grok hop + one claude hop for the review node — not a third invoke.
-    expect(spies.grokSpecs.length + spies.claudeSpecs.filter(isReviewSpec).length).toBe(2);
+    // Bounded: two grok review invokes + exactly one forced-claude review hop.
+    expect(spies.grokSpecs.length + spies.claudeSpecs.filter(isReviewSpec).length).toBe(3);
     expect(res.reason ?? '').not.toMatch(/review-vacuous/);
   });
 });
