@@ -121,7 +121,10 @@ export function selfMagicDnsHost(): string | null {
  * tokens are never written to disk or placed in an environment variable. Falls back to
  * the on-disk fleet when the control channel is absent (a bare `bun run src/server.ts`).
  */
-async function fleetWithTokens(readFleet: () => FleetServer[]): Promise<FleetServer[]> {
+export type ControlFleetSource = () => Promise<FleetServer[] | null>;
+
+/** Default control-fleet source: the env-driven Electron main control channel. */
+export const envControlFleet: ControlFleetSource = async () => {
   const base = process.env.MC_DESKTOP_CONTROL_URL;
   const controlToken = process.env.MC_DESKTOP_CONTROL_TOKEN;
   if (base && controlToken) {
@@ -138,12 +141,22 @@ async function fleetWithTokens(readFleet: () => FleetServer[]): Promise<FleetSer
       // Main unreachable or wedged — fall through to the on-disk fleet.
     }
   }
+  return null;
+};
+
+async function fleetWithTokens(
+  readFleet: () => FleetServer[],
+  controlFleet: ControlFleetSource = envControlFleet
+): Promise<FleetServer[]> {
+  const fromControl = await controlFleet();
+  if (fromControl && fromControl.length > 0) return fromControl;
   return readFleet();
 }
 
 /** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
 async function pairingPayload(
   readFleet: () => FleetServer[] = readDesktopFleet,
+  controlFleet: ControlFleetSource = envControlFleet,
   onlyServerId?: string,
 ): Promise<{
   version: typeof PAIRING_PAYLOAD_VERSION;
@@ -169,7 +182,7 @@ async function pairingPayload(
   // broken desktop servers.json never blocks pairing with this server alone.
   let fleet: FleetServer[];
   try {
-    fleet = await fleetWithTokens(readFleet);
+    fleet = await fleetWithTokens(readFleet, controlFleet);
   } catch {
     fleet = [];
   }
@@ -222,7 +235,17 @@ async function pairingPayload(
  *                             (from checkAuth, when the token is stale) drives re-pair.
  * Returns null when the path isn't ours (so the server falls through to other routes).
  */
-export async function handlePairRoutes(req: Request, url: URL, peerAddress?: string | null): Promise<Response | null> {
+export interface PairRouteDeps {
+  readFleet?: () => FleetServer[];
+  controlFleet?: ControlFleetSource;
+}
+
+export async function handlePairRoutes(
+  req: Request,
+  url: URL,
+  peerAddress?: string | null,
+  deps?: PairRouteDeps
+): Promise<Response | null> {
   // /api/auth/check is gated by checkAuth (NOT loopback-only) — reaching here means
   // the caller already presented a valid token (or is loopback). Just confirm.
   if (url.pathname === '/api/auth/check' && req.method === 'GET') {
@@ -237,11 +260,19 @@ export async function handlePairRoutes(req: Request, url: URL, peerAddress?: str
     }
     if (url.pathname === '/api/pair' && req.method === 'GET') {
       const only = url.searchParams.get('serverId') || undefined;
-      return Response.json(await pairingPayload(undefined, only));
+      return Response.json(
+        await pairingPayload(
+          deps?.readFleet ?? readDesktopFleet,
+          deps?.controlFleet ?? envControlFleet,
+          only,
+        )
+      );
     }
     if (url.pathname === '/api/pair/rotate' && req.method === 'POST') {
       setAuthToken(generateAuthToken());
-      return Response.json(await pairingPayload());
+      return Response.json(
+        await pairingPayload(deps?.readFleet ?? readDesktopFleet, deps?.controlFleet ?? envControlFleet)
+      );
     }
     return jsonError('Method not allowed', 405);
   }

@@ -14,7 +14,7 @@ import { REPAIR_FORGE_SESSION, isAutoForgedRepairMission, REPAIR_BATCH_K, REPAIR
 import { ensureBucket } from './bucket-registry.js';
 import { isBucketItem, reopenConsumedFor, consumerDelivered } from './bucket-consumption.js';
 import { listTodos, getTodo, type Todo } from './todo-store.js';
-import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, type MissionSummary } from './mission-store.js';
+import { listMissions, listCriteria, isMissionTerminal, getMission, setMissionAbandoned, setMissionClosed, type MissionSummary } from './mission-store.js';
 import { forgeMission, approveMissionAndConstitution, type ForgeMissionInput } from '../mcp/tools/mission-forge.js';
 import { createEscalation, listOpenEscalations, resolveEscalation, type EscalationOption } from './supervisor-store.js';
 import { recordAutoAction } from './auto-action-audit.js';
@@ -475,6 +475,7 @@ export interface RepairApprovalDeps {
   getMission?: typeof getMission;
   approveMission?: (project: string, missionId: string, approvedBy: string) => Promise<{ approvedConstraints: Array<{ id: string }> }>;
   setMissionAbandoned?: typeof setMissionAbandoned;
+  setMissionClosed?: typeof setMissionClosed;
   reopenConsumedFor?: (project: string, consumerId: string) => string[];
   consumerDelivered?: (project: string, consumerId: string) => boolean;
   now?: number;
@@ -525,6 +526,9 @@ export async function applyRepairApprovalDecision(
     }
 
     await abandonFn(project, missionId, now);
+
+    const closeFn = deps.setMissionClosed ?? setMissionClosed;
+    await closeFn(project, missionId, now, { judge: actor, evidence: 'dismissed via repair-approval card' });
 
     return {
       applied: 'dismissed',

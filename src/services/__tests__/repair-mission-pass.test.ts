@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, it, expect, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import {
 } from '../todo-store';
 import { ensureBucket } from '../bucket-registry';
 import { listMissions, listCriteria, isMissionTerminal } from '../mission-store';
-import { runRepairForgePass, resolveApprovedRepairMissionCards, REPAIR_MISSION_APPROVAL_KIND, REPAIR_FORGE_INTERVAL_MS, _resetRepairForgeThrottle } from '../repair-mission-pass';
+import { runRepairForgePass, resolveApprovedRepairMissionCards, applyRepairApprovalDecision, REPAIR_MISSION_APPROVAL_KIND, REPAIR_FORGE_INTERVAL_MS, _resetRepairForgeThrottle } from '../repair-mission-pass';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { recordAutoAction } from '../auto-action-audit';
 
@@ -506,5 +506,31 @@ describe('repair-mission-pass', () => {
     expect(resolvedCalls[0][1]).toBe('resolved');
     expect(resolvedCalls[0][2]).toBe('ai');
     expect(resolvedCalls[0][3]).toContain('mission approved at');
+  });
+
+  it('dismiss stamps closedAt through the injected setMissionClosed dep', async () => {
+    const project = freshProject();
+    const missionId = 'mission-to-dismiss';
+
+    const abandonCalls: Array<[string, string, number | null]> = [];
+    const closeCalls: Array<[string, string, number | null, { judge: string; evidence?: string | null } | undefined]> = [];
+
+    const outcome = await applyRepairApprovalDecision(project, missionId, 'dismiss', {
+      getMission: () => ({ todoId: missionId } as any),
+      consumerDelivered: () => true,
+      reopenConsumedFor: () => [],
+      setMissionAbandoned: async (proj, id, at) => {
+        abandonCalls.push([proj, id, at]);
+        return {} as any;
+      },
+      setMissionClosed: (proj, id, at, attribution) => {
+        closeCalls.push([proj, id, at, attribution]);
+      },
+    });
+
+    expect(outcome.applied).toBe('dismissed');
+    expect(closeCalls.length).toBe(1);
+    expect(closeCalls[0][1]).toBe(missionId);
+    expect(abandonCalls.length).toBe(1);
   });
 });
