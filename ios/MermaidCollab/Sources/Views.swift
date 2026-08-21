@@ -103,19 +103,60 @@ private struct MissionRowLabel: View {
     }
 }
 
+/// The empty state doubles as the ESCAPE HATCH from a bad pairing.
+///
+/// Before this, the only route back to PairingView was `unpair()`, which fires when a
+/// call returns 401. An unreachable server never returns 401 — it times out — so a
+/// phone paired to a host it cannot reach sat on "Waiting to connect to the server"
+/// forever with no way out (observed 2026-08-21 against the default localhost:9002,
+/// which on a phone means the phone itself). Whenever we are not connected, offer both
+/// a rescan and a full re-pair, and NAME the host being dialled so the fault is legible.
 private struct EmptyState: View {
     let connected: Bool
+    @EnvironmentObject var app: AppModel
+    @EnvironmentObject var store: ZenStore
+    @State private var showScanner = false
+
     var body: some View {
         VStack(spacing: Space.l) {
             Circle().fill(.quaternary).frame(width: 44, height: 44)
                 .overlay(Image(systemName: connected ? "moon.zzz" : "wifi.slash")
                     .foregroundStyle(.secondary))
-            Text(connected ? "No watched sessions yet" : "Connecting…")
+            Text(connected ? "No watched sessions yet" : "Can't reach the server")
                 .font(.headline)
-            Text(connected ? "Add a session from the Collab dashboard." : "Waiting to connect to the server.")
-                .font(.subheadline).foregroundStyle(.secondary)
+            Text(connected
+                 ? "Add a session from the Collab dashboard."
+                 : "Trying \(store.host). If that address is wrong, scan the QR from the desktop's Settings → Phone access panel.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Space.l)
+
+            if !connected {
+                VStack(spacing: Space.s) {
+                    Button { showScanner = true } label: {
+                        Label("Scan a new code", systemImage: "qrcode.viewfinder")
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(role: .destructive) { app.unpair() } label: {
+                        Text("Pair a different server")
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, Space.l)
+                .frame(maxWidth: 420)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(isPresented: $showScanner) {
+            QRScannerView(onScan: { scanned in
+                _ = app.handle(scanned: scanned)
+                showScanner = false
+            })
+        }
     }
 }
 
