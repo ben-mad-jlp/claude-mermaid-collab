@@ -89,8 +89,40 @@ export function checkAuth(req: Request, url: URL, peerAddress?: string | null): 
   // LAN-only enforcement: a peer that is neither loopback nor private-LAN can never
   // legitimately reach even a 0.0.0.0-bound sidecar — reject outright, before the
   // token gate, so a leaked token cannot admit a public/routable peer.
-  if (!isPrivatePeer(peerAddress)) return new Response('Forbidden', { status: 403 });
+  if (!isPrivatePeer(peerAddress)) {
+    logAuthRejection('forbidden-peer', req, url, peerAddress, null, token);
+    return new Response('Forbidden', { status: 403 });
+  }
   const header = req.headers.get('authorization');
   if (header === `Bearer ${token}`) return null;
+  logAuthRejection('bad-token', req, url, peerAddress, header, token);
   return new Response('Unauthorized', { status: 401 });
+}
+
+/**
+ * A rejected request left NO trace anywhere, which made a phone that silently
+ * bounced back to the pairing screen undiagnosable from the server side: the only
+ * evidence of a 401 lived on the device (2026-08-21). Log the shape of the failure —
+ * never the secrets. Token values are reduced to a length and an 8-char prefix, which
+ * is enough to tell "no header at all" from "stale token" from "wrong scheme" without
+ * putting a credential in a logfile.
+ */
+function logAuthRejection(
+  reason: 'forbidden-peer' | 'bad-token',
+  req: Request,
+  url: URL,
+  peerAddress: string | null | undefined,
+  header: string | null,
+  expected: string,
+): void {
+  const shape =
+    header == null
+      ? 'absent'
+      : header.startsWith('Bearer ')
+        ? `bearer len=${header.length - 7} pfx=${header.slice(7, 15)}`
+        : `non-bearer pfx=${header.slice(0, 8)}`;
+  console.warn(
+    `[auth] REJECTED ${reason} path=${url.pathname} peer=${peerAddress ?? 'unknown'} ` +
+      `sent=${shape} expected=len=${expected.length} pfx=${expected.slice(0, 8)}`,
+  );
 }
