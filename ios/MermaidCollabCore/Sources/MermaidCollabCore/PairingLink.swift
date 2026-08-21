@@ -69,4 +69,85 @@ public struct PairingLink: Codable, Equatable, Sendable {
 
         return (bareHost, port)
     }
+
+    /// One server entry within a multi-entry pairing payload.
+    private struct PayloadServerDTO: Decodable {
+        let id: String
+        let label: String
+        let host: String
+        let token: String
+    }
+
+    public static func parsePayload(_ urlString: String) -> PairingPayload? {
+        guard let url = URL(string: urlString) else { return nil }
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        guard comps.scheme == "mermaidcollab", comps.host == "pair" else { return nil }
+
+        let queryItems = comps.queryItems ?? []
+        if let serversParam = queryItems.first(where: { $0.name == "servers" })?.value, !serversParam.isEmpty {
+            guard let data = decodeBase64(serversParam) else { return nil }
+            guard let dtos = try? JSONDecoder().decode([PayloadServerDTO].self, from: data) else { return nil }
+
+            var servers: [PairingPayloadServer] = []
+            servers.reserveCapacity(dtos.count)
+            for dto in dtos {
+                guard !dto.id.isEmpty, !dto.token.isEmpty else { return nil }
+                let normalized = normalizeHost(dto.host)
+                guard let (bareHost, port) = splitHostPort(normalized) else { return nil }
+                servers.append(PairingPayloadServer(
+                    id: dto.id,
+                    label: dto.label,
+                    host: bareHost,
+                    port: port,
+                    token: dto.token
+                ))
+            }
+            return PairingPayload(servers: servers)
+        }
+
+        guard let link = parse(url) else { return nil }
+        let server = PairingPayloadServer(
+            id: link.hostPort,
+            label: link.host,
+            host: link.host,
+            port: link.port,
+            token: link.token
+        )
+        return PairingPayload(servers: [server])
+    }
+
+    private static func decodeBase64(_ raw: String) -> Data? {
+        var s = raw.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let remainder = s.count % 4
+        if remainder > 0 {
+            s += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: s)
+    }
+}
+
+/// One server carried in a multi-entry pairing payload.
+public struct PairingPayloadServer: Equatable, Sendable {
+    public let id: String
+    public let label: String
+    public let host: String
+    public let port: Int
+    public let token: String
+
+    public init(id: String, label: String, host: String, port: Int, token: String) {
+        self.id = id
+        self.label = label
+        self.host = host
+        self.port = port
+        self.token = token
+    }
+}
+
+/// The decoded contents of a pairing deep link — one or more servers.
+public struct PairingPayload: Equatable, Sendable {
+    public let servers: [PairingPayloadServer]
+
+    public init(servers: [PairingPayloadServer]) {
+        self.servers = servers
+    }
 }

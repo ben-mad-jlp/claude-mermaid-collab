@@ -51,4 +51,37 @@ public struct ServerRegistry: Codable, Equatable, Sendable {
     public static func decoded(from data: Data) throws -> ServerRegistry {
         try JSONDecoder().decode(ServerRegistry.self, from: data)
     }
+
+    /// Merges a pairing payload into this registry, upserting entries by id and preserving order.
+    /// Matching ids are updated in place at their current index; new ids are appended in payload
+    /// order; entries whose ids are absent from the payload carry through unchanged.
+    public func merging(_ payload: PairingPayload) -> ServerRegistry {
+        var result = self.entries
+        var indexById: [String: Int] = [:]
+        for (i, entry) in result.enumerated() {
+            indexById[entry.id] = i
+        }
+
+        for server in payload.servers {
+            let pairing = PairingLink(host: server.host, port: server.port, token: server.token)
+            if let i = indexById[server.id] {
+                result[i].label = server.label
+                result[i].host = "\(server.host):\(server.port)"
+                result[i].pairing = pairing
+                result[i].source = .paired
+            } else {
+                let newEntry = ServerEntry(
+                    id: server.id,
+                    label: server.label,
+                    host: "\(server.host):\(server.port)",
+                    source: .paired,
+                    pairing: pairing
+                )
+                result.append(newEntry)
+                indexById[server.id] = result.count - 1
+            }
+        }
+
+        return ServerRegistry(entries: result)
+    }
 }
