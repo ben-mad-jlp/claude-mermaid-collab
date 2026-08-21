@@ -97,6 +97,7 @@ describe('pair-routes self-host rewrite', () => {
   });
 
   afterAll(() => {
+    delete process.env.MERMAID_CONFIG_PATH;
     delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
     rmSync(dir2, { recursive: true, force: true });
   });
@@ -154,6 +155,7 @@ describe('pair-routes MagicDNS preference', () => {
   });
 
   afterAll(() => {
+    delete process.env.MERMAID_CONFIG_PATH;
     delete process.env.MERMAID_TAILNET_HOST;
     delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
     rmSync(dir3, { recursive: true, force: true });
@@ -212,6 +214,7 @@ describe('pair-routes token honesty', () => {
   });
 
   afterAll(() => {
+    delete process.env.MERMAID_CONFIG_PATH;
     delete process.env.MERMAID_TAILNET_HOST;
     delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
     rmSync(dir4, { recursive: true, force: true });
@@ -280,6 +283,7 @@ describe('pair-routes single-server payload', () => {
   });
 
   afterAll(() => {
+    delete process.env.MERMAID_CONFIG_PATH;
     delete process.env.MERMAID_TAILNET_HOST;
     delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
     rmSync(dir5, { recursive: true, force: true });
