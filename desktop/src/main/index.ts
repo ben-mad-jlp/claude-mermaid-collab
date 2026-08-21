@@ -175,7 +175,7 @@ function registerIpc(): void {
   // garbage from a peer never reaches the store. Token injection still happens in
   // `invokeOnServer` (main); the boundary wraps it.
   ipcMain.handle('mc:invokeOnServer', (_e, serverId: string, opts: { path: string; method?: string; body?: unknown; query?: Record<string, string> }) =>
-    crossServerCall(invokeOnServer, serverId, opts, (id) => store?.isPaired(id) ?? false)
+    crossServerCall(invokeOnServer, serverId, opts, (id) => store?.isPaired(id) ?? false, (id) => store?.get(id) != null)
   );
   // P4a pairing actions: Pair a pending discovered peer (→ trusted), or Unpair
   // (delete the row; a discovered instance re-appears as pending on next refresh).
