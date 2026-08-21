@@ -140,6 +140,14 @@ const ALLOWLIST: Record<string, { count: number; reason: string }> = {
       'import + `git rev-parse --short HEAD` + `git status --porcelain` per status ' +
       'call — two one-shot local reads, ~100ms worst case.',
   },
+  'routes/pair-routes.ts': {
+    count: 2,
+    reason:
+      'import + one call inside selfMagicDnsHost, each with `timeout: 4000`, looping over ' +
+      'the 4 TAILSCALE_BINARIES candidates — worst case 4s x 4 = 16s, well under the 45s ' +
+      'watchdog. The result is memoized in magicDnsMemo (guarded before the call), so the ' +
+      'probe runs at most once per process; MERMAID_TAILNET_HOST short-circuits it entirely.',
+  },
 };
 
 /** Strip // line comments and /* *​/ block comments so documentation may still SAY
