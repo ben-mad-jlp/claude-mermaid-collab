@@ -13,6 +13,7 @@ final class ZenStore: ObservableObject {
     @Published var escalations: [String: Escalation] = [:] // keyed by escalation id (open only)
     @Published var missionRows: [MissionListRow] = []
     @Published var connected = false
+    @Published var watchList: WatchList = WatchList()
 
     private var task: URLSessionWebSocketTask?
     private var closed = false
@@ -255,15 +256,21 @@ final class ZenStore: ObservableObject {
     }
 
     private func request(project: String, path: String, method: String = "GET", body: [String: Any]? = nil) -> URLRequest {
-        let route = ServerRequestRouter.route(
+        request(serverId: resolvedServerId(forProject: project, path: path), path: path, method: method, body: body)
+    }
+
+    /// The server id `request(project:)` would route to for `project`/`path`, resolved
+    /// separately so callers that need to stamp local state (e.g. `watchList`) with the
+    /// actual owner can do so before any follow-up refresh mutates `projectsByServerId`.
+    private func resolvedServerId(forProject project: String, path: String) -> String {
+        ServerRequestRouter.route(
             forProject: project,
             path: path,
             registry: registry,
             projectsByServerId: projectsByServerId,
             selectedServerId: selectedServerId,
             localServerId: localServerId
-        )
-        return request(serverId: route.serverId, path: path, method: method, body: body)
+        ).serverId
     }
 
     /// Single authenticated-HTTP path: returns the body on 2xx, nil otherwise.
@@ -444,6 +451,38 @@ final class ZenStore: ObservableObject {
         Task {
             await send(request(project: project, path: "/api/supervisor/approve-push", method: "POST", body: ["project": project, "session": session]))
         }
+    }
+
+    /// Add `project` to the fleet's watch list, on the server that owns it.
+    func watchProject(_ project: String) async {
+        await send(request(project: project, path: "/api/supervisor/projects", method: "POST", body: ["project": project]))
+        await refreshProjects()
+    }
+
+    /// Remove `project` from the fleet's watch list, on the server that owns it.
+    func unwatchProject(_ project: String) async {
+        await send(request(project: project, path: "/api/supervisor/projects", method: "DELETE", body: ["project": project]))
+        await refreshProjects()
+    }
+
+    /// Add `session` (within `project`) to the supervised set, on the server that owns
+    /// `project`. Resolves the owning server BEFORE `refreshProjects()` mutates
+    /// `projectsByServerId`, so `watchList` is stamped with the server actually written to.
+    func watchSession(project: String, session: String) async {
+        let serverId = resolvedServerId(forProject: project, path: "/api/supervisor/supervised")
+        await send(request(project: project, path: "/api/supervisor/supervised", method: "POST", body: ["project": project, "session": session]))
+        watchList = watchList.adding(WatchEntry(serverId: serverId, project: project, session: session))
+        await refreshProjects()
+    }
+
+    /// Remove `session` (within `project`) from the supervised set, on the server that owns
+    /// `project`. Resolves the owning server BEFORE `refreshProjects()` mutates
+    /// `projectsByServerId`, so `watchList` is stamped with the server actually written to.
+    func unwatchSession(project: String, session: String) async {
+        let serverId = resolvedServerId(forProject: project, path: "/api/supervisor/supervised")
+        await send(request(project: project, path: "/api/supervisor/supervised", method: "DELETE", body: ["project": project, "session": session]))
+        watchList = watchList.removing(serverId: serverId, project: project, session: session)
+        await refreshProjects()
     }
 }
 

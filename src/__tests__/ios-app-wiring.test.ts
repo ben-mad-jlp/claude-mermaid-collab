@@ -28,6 +28,10 @@ const escalationMergeCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/EscalationMergeTests.swift',
   import.meta.url
 );
+const watchListCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/WatchListTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -117,5 +121,34 @@ describe('ios app wiring', () => {
     expect(store).toContain('/api/supervisor/bridge-snapshot');
     expect(store).toContain('fetchBridgeSnapshot');
     expect(store).toContain('BridgeSnapshotResponse');
+  });
+
+  it('15. Store.swift POSTs to the supervisor projects endpoint', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toMatch(/path:\s*"\/api\/supervisor\/projects",\s*method:\s*"POST"/);
+  });
+
+  it('16. Store.swift DELETEs from the supervisor projects endpoint', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toMatch(/path:\s*"\/api\/supervisor\/projects",\s*method:\s*"DELETE"/);
+  });
+
+  it('17. Store.swift issues both project watch writes through the project-scoped request builder', () => {
+    const store = readFileSync(storePath, 'utf8');
+    const writeLines = store
+      .split('\n')
+      .filter((line) => line.includes('/api/supervisor/projects') && line.includes('method:'));
+    expect(writeLines.length).toBe(2);
+    for (const line of writeLines) {
+      expect(line).toMatch(/request\(project:/);
+    }
+    expect(store).not.toMatch(/serverId: selectedServerId, path: "\/api\/supervisor\/projects"/);
+  });
+
+  it('18. Core WatchListTests declares the three numbered cases', () => {
+    const watchListCoreTest = readFileSync(watchListCoreTestPath, 'utf8');
+    expect(watchListCoreTest).toContain('test1_');
+    expect(watchListCoreTest).toContain('test2_');
+    expect(watchListCoreTest).toContain('test3_');
   });
 });
