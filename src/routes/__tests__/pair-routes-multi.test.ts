@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handlePairRoutes } from '../pair-routes.ts';
 
+const NO_CONTROL_FLEET = { controlFleet: async () => null };
+
 describe('pair-routes v2 payload', () => {
   let dir: string;
   let configPath: string;
@@ -24,7 +26,8 @@ describe('pair-routes v2 payload', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     const body = (await res!.json()) as any;
     expect(body.version).toBe(2);
@@ -47,7 +50,8 @@ describe('pair-routes v2 payload', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     const body = (await res!.json()) as any;
     expect(body.servers.length).toBe(2);
@@ -70,7 +74,8 @@ describe('pair-routes v2 payload', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     const body = (await res!.json()) as any;
     for (const s of body.servers) {
@@ -108,7 +113,8 @@ describe('pair-routes self-host rewrite', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     return ((await res!.json()) as any).servers;
   }
@@ -166,7 +172,8 @@ describe('pair-routes MagicDNS preference', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     return ((await res!.json()) as any).servers;
   }
@@ -224,7 +231,8 @@ describe('pair-routes token honesty', () => {
     const res = await handlePairRoutes(
       new Request('http://x/api/pair'),
       new URL('http://x/api/pair'),
-      '127.0.0.1'
+      '127.0.0.1',
+      NO_CONTROL_FLEET
     );
     return await res!.json();
   }
