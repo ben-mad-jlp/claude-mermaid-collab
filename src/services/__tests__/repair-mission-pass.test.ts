@@ -9,7 +9,7 @@ import {
 } from '../todo-store';
 import { ensureBucket } from '../bucket-registry';
 import { listMissions, listCriteria, isMissionTerminal } from '../mission-store';
-import { runRepairForgePass, REPAIR_MISSION_APPROVAL_KIND, REPAIR_FORGE_INTERVAL_MS, _resetRepairForgeThrottle } from '../repair-mission-pass';
+import { runRepairForgePass, resolveApprovedRepairMissionCards, REPAIR_MISSION_APPROVAL_KIND, REPAIR_FORGE_INTERVAL_MS, _resetRepairForgeThrottle } from '../repair-mission-pass';
 import { forgeMission } from '../../mcp/tools/mission-forge';
 import { recordAutoAction } from '../auto-action-audit';
 
@@ -453,5 +453,58 @@ describe('repair-mission-pass', () => {
     const cappedReason = cappedRows[0].reason;
     expect(cappedReason).toContain('repair-mission-open');
     expect(cappedReason).toContain(`mission ${missionId} is still open`);
+  });
+
+  test("an approved repair mission's approval card is resolved and an unapproved one is left open", () => {
+    const project = freshProject();
+    projects.push(project);
+
+    const approvedMissionId = 'mission-approved';
+    const unapprovedMissionId = 'mission-unapproved';
+
+    const allTodos = [
+      { id: approvedMissionId, approvedAt: '2026-08-20T00:00:00.000Z' },
+      { id: unapprovedMissionId, approvedAt: null },
+    ] as any[];
+
+    const openEscalations = [
+      {
+        id: 'esc-approved',
+        kind: REPAIR_MISSION_APPROVAL_KIND,
+        todoId: approvedMissionId,
+        conditionKey: `repair-forge:${approvedMissionId}`,
+      },
+      {
+        id: 'esc-unapproved',
+        kind: REPAIR_MISSION_APPROVAL_KIND,
+        todoId: unapprovedMissionId,
+        conditionKey: `repair-forge:${unapprovedMissionId}`,
+      },
+      // Wrong conditionKey shape for its own todoId — must be skipped even though
+      // its kind matches, since key equality is the match, not todoId alone.
+      {
+        id: 'esc-mismatched-key',
+        kind: REPAIR_MISSION_APPROVAL_KIND,
+        todoId: approvedMissionId,
+        conditionKey: 'repair-forge:some-other-id',
+      },
+    ] as any[];
+
+    const resolvedCalls: Array<[string, string, string | undefined, string | null | undefined]> = [];
+
+    const resolved = resolveApprovedRepairMissionCards(project, {
+      allTodos,
+      listOpenEscalations: () => openEscalations as any,
+      resolveEscalation: (id, status, resolvedBy, note) => {
+        resolvedCalls.push([id, status, resolvedBy, note]);
+      },
+    });
+
+    expect(resolved).toBe(1);
+    expect(resolvedCalls.length).toBe(1);
+    expect(resolvedCalls[0][0]).toBe('esc-approved');
+    expect(resolvedCalls[0][1]).toBe('resolved');
+    expect(resolvedCalls[0][2]).toBe('ai');
+    expect(resolvedCalls[0][3]).toContain('mission approved at');
   });
 });
