@@ -19,6 +19,7 @@
     "publish:apt": "bash scripts/publish-apt-repo.sh",
     "deploy": "bash scripts/deploy-desktop.sh",
     "deploy:no-build": "bash scripts/deploy-desktop.sh --no-build",
+    "ios:build": "bash scripts/ios-build-app.sh",
     "server": "bun run bin/mermaid-collab.ts",
     "server:start": "bun run bin/mermaid-collab.ts start",
     "server:stop": "bun run bin/mermaid-collab.ts stop",
