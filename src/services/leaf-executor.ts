@@ -1684,6 +1684,10 @@ export async function runLeaf(
   // grok→claude fallback inside runNode), so the main-loop review re-run classifier
   // (classifyTransientReviewFailure) judges against reality, not the pre-resolution guess.
   let lastNodeProvider: NodeProvider = 'claude';
+  // Tracks the provider RESOLVED before the one-hop grok→claude fallback runs, so the
+  // main-loop review re-run classifier (classifyTransientReviewFailure) judges an empty-text
+  // grok review against grok — not against the claude fallback result it triggered.
+  let lastNodeRequestedProvider: NodeProvider = 'claude';
 
   /** Single wrapper used for EVERY invokeNode call: increment BEFORE the spawn
    *  (so a hanging node still counts toward the budget), invoke, then a best-effort
@@ -1830,6 +1834,7 @@ export async function runLeaf(
       throw new Error(`worktree-missing: lane worktree ${effSpec.cwd} was removed mid-run (node ${kind})`);
     }
     lastNodeProvider = effectiveProvider;
+    lastNodeRequestedProvider = provider;
     return res;
   };
 
@@ -3327,11 +3332,12 @@ export async function runLeaf(
         // Bounded in-place transient review re-run (blueprint 5631ee34): a grok-api/grok-build
         // review failure that looks transient (rate-limit/resource-exhausted/timeout) is worth
         // re-dispatching on the SAME spec — no new implement node, no proseOffense — rather than
-        // being treated as a real review-vacuous verdict. Classified against lastNodeProvider
-        // (post the one-hop grok→claude fallback inside runNode) so an already-fallen-back
-        // result is never misjudged. Capped at 3 review calls total per attempt; the 3rd is
-        // forced onto the claude invoker.
-        let t = classifyTransientReviewFailure(lastNodeProvider, review);
+        // being treated as a real review-vacuous verdict. Classified against
+        // lastNodeRequestedProvider (the ORIGINALLY resolved provider, before the one-hop
+        // grok→claude fallback inside runNode) so an empty-text grok review that already
+        // fell back to claude is still judged as a grok result, not a claude one. Capped at
+        // 3 review calls total per attempt; the 3rd is forced onto the claude invoker.
+        let t = classifyTransientReviewFailure(lastNodeRequestedProvider, review);
         while (t.transient && transientReviewFailures < 2) {
           transientReviewFailures += 1;
           const forcedClaude = transientReviewFailures === 2;
@@ -3345,7 +3351,7 @@ export async function runLeaf(
           review = forcedClaude
             ? await runNode('review', reviewSpec, undefined, { forceProvider: 'claude' })
             : await runNode('review', reviewSpec);
-          t = classifyTransientReviewFailure(lastNodeProvider, review);
+          t = classifyTransientReviewFailure(lastNodeRequestedProvider, review);
         }
         if (review.startFailure) return parkNodeStartFailure('review', review);
         if (review.rateLimited) return pausedResult('review', review);

@@ -101,6 +101,16 @@ export function classifyTransientReviewFailure(
         };
       }
     }
+    // An ok-but-empty grok review (no timeout, no matched token, no usable text) is worth
+    // re-dispatching rather than treated as a real (vacuous) verdict — checked LAST so a
+    // parseError/text that already matched a timeout or TRANSIENT_REVIEW_MATCHERS token keeps
+    // its more specific reason even when res.text itself is empty/undefined.
+    if ((res.text ?? '').trim() === '') {
+      return {
+        transient: true,
+        reason: `grok-transient-review: empty-text: ${detail.slice(0, 200)}`,
+      };
+    }
   }
 
   // 4. Fallthrough — not transient.
