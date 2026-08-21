@@ -1,8 +1,20 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handlePairRoutes } from '../pair-routes.ts';
+
+/**
+ * The pairing payload consults the Electron control channel when MC_DESKTOP_CONTROL_URL
+ * and MC_DESKTOP_CONTROL_TOKEN are present. The land gate runs as a CHILD OF THE SIDECAR,
+ * which has both set, so these tests reached the LIVE desktop and saw the operator's real
+ * fleet instead of the stub written below — passing in a bare shell and failing only in
+ * the gate (2026-08-21). Clear them for every test so the on-disk stub is authoritative.
+ */
+beforeEach(() => {
+  delete process.env.MC_DESKTOP_CONTROL_URL;
+  delete process.env.MC_DESKTOP_CONTROL_TOKEN;
+});
 
 const NO_CONTROL_FLEET = { controlFleet: async () => null };
 
