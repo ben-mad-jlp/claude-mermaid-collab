@@ -876,10 +876,47 @@ export function shouldAutoGate(kind: string, operatorGated: boolean): boolean {
  * always wins (→ 'human'); otherwise, certain hygiene kinds default to 'internal';
  * everything else is 'human'.
  */
-export function deriveAudience(kind: string, operatorGated: boolean): 'human' | 'internal' {
-  if (operatorGated) return 'human';
-  if (['epic-sweep-triage', 'infra-park', 'leaf-infra-rejected', 'split-proposal', 'base-moved'].includes(kind)) return 'internal';
-  return 'human';
+/**
+ * Kinds that genuinely need the OPERATOR: money, or an explicit choice only a person can
+ * make. Operator policy 2026-08-21, stated as "spend + explicit decisions".
+ */
+const HUMAN_ESCALATION_KINDS = new Set([
+  'decision',
+  'dep-strand-decision',
+  'question',
+  'human_only',
+  'approve-decision',
+  'repair-mission-approval',
+  'mission-over-budget-rebet',
+  'token-burn',
+]);
+
+/**
+ * Derive the human-vs-machine audience for an escalation at create-time.
+ *
+ * This used to be an ALLOWLIST OF FIVE machine kinds with everything else defaulting to
+ * 'human', and `operatorGated` forcing 'human' outright. Both were wrong in the same
+ * direction: the operator was told "N needs you" for work that was the conductor's, and
+ * operatorGated is set on 4,412 criterion-serve-cap cards, 975 parentless-leaf, 571
+ * mission-stalled — none of which a person can or should action. A badge that cries wolf
+ * gets ignored, and then the two cards that DO need a human get ignored with it.
+ *
+ * Inverted to an allowlist of human kinds. `operatorGated` still marks an irreversible or
+ * outward action, but it no longer decides WHO is being asked — the conductor is the actor
+ * for most gated kinds. A card carrying structured `options` is a genuine A/B choice by
+ * construction, so it counts as human regardless of kind.
+ *
+ * Machine-audience cards are NOT hidden; they render in their own colour. Nothing
+ * disappears, it just stops being counted as the operator's problem.
+ */
+export function deriveAudience(
+  kind: string,
+  operatorGated: boolean,
+  opts?: { hasOptions?: boolean },
+): 'human' | 'internal' {
+  if (HUMAN_ESCALATION_KINDS.has(kind)) return 'human';
+  if (opts?.hasOptions) return 'human';
+  return 'internal';
 }
 
 /** Canonical status values for escalations. */
@@ -1020,14 +1057,18 @@ export function createEscalation(input: {
   const ui = validateUiSpec(input.ui);
   const uiJson = ui ? JSON.stringify(ui) : null;
   const operatorGated = input.operatorGated ? 1 : 0;
-  // Validate and compute audience: operatorGated=1 always overrides to 'human'.
+  // Validate audience. The caller's choice is FINAL: operatorGated used to override it to
+  // 'human', which silently re-stamped cards their author had deliberately marked
+  // 'internal' and badged the conductor's own gated work (criterion-serve-cap,
+  // parentless-leaf, mission-stalled) as the operator's problem. Gating marks an
+  // irreversible or outward action; it says nothing about WHO is being asked.
   if (input.audience == null) {
     throw new Error(`createEscalation: audience is required`);
   }
   if (input.audience !== 'human' && input.audience !== 'internal') {
     throw new Error(`createEscalation: invalid audience "${input.audience}"`);
   }
-  const audience = operatorGated === 1 ? 'human' : input.audience;
+  const audience = input.audience;
   // Timeout honesty: the deadline the card prints is the deadline the store enforces.
   // Explicit timeoutMs is honoured verbatim (no Math.max). Operator-gated or human-audience
   // cards with no explicit timeout floor to OPERATOR_CARD_MIN_TTL_MS to ensure visibility.

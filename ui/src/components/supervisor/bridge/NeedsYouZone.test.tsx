@@ -64,7 +64,8 @@ describe('NeedsYouZone', () => {
     expect(screen.getByText('deploy?')).toBeInTheDocument();
     expect(screen.getByText('fix leak?')).toBeInTheDocument();
     expect(screen.getByText('base red?')).toBeInTheDocument();
-    expect(screen.getByTestId('machine-items-handled')).toHaveTextContent('2 machine items handled');
+    // Relabelled 2026-08-21: the machine group is now shown in purple and says whose it is.
+    expect(screen.getByTestId('machine-items-handled')).toHaveTextContent('2 handled by the conductor');
   });
 
   it('hides machine-items-handled when count is zero', () => {
