@@ -37,7 +37,12 @@ final class ZenStore: ObservableObject {
         self.registry = registryStore.load()
     }
 
-    private static var defaultRegistryURL: URL {
+    /// `nonisolated` because this is evaluated in `init`'s DEFAULT ARGUMENT, which runs in a
+    /// nonisolated context even though ZenStore is @MainActor. Without it the app target fails
+    /// to compile: "main actor-isolated static property 'defaultRegistryURL' can not be
+    /// referenced from a nonisolated context". It touches only FileManager, so it is safe
+    /// off the main actor.
+    private nonisolated static var defaultRegistryURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return dir.appendingPathComponent("server-registry.json")
@@ -206,15 +211,31 @@ final class ZenStore: ObservableObject {
     /// a previous pass. A server that fails or returns undecodable JSON contributes nothing and
     /// does not abort the loop — mirrors `refreshProjects()`.
     func hydrateEscalations() async {
-        var results: [(serverId: String, escalations: [Escalation])] = []
+        // The UI needs the app's Escalation (questionText, options); the merge needs Core's
+        // (serverId, createdAt). Keep the display cards by id, merge on the Core projections,
+        // then stamp each surviving card with the server the merge attributed it to.
+        var cardsById: [String: Escalation] = [:]
+        var results: [(serverId: String, escalations: [MermaidCollabCore.Escalation])] = []
         for entry in registry.entries where entry.reachability == .reachable {
             guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/escalations?status=open")),
                   let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data)
             else { continue }
-            results.append((entry.id, resp.escalations))
+            for var card in resp.escalations {
+                card.serverId = entry.id
+                cardsById[card.id] = card
+            }
+            results.append((entry.id, resp.escalations.map { card in
+                var c = card
+                c.serverId = entry.id
+                return c.coreModel()
+            }))
         }
         var merged: [String: Escalation] = [:]
-        for e in EscalationMerge.merged(results) { merged[e.id] = e }
+        for core in EscalationMerge.merged(results) {
+            guard var card = cardsById[core.id] else { continue }
+            card.serverId = core.serverId
+            merged[core.id] = card
+        }
         escalations = merged
     }
 
@@ -309,7 +330,7 @@ final class ZenStore: ObservableObject {
     func decide(_ escalationId: String, optionId: String) {
         guard let card = escalations[escalationId] else { return }
         escalations.removeValue(forKey: escalationId)
-        let route = EscalationMerge.decideRoute(for: card, registry: registry, selectedServerId: selectedServerId)
+        let route = EscalationMerge.decideRoute(for: card.coreModel(), registry: registry, selectedServerId: selectedServerId)
         Task {
             await send(request(serverId: route.serverId, path: "/api/supervisor/escalation/\(escalationId)/decide", method: "POST", body: ["optionId": optionId]))
         }

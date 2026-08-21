@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MermaidCollabCore
 
 // Wire model + pure card helpers for the Zen iOS app. Mirrors the desktop
 // ZenSessionCard: the server's `session_summary_updated` WS payload + the glance/detail/
@@ -36,7 +37,23 @@ struct Escalation: Codable, Equatable, Identifiable {
     let status: String?
     let options: [EscOption]?
     let recommended: String?  // option id the worker recommends
+    /// Which server served this card. Not on the wire — stamped during the fleet-wide
+    /// hydrate so `decide` posts back to the card's OWN server.
+    var serverId: String?
     var key: String { "\(project)::\(session)" }
+}
+
+extension Escalation {
+    /// Bridge to Core's routing model. The two types deliberately differ: this one carries
+    /// what the UI renders (questionText, options), Core's carries what the merge and route
+    /// helpers need (serverId, createdAt). Convert at the call site rather than merging them.
+    func coreModel() -> MermaidCollabCore.Escalation {
+        MermaidCollabCore.Escalation(
+            id: id, project: project, session: session,
+            status: status ?? "open", createdAt: 0,
+            operatorGated: nil, serverId: serverId
+        )
+    }
 }
 
 /// Wrapper for GET /api/supervisor/escalations.
