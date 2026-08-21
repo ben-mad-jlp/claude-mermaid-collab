@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Zen</string>
+	<string>Collab</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -41,9 +41,9 @@
 		<string>_mermaidcollab._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Zen uses the camera only to scan the pairing QR code shown by the desktop app.</string>
+	<string>Collab uses the camera only to scan the pairing QR code shown by the desktop app.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Zen finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network.</string>
+	<string>Collab finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

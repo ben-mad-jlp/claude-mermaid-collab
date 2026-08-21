@@ -112,7 +112,7 @@ private struct EmptyState: View {
                     .foregroundStyle(.secondary))
             Text(connected ? "No watched sessions yet" : "Connecting…")
                 .font(.headline)
-            Text(connected ? "Add a session from the Zen dashboard." : "Waiting to connect to the server.")
+            Text(connected ? "Add a session from the Collab dashboard." : "Waiting to connect to the server.")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
