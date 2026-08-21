@@ -255,3 +255,59 @@ describe('pair-routes token honesty', () => {
     expect(remote).toBeUndefined();
   });
 });
+
+/**
+ * ONE server per QR (operator decision 2026-08-21). Bundling the whole fleet into one
+ * code made the payload large and dense enough to be hard to scan, and let one peer's
+ * bad credential poison the pairing. `?serverId=` narrows the payload to that server.
+ */
+describe('pair-routes single-server payload', () => {
+  let dir5: string;
+
+  beforeAll(() => {
+    dir5 = mkdtempSync(join(tmpdir(), 'pair-routes-single-'));
+    process.env.MERMAID_CONFIG_PATH = join(dir5, 'config.json');
+    process.env.MERMAID_TAILNET_HOST = 'self.tail445728.ts.net';
+    const f = join(dir5, 'servers.json');
+    writeFileSync(f, JSON.stringify({
+      entries: [
+        { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 'tok-self' },
+        { id: 'rem', label: 'trimaxion', host: 'trimaxion.tail445728.ts.net', port: 9002, token: 'tok-rem' },
+      ],
+      forgotten: [],
+    }));
+    process.env.MERMAID_DESKTOP_SERVERS_FILE = f;
+  });
+
+  afterAll(() => {
+    delete process.env.MERMAID_TAILNET_HOST;
+    delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
+    rmSync(dir5, { recursive: true, force: true });
+  });
+
+  async function body(query: string): Promise<any> {
+    const u = new URL(`http://x/api/pair${query}`);
+    const res = await handlePairRoutes(new Request(u.toString()), u, '127.0.0.1');
+    return await res!.json();
+  }
+
+  it('(1) serverId narrows the payload to that one server', async () => {
+    const b = await body('?serverId=rem');
+    expect(b.servers.map((s: any) => s.id)).toEqual(['rem']);
+  });
+
+  it('(2) the narrowed payload carries that server own token', async () => {
+    const b = await body('?serverId=rem');
+    expect(b.servers[0].token).toBe('tok-rem');
+  });
+
+  it('(3) an unknown serverId yields an empty server list rather than the whole fleet', async () => {
+    const b = await body('?serverId=nope');
+    expect(b.servers).toHaveLength(0);
+  });
+
+  it('(4) omitting serverId still returns every server', async () => {
+    const b = await body('');
+    expect(b.servers.map((s: any) => s.id).sort()).toEqual(['rem', 'self']);
+  });
+});

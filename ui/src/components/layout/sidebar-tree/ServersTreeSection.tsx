@@ -8,6 +8,7 @@
  * removes it; ServerSwitcher.tsx is deleted in Wave 3's cleanup.
  */
 import React, { forwardRef, useState, useImperativeHandle, Fragment } from 'react';
+import { PairingQr } from '@/utils/qr';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
 
@@ -43,6 +44,21 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
     // trimaxion.tail445728.ts.net:9002 is unreadable. This expands ONE row's full detail
     // in place. Kept off the row's own click, which switches servers.
     const [detailsId, setDetailsId] = useState<string | null>(null);
+    // The pairing QR for the ONE server whose details are open. Fetched on expand so a
+    // sidebar full of servers does not mint codes nobody asked for.
+    const [pairQr, setPairQr] = useState<{ serverId: string; qr: string | null; error?: string } | null>(null);
+
+    /** One server, one code. /api/pair is loopback-only, which the renderer satisfies. */
+    const loadPairQr = async (serverId: string) => {
+      try {
+        const res = await fetch(`/api/pair?serverId=${encodeURIComponent(serverId)}`);
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as { qr?: string | null };
+        setPairQr({ serverId, qr: body.qr ?? null });
+      } catch (e) {
+        setPairQr({ serverId, qr: null, error: e instanceof Error ? e.message : 'failed' });
+      }
+    };
     const [error, setError] = useState<string | null>(null);
 
     // Remote-launch dialog state. We start a collab server on a remote box over
@@ -300,7 +316,10 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       className="shrink-0 px-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setDetailsId(detailsId === s.id ? null : s.id);
+                        const next = detailsId === s.id ? null : s.id;
+                        setDetailsId(next);
+                        setPairQr(null);
+                        if (next) void loadPairQr(next);
                       }}
                     >
                       {detailsId === s.id ? '\u25be' : '\u2139'}
@@ -412,6 +431,23 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                           <dd className="font-mono break-all text-gray-700 dark:text-gray-300">{v}</dd>
                         </Fragment>
                       ))}
+                      <dt className="text-gray-500 dark:text-gray-400 self-center">Pair</dt>
+                      <dd data-testid={`server-pair-qr-${s.id}`}>
+                        {pairQr?.serverId === s.id && pairQr.qr ? (
+                          <div className="flex flex-col gap-1">
+                            <PairingQr value={pairQr.qr} testId={`server-qr-${s.id}`} />
+                            <span className="text-gray-500 dark:text-gray-400">
+                              Scan in the Collab iOS app to add this server.
+                            </span>
+                          </div>
+                        ) : pairQr?.serverId === s.id && pairQr.error ? (
+                          <span className="text-danger-600 dark:text-danger-400">
+                            Pairing code unavailable ({pairQr.error})
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">Loading…</span>
+                        )}
+                      </dd>
                     </dl>
                   )}
                   {launchFor === s.id && (

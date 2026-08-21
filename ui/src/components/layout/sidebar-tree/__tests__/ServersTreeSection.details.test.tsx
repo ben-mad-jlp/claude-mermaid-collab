@@ -5,8 +5,8 @@
  * trimaxion.tail445728.ts.net:9002 was cut off with no way to see it (2026-08-21).
  * The details toggle expands the full values in place, and must NOT truncate them.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const LONG_HOST = 'trimaxion.tail445728.ts.net';
 const SERVER = {
@@ -35,6 +35,17 @@ vi.mock('@/contexts/ServerContext', () => ({
 
 import { ServersTreeSection } from '../ServersTreeSection';
 
+const QR = 'mermaidcollab://pair?v=2&servers=eyJ2IjoyfQ==';
+
+beforeEach(() => {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ qr: QR, servers: [{ id: SERVER.id }] }),
+  }) as never;
+});
+
+afterEach(() => vi.restoreAllMocks());
+
 describe('ServersTreeSection details toggle', () => {
   it('shows no details panel until the toggle is pressed', () => {
     render(<ServersTreeSection />);
@@ -62,5 +73,21 @@ describe('ServersTreeSection details toggle', () => {
     fireEvent.click(btn);
     fireEvent.click(btn);
     expect(screen.queryByTestId(`server-details-${SERVER.id}`)).toBeNull();
+  });
+
+  it('requests a pairing code for THAT server only', async () => {
+    render(<ServersTreeSection />);
+    fireEvent.click(screen.getByTestId(`server-details-toggle-${SERVER.id}`));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(`/api/pair?serverId=${encodeURIComponent(SERVER.id)}`);
+    });
+  });
+
+  it('renders the pairing QR inside the details panel', async () => {
+    render(<ServersTreeSection />);
+    fireEvent.click(screen.getByTestId(`server-details-toggle-${SERVER.id}`));
+    await waitFor(() => {
+      expect(screen.getByTestId(`server-qr-${SERVER.id}`)).toBeTruthy();
+    });
   });
 });

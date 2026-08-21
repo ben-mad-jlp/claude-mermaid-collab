@@ -142,7 +142,10 @@ async function fleetWithTokens(readFleet: () => FleetServer[]): Promise<FleetSer
 }
 
 /** Build the pairing payload (token + reachable hosts + fleet + QR deep link). */
-async function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet): Promise<{
+async function pairingPayload(
+  readFleet: () => FleetServer[] = readDesktopFleet,
+  onlyServerId?: string,
+): Promise<{
   version: typeof PAIRING_PAYLOAD_VERSION;
   token: string;
   port: number;
@@ -195,13 +198,18 @@ async function pairingPayload(readFleet: () => FleetServer[] = readDesktopFleet)
         }))
       : [{ id: selfHost, label: hostname(), host: selfHost, token }];
 
-  const qr = buildPairingQrValue(buildPairingPayloadV2(servers));
+  // ONE server per QR (operator decision 2026-08-21). Pairing a whole fleet in a single
+  // scan bundled every server's credential into one code, which made the payload large
+  // and dense enough to be hard to scan, and meant one unreachable peer polluted the
+  // pairing. A per-server code is small, and adding a machine is a deliberate act.
+  const advertised = onlyServerId ? servers.filter((s) => s.id === onlyServerId) : servers;
+  const qr = buildPairingQrValue(buildPairingPayloadV2(advertised));
   const warning = boundToLoopback()
     ? `Server is bound to ${config.HOST} (loopback) — your phone can't reach it. Relaunch with MERMAID_BIND_HOST=0.0.0.0 (or the tailnet IP) so the phone can connect.`
     : hosts.length === 0
       ? 'No non-loopback network interface found — connect to a network (e.g. Tailscale) so the phone has a route.'
       : undefined;
-  return { version: PAIRING_PAYLOAD_VERSION, token, port, bound: config.HOST, hosts, servers, qr, warning };
+  return { version: PAIRING_PAYLOAD_VERSION, token, port, bound: config.HOST, hosts, servers: advertised, qr, warning };
 }
 
 /**
@@ -228,7 +236,8 @@ export async function handlePairRoutes(req: Request, url: URL, peerAddress?: str
       return jsonError('Pairing is only available from the local machine (loopback).', 403);
     }
     if (url.pathname === '/api/pair' && req.method === 'GET') {
-      return Response.json(await pairingPayload());
+      const only = url.searchParams.get('serverId') || undefined;
+      return Response.json(await pairingPayload(undefined, only));
     }
     if (url.pathname === '/api/pair/rotate' && req.method === 'POST') {
       setAuthToken(generateAuthToken());
