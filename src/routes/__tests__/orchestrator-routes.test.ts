@@ -19,6 +19,7 @@ import { ORCHESTRATION_NODE_PROFILE } from '../../services/node-kinds';
 import { projectRegistry } from '../../services/project-registry';
 import { _closeDb } from '../../services/orchestrator-config';
 import { _closeDb as supervisorCloseDb } from '../../services/supervisor-store';
+import { GROK_API_MODELS } from '../../services/provider-model';
 
 const PROJECT = '/tmp/orch-routes-proj';
 
@@ -313,6 +314,12 @@ describe('handleOrchestratorRoutes — node-profiles', () => {
     expect(bp.modelOverride).toBeNull();
     expect(body.models).toContain('sonnet');
     expect(body.levels).toContain('xhigh');
+  });
+
+  it('GET surfaces grokApiModels from the GROK_API_MODELS export', async () => {
+    const res = await call('GET', `/api/orchestrator/node-profiles?project=${encodeURIComponent(NP_PROJECT)}`);
+    const body = await res!.json() as any;
+    expect(body.grokApiModels).toEqual([...GROK_API_MODELS]);
   });
 
   it('POST an override and GET reflects it in the effective columns', async () => {
