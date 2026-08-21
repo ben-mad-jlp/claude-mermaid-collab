@@ -93,6 +93,17 @@ export interface ConductorPassRow {
   forced?: boolean | null;
 }
 
+/** Maps a lever/kick failure's error code to operator-facing text. `server-entry-missing`
+ *  (desktop/src/main/remote-boundary.ts:76) means the paired server's registry entry is gone,
+ *  so the fix is re-pairing, not retrying — surface that instead of the raw code. Any other
+ *  non-empty error code wins as-is (preserves today's `data.error`-wins behaviour); with no
+ *  code at all, the caller's status-derived fallback stands. */
+export function leverErrorText(status: number, errorCode: string | undefined, fallback: string): string {
+  if (errorCode === 'server-entry-missing') return 'server removed — re-pair';
+  if (errorCode) return errorCode;
+  return fallback;
+}
+
 /** POST the one-shot conductor kick. Resolves to the server's verdict; a non-2xx or a network
  *  fault RESOLVES (never throws) so the caller can render a failure line instead of exploding. */
 export async function kickConductor(
@@ -110,7 +121,7 @@ export async function kickConductor(
       let message = `kick failed (${response.status})`;
       try {
         const data = (await response.json()) as { error?: string };
-        if (data?.error) message = data.error;
+        message = leverErrorText(response.status, data?.error, message);
       } catch {
         /* keep the status-code message */
       }
@@ -138,7 +149,17 @@ async function fetchLeverLevel(
 ): Promise<{ ok: boolean; level: LeverLevel; error?: string }> {
   try {
     const response = await apiFetch(serverScope, `${path}?project=${encodeURIComponent(project)}`);
-    if (!response.ok) return { ok: false, level: 'on', error: `${label} read failed (${response.status})` };
+    if (!response.ok) {
+      const fallback = `${label} read failed (${response.status})`;
+      let errorCode: string | undefined;
+      try {
+        const data = (await response.json()) as { error?: string };
+        errorCode = data?.error;
+      } catch {
+        /* keep the status-code fallback */
+      }
+      return { ok: false, level: 'on', error: leverErrorText(response.status, errorCode, fallback) };
+    }
     const data = (await response.json()) as { level?: string };
     return { ok: true, level: data?.level === 'off' ? 'off' : 'on' };
   } catch {
@@ -165,7 +186,7 @@ async function postLeverLevel(
       let message = `${label} failed (${response.status})`;
       try {
         const data = (await response.json()) as { error?: string };
-        if (data?.error) message = data.error;
+        message = leverErrorText(response.status, data?.error, message);
       } catch {
         /* keep the status-code message */
       }

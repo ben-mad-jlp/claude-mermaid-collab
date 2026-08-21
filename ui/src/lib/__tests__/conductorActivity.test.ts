@@ -164,6 +164,38 @@ describe('scope-capable lever clients', () => {
 
     expect(result).toEqual({ ok: false, level: 'on', error: 'autofix read failed' });
   });
+
+  it('maps a 404 server-entry-missing body to the re-pair text on both a lever read and a lever write', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ error: 'server-entry-missing' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: () => Promise.resolve({ error: 'server-entry-missing' }),
+      });
+
+    const read = await fetchAutoFixLevel('/abs/p', 'remote-1');
+    expect(read.error).toBe('server removed — re-pair');
+
+    const write = await setExplorerLevel('/abs/p', 'off', 'remote-1');
+    expect(write.error).toBe('server removed — re-pair');
+  });
+
+  it('leaves a 403 peer_not_paired lever failure on its existing text', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ error: 'peer_not_paired' }),
+    });
+
+    const result = await fetchAutoFixLevel('/abs/p', 'remote-1');
+
+    expect(result.error).toBe('peer_not_paired');
+  });
 });
 
 describe('formatConductorPass', () => {
