@@ -7,6 +7,7 @@ struct ContentView: View {
     // Re-tick so the freshness wash + recency ordering refresh each second.
     @State private var now = Date().timeIntervalSince1970 * 1000
     @State private var drillInTarget: ZenSummary?
+    @State private var showServers = false
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private let columns = [GridItem(.adaptive(minimum: 300, maximum: 520), spacing: Space.m)]
@@ -16,6 +17,20 @@ struct ContentView: View {
             Color(.systemGroupedBackground).ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.m) {
+                    // The only route to the fleet. Without a persistent entry point the
+                    // picker is unreachable once connected, which is how the app shipped
+                    // able to hold several servers but able to show exactly one.
+                    Button { showServers = true } label: {
+                        HStack(spacing: Space.xs) {
+                            Image(systemName: "server.rack").font(.zenMeta)
+                            Text(store.registry.entries.first { $0.id == store.selectedServerId }?.label ?? "Servers")
+                                .font(.zenMeta)
+                            Image(systemName: "chevron.down").font(.system(size: 9))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .accessibilityIdentifier("server-picker-button")
+
                     if !store.connected {
                         HStack(spacing: Space.xs) {
                             Circle().fill(.secondary).frame(width: 7, height: 7)
@@ -37,6 +52,9 @@ struct ContentView: View {
             }
         }
         .onReceive(tick) { _ in now = Date().timeIntervalSince1970 * 1000 }
+        .sheet(isPresented: $showServers) {
+            ServerPickerView()
+        }
         .sheet(item: $drillInTarget) { s in
             MissionsListView(project: s.project, session: s.session)
                 .environmentObject(store)
