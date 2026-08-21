@@ -284,6 +284,11 @@ const INJECTED_SECRET_KEYS = ['XAI_API_KEY'] as const;
  */
 const INJECTED_FLAG_KEYS = [
   'MERMAID_WORKER_ISOLATION',
+  // Bind address. Default 127.0.0.1 means ONLY this Mac can reach the server, so a
+  // phone on the tailnet gets nothing and /api/pair reports "bound to loopback".
+  // Set "MERMAID_BIND_HOST": "0.0.0.0" in config.json to accept tailnet/LAN peers;
+  // the bearer token plus isPrivatePeer still gate every request.
+  'MERMAID_BIND_HOST',
   // Pool sizing (the parallelism dial) — injected the same durable way as the
   // isolation flag so a Dock-/login-launched sidecar honors config.json pool
   // overrides instead of silently reverting to the per-type defaults (backend=1)

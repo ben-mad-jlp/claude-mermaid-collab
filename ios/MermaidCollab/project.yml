@@ -13,12 +13,13 @@ targets:
     platform: iOS
     sources:
       - Sources
+      - Resources
     dependencies:
       - package: MermaidCollabCore
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: Zen
+        CFBundleDisplayName: Collab
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -34,8 +35,8 @@ targets:
           NSAllowsLocalNetworking: true
         # Bonjour discovery of the desktop server (design §3). NWBrowser on iOS 14+ requires
         # both the usage description (Local Network permission prompt) and the service list.
-        NSCameraUsageDescription: "Zen uses the camera only to scan the pairing QR code shown by the desktop app."
-        NSLocalNetworkUsageDescription: "Zen finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network."
+        NSCameraUsageDescription: "Collab uses the camera only to scan the pairing QR code shown by the desktop app."
+        NSLocalNetworkUsageDescription: "Collab finds your Mac on your wifi to show your collab sessions. Nothing leaves your local network."
         NSBonjourServices:
           - _mermaidcollab._tcp
         # Pairing deep link: the desktop "Phone access" QR encodes
@@ -52,6 +53,9 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         GENERATE_INFOPLIST_FILE: NO
+        # The collab whale, shared with the desktop app (desktop/build/icon.png),
+        # flattened onto white because iOS rejects an icon with an alpha channel.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The team that actually has an Xcode account and issued profiles on this
         # Mac. 3FYX7956PV appears in the "Apple Development: Benjamin Maderazo
         # (3FYX7956PV)" certificate NAME but has no account, so building against it

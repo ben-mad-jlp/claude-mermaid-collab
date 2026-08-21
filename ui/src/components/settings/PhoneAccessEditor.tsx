@@ -27,7 +27,7 @@ interface PairPayload {
 
 /**
  * "Phone access" — surface the bearer token + reachable host so the native iOS
- * Zen app can pair over Tailscale. GET /api/pair auto-provisions a token on first
+ * Collab app can pair over Tailscale. GET /api/pair auto-provisions a token on first
  * open (loopback-only route). Rotate invalidates the old one (a paired phone
  * 401s on its next call → re-pair).
  *
@@ -77,7 +77,7 @@ export function PhoneAccessEditor() {
       <div>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Phone access</h3>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Pair the native Zen iOS app over Tailscale. Enter the host + token below in the app
+          Pair the native Collab iOS app over Tailscale. Enter the host + token below in the app
           (Settings → Pair), or open the deep link on the phone.
         </p>
       </div>

@@ -155,7 +155,7 @@ struct PairingView: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("Zen")
+            .navigationTitle("Collab")
         }
         .sheet(isPresented: $showScanner) {
             QRScannerView(onScan: { scanned in
