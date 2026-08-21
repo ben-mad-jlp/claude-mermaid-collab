@@ -138,3 +138,60 @@ describe('pair-routes self-host rewrite', () => {
     expect(remote.host).toBe('trimaxion.tail445728.ts.net:9002');
   });
 });
+
+/**
+ * iOS ATS exempts cleartext by DOMAIN, never by raw address, and Tailscale's CGNAT
+ * range is not covered by NSAllowsLocalNetworking — so a payload carrying 100.x.x.x is
+ * refused by the phone before the request leaves it (2026-08-21). Advertise the
+ * MagicDNS NAME for the local entry whenever we know it.
+ */
+describe('pair-routes MagicDNS preference', () => {
+  let dir3: string;
+
+  beforeAll(() => {
+    dir3 = mkdtempSync(join(tmpdir(), 'pair-routes-magicdns-'));
+    process.env.MERMAID_CONFIG_PATH = join(dir3, 'config.json');
+  });
+
+  afterAll(() => {
+    delete process.env.MERMAID_TAILNET_HOST;
+    delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
+    rmSync(dir3, { recursive: true, force: true });
+  });
+
+  async function serversWith(entries: unknown[]): Promise<any[]> {
+    const f = join(dir3, 'servers.json');
+    writeFileSync(f, JSON.stringify({ entries, forgotten: [] }));
+    process.env.MERMAID_DESKTOP_SERVERS_FILE = f;
+    const res = await handlePairRoutes(
+      new Request('http://x/api/pair'),
+      new URL('http://x/api/pair'),
+      '127.0.0.1'
+    );
+    return ((await res!.json()) as any).servers;
+  }
+
+  it('(1) the local entry advertises the MagicDNS name, not the tailnet IP', async () => {
+    process.env.MERMAID_TAILNET_HOST = 'bens-macbook-pro.tail445728.ts.net';
+    const servers = await serversWith([
+      { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 't' },
+    ]);
+    expect(servers[0].host).toBe('bens-macbook-pro.tail445728.ts.net:9002');
+  });
+
+  it('(2) the advertised host ends in a ts.net domain so the ATS exception applies', async () => {
+    process.env.MERMAID_TAILNET_HOST = 'bens-macbook-pro.tail445728.ts.net';
+    const servers = await serversWith([
+      { id: 'self', label: 'This Mac', host: 'localhost', port: 9002, token: 't' },
+    ]);
+    expect(servers[0].host.split(':')[0].endsWith('.ts.net')).toBe(true);
+  });
+
+  it('(3) with no MagicDNS name available the local entry still gets a non-loopback host', async () => {
+    delete process.env.MERMAID_TAILNET_HOST;
+    const servers = await serversWith([
+      { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 't' },
+    ]);
+    expect(servers[0].host.startsWith('127.0.0.1:')).toBe(false);
+  });
+});
