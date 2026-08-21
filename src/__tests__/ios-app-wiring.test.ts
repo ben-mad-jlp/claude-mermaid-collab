@@ -105,4 +105,17 @@ describe('ios app wiring', () => {
     expect(escalationMergeCoreTest).toContain('test1_');
     expect(escalationMergeCoreTest).toContain('test2_');
   });
+
+  it('13. Store.swift fetches the mission diagnostic endpoint', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toContain('/api/supervisor/missions/diagnostic');
+    expect(store).toContain('fetchMissionDiagnostic');
+  });
+
+  it('14. Store.swift fetches the bridge snapshot endpoint', () => {
+    const store = readFileSync(storePath, 'utf8');
+    expect(store).toContain('/api/supervisor/bridge-snapshot');
+    expect(store).toContain('fetchBridgeSnapshot');
+    expect(store).toContain('BridgeSnapshotResponse');
+  });
 });
