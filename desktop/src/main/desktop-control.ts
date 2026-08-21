@@ -13,6 +13,18 @@ export class DesktopControl {
    *  49e3c1f6). Returns true iff the new sidecar came up healthy. */
   onHotSwap: (() => Promise<boolean>) | null = null;
 
+  /**
+   * Set by index.ts. Returns the fleet WITH decrypted per-server tokens.
+   *
+   * Only the Electron main process can open `encryptedToken` (OS keystore), so the
+   * sidecar — which serves /api/pair — cannot see a peer's credential. Without this the
+   * pairing payload advertised remote servers with the LOCAL token, the phone was
+   * rejected by that peer, and the app unpaired itself in a loop (2026-08-21). Served
+   * over the existing loopback+bearer control channel so tokens are never written to
+   * disk or put in an environment variable.
+   */
+  onFleetTokens: (() => Array<{ id: string; label: string; host: string; port: number; token?: string }>) | null = null;
+
   constructor(private paneManager: BrowserPaneManager) {}
 
   async start(): Promise<{ url: string; token: string }> {
@@ -32,7 +44,7 @@ export class DesktopControl {
     };
 
     if (
-      !(req.method === 'GET' && req.url === '/main/ping') &&
+      !(req.method === 'GET' && (req.url === '/main/ping' || req.url === '/fleet/tokens')) &&
       !(req.method === 'POST' && (req.url === '/panes/ensure' || req.url === '/sidecar/hot-swap'))
     ) {
       send(404, { error: 'not found' });
@@ -50,6 +62,16 @@ export class DesktopControl {
     // hot-swap: a healthy sidecar on :9002 with an UNRESPONSIVE main is the Mode-B
     // cosmetic deploy (app window stuck) — the script escalates to a full external
     // relaunch when this doesn't answer 200 in time. `pid` lets the caller correlate.
+    if (req.method === 'GET' && req.url === '/fleet/tokens') {
+      if (!this.onFleetTokens) { send(503, { error: 'fleet unavailable' }); return; }
+      try {
+        send(200, { servers: this.onFleetTokens() });
+      } catch (e) {
+        send(500, { error: String(e) });
+      }
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/main/ping') {
       send(200, { ok: true, pid: process.pid, ts: Date.now(), ...mainBuildStamp() });
       return;

@@ -208,18 +208,36 @@ final class ZenStore: ObservableObject {
 
     /// Single authenticated-HTTP path: returns the body on 2xx, nil otherwise.
     /// A 401 (stale/rotated token) fires onUnauthorized → re-pair.
+    ///
+    /// A 401 is scoped to the SERVER that returned it. Only the SELECTED server's 401 means
+    /// "our credentials are stale, re-pair"; a 401 from any other registry entry means that
+    /// ONE peer rejected us, and it is marked `.unauthorized` instead. Before this, the fleet
+    /// poll hit every entry and a single bad peer tore down the whole pairing: the desktop's
+    /// /api/pair handed remote entries the LOCAL token, so trimaxion 401'd, the app unpaired,
+    /// and the phone bounced to the pairing screen in a loop while the Mac it was actually
+    /// paired to logged nothing at all (2026-08-21).
     @discardableResult
-    private func send(_ req: URLRequest) async -> Data? {
+    private func send(_ req: URLRequest, serverId: String? = nil) async -> Data? {
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
-                onUnauthorized?()
+                if let serverId, serverId != selectedServerId {
+                    markUnauthorized(serverId)
+                } else {
+                    onUnauthorized?()
+                }
                 return nil
             }
             return data
         } catch {
             return nil
         }
+    }
+
+    /// Flag one registry entry as rejecting our token, leaving the rest of the fleet alone.
+    private func markUnauthorized(_ serverId: String) {
+        guard let i = registry.entries.firstIndex(where: { $0.id == serverId }) else { return }
+        registry.entries[i].reachability = .unauthorized
     }
 
     /// One request per reachable server, folded through `EscalationMerge.merged` and rebuilt
@@ -233,7 +251,7 @@ final class ZenStore: ObservableObject {
         var cardsById: [String: Escalation] = [:]
         var results: [(serverId: String, escalations: [MermaidCollabCore.Escalation])] = []
         for entry in registry.entries where entry.reachability == .reachable {
-            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/escalations?status=open")),
+            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/escalations?status=open"), serverId: entry.id),
                   let resp = try? JSONDecoder().decode(EscalationsResponse.self, from: data)
             else { continue }
             for var card in resp.escalations {
@@ -262,7 +280,7 @@ final class ZenStore: ObservableObject {
     func refreshProjects() async {
         var results: [(serverId: String, projects: [String])] = []
         for entry in registry.entries {
-            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/projects")),
+            guard let data = await send(request(serverId: entry.id, path: "/api/supervisor/projects"), serverId: entry.id),
                   let resp = try? JSONDecoder().decode(WatchedProjectsResponse.self, from: data)
             else { continue }
             results.append((serverId: entry.id, projects: resp.projects.map(\.project)))

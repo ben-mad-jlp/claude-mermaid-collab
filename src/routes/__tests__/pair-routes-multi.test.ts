@@ -195,3 +195,63 @@ describe('pair-routes MagicDNS preference', () => {
     expect(servers[0].host.startsWith('127.0.0.1:')).toBe(false);
   });
 });
+
+/**
+ * A remote fleet entry with no token of its own must be OMITTED, never handed this
+ * server's token. The desktop advertised trimaxion with the Mac's credential; the phone
+ * called trimaxion, got a 401, and unpaired itself in a loop while the Mac — which it was
+ * correctly paired to — logged nothing at all (2026-08-21).
+ */
+describe('pair-routes token honesty', () => {
+  let dir4: string;
+
+  beforeAll(() => {
+    dir4 = mkdtempSync(join(tmpdir(), 'pair-routes-token-'));
+    process.env.MERMAID_CONFIG_PATH = join(dir4, 'config.json');
+    process.env.MERMAID_TAILNET_HOST = 'self.tail445728.ts.net';
+  });
+
+  afterAll(() => {
+    delete process.env.MERMAID_TAILNET_HOST;
+    delete process.env.MERMAID_DESKTOP_SERVERS_FILE;
+    rmSync(dir4, { recursive: true, force: true });
+  });
+
+  async function payloadFor(entries: unknown[]): Promise<any> {
+    const f = join(dir4, 'servers.json');
+    writeFileSync(f, JSON.stringify({ entries, forgotten: [] }));
+    process.env.MERMAID_DESKTOP_SERVERS_FILE = f;
+    const res = await handlePairRoutes(
+      new Request('http://x/api/pair'),
+      new URL('http://x/api/pair'),
+      '127.0.0.1'
+    );
+    return await res!.json();
+  }
+
+  it('(1) a remote entry with no token is omitted from the payload', async () => {
+    const body = await payloadFor([
+      { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 'tok-self' },
+      { id: 'rem', label: 'trimaxion', host: 'trimaxion.tail445728.ts.net', port: 9002 },
+    ]);
+    expect(body.servers.map((s: any) => s.id)).toEqual(['self']);
+  });
+
+  it('(2) a remote entry WITH its own token is kept, carrying that token', async () => {
+    const body = await payloadFor([
+      { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 'tok-self' },
+      { id: 'rem', label: 'trimaxion', host: 'trimaxion.tail445728.ts.net', port: 9002, token: 'tok-rem' },
+    ]);
+    const remote = body.servers.find((s: any) => s.id === 'rem');
+    expect(remote.token).toBe('tok-rem');
+  });
+
+  it('(3) no advertised server carries a token belonging to a different server', async () => {
+    const body = await payloadFor([
+      { id: 'self', label: 'This Mac', host: '127.0.0.1', port: 9002, token: 'tok-self' },
+      { id: 'rem', label: 'trimaxion', host: 'trimaxion.tail445728.ts.net', port: 9002 },
+    ]);
+    const remote = body.servers.find((s: any) => s.id === 'rem');
+    expect(remote).toBeUndefined();
+  });
+});

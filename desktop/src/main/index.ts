@@ -702,6 +702,14 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
   // to restart ONLY the sidecar child after swapping its binary, so the window
   // never dies. Wire that to the supervisor's hot-swap.
   control!.onHotSwap = () => supervisor!.hotSwapRestart();
+  // Only main can open `encryptedToken`, so the sidecar's /api/pair asks main for the
+  // fleet WITH real per-server tokens. Without this the pairing QR advertised remote
+  // servers with the LOCAL token and the phone unpaired itself in a loop.
+  control!.onFleetTokens = () =>
+    (store?.list() ?? [])
+      .map((e) => store!.get(e.id))
+      .filter((e): e is NonNullable<typeof e> => e != null)
+      .map((e) => ({ id: e.id, label: e.label, host: e.host, port: e.port, token: e.token }));
   await fetch(`http://127.0.0.1:${port}/api/browser/electron-target`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cdpPort }) }).catch(() => {});
   void publishDiscovery({ appName: 'mermaid-collab', port: cdpPort });
 
