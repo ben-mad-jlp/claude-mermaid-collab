@@ -72,6 +72,22 @@ final class ZenStore: ObservableObject {
     }
     private var wsURL: URL { URL(string: "ws://\(host)/ws")! }
 
+    /// The WebSocket request, WITH the bearer token.
+    ///
+    /// `URLSession.webSocketTask(with: URL)` cannot carry headers, so the upgrade arrived
+    /// with no Authorization and the server rejected it — the sidecar logged
+    /// `REJECTED bad-token path=/ws sent=absent` while every HTTP call on the same
+    /// credentials succeeded (2026-08-21). It never showed on the simulator because
+    /// loopback peers are exempt from the token gate. `connected` is driven entirely by
+    /// this socket, so the app read as "can't reach the server" while it was in fact
+    /// authenticated for everything else.
+    private var wsRequest: URLRequest {
+        var r = URLRequest(url: wsURL)
+        let bearer = tokenStore.token(forServerId: selectedServerId) ?? token
+        if let bearer { r.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
+        return r
+    }
+
     var ordered: [ZenSummary] {
         summaries.values.sorted { a, b in
             a.rank != b.rank ? a.rank < b.rank : a.recency > b.recency
@@ -109,7 +125,7 @@ final class ZenStore: ObservableObject {
     }
 
     private func connect() {
-        let t = URLSession.shared.webSocketTask(with: wsURL)
+        let t = URLSession.shared.webSocketTask(with: wsRequest)
         task = t
         t.resume()
         connected = true
