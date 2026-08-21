@@ -12,7 +12,7 @@ import { filterExplorerHeld, EXPLORER_OFF_SUPPRESSION_REASON } from './explore-r
 import { getStatus } from './session-status-store';
 import { getWebSocketHandler } from './ws-handler-manager';
 import { filterClaimable } from './claim-guard';
-import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint, listLeafInflight, queryLedgerThin } from './worker-ledger';
+import { summarize as summarizeLedger, reapStaleInflight, reapSameEpochOrphanInflight, clearLeafInflight, isLeafInflightLive, getLeafResume, clearLeafResume, clearLeafBlueprint, listLeafInflight, queryLedgerThin, _resetSweepVerdicts } from './worker-ledger';
 import { listTrackedLeaves, killLeafSubtree, markRunLive, markRunDone, isRunLive } from './leaf-subprocess-registry';
 import { reapOrphanedLeafWorktrees, tickGcLeafWorktrees } from './leaf-worktree-reaper.js';
 import { WorktreeManager, INBOX_EPIC_ID } from '../agent/worktree-manager';
@@ -1558,12 +1558,13 @@ export const CORRUPT_EPIC_SWEEP_INTERVAL_MS = 90 * 1000; // ~3 ticks — prompt 
 const lastCorruptEpicSweepAt = new Map<string, number>();
 /** Per-project verdict-cache state + paging cursor for the item-form runCachedSweep. */
 const corruptSweepStates = new Map<string, CachedSweepState>();
-const corruptSweepCursors = new Map<string, string | null>();
+const corruptSweepCursors = new Map<string, number>();
 
 /** Exported for tests: reset the corrupt-sweep verdict cache + paging cursor. */
 export function _resetSweepCursors(): void {
   corruptSweepStates.clear();
   corruptSweepCursors.clear();
+  _resetSweepVerdicts();
 }
 
 /** Exported for tests: reset the corrupt-sweep throttle so the next sweep runs immediately. */
@@ -1680,7 +1681,10 @@ export async function sweepCorruptEpics(
     sweepKind: 'corrupt',
     items: report.epics,
     idOf: (e) => e.epicId,
-    tipOf: (e) => `${e.branch}|${e.exists}|${e.ahead ?? 'n'}|${e.newCount ?? 'n'}|${e.landLeafDone ?? 'n'}`,
+    tipOf: (e) => {
+      if (!e.exists) return null;
+      return `${e.branch}|${e.exists}|${e.ahead ?? 'n'}|${e.newCount ?? 'n'}|${e.landLeafDone ?? 'n'}`;
+    },
     check: async (e) => {
       // Handle corrupt (land done + ahead > 0) OR hollow (false stamp + new commits exist)
       const liveEpic = getTodo(project, e.epicId);
@@ -1694,7 +1698,7 @@ export async function sweepCorruptEpics(
     },
     cursor: corruptSweepCursors.get(project) ?? null,
   });
-  corruptSweepCursors.set(project, summary.nextCursor);
+  corruptSweepCursors.set(project, summary.cursorEnd);
 
   return { ...summary, reopened };
 }
