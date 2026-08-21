@@ -70,10 +70,11 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
               actor = { kind: 'daemon', level: 'auto' };
             }
 
+            const target = escalationId ? { escalationId } : { epicId: epicId! };
+
             // Ownership gate — conductor only.
             if (actor.kind === 'conductor') {
               // Resolve the target first to get the epicId for ownership check
-              const target = escalationId ? { escalationId } : { epicId: epicId! };
               const resolved = resolveLandTarget(project, target);
               if (!resolved.ok) {
                 return JSON.stringify(resolved, null, 2);
@@ -100,7 +101,7 @@ export async function handleEpicTool(name: string, args: any): Promise<string | 
             // Kick off the background continuation without awaiting it.
             // actor must reach landEpic: the gate only skips its cached verdict for human
             // actors, and dropping it here downgraded every human land to a cache-trusting one.
-            void landEpic(project, escalationId || epicId!, { allowDirty, actor, onPhase: (p) => updateJobPhase(project, job.id, p) }).then((result) => {
+            void landEpic(project, target, { allowDirty, actor, onPhase: (p) => updateJobPhase(project, job.id, p) }).then((result) => {
               getWebSocketHandler()?.broadcast({ type: 'session_todos_updated', project, session: '' });
               const trailer = landedByTrailer(actor);
               const payload = result.reason === 'dirty-tree'
