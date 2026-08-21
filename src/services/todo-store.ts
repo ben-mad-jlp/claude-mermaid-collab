@@ -6,7 +6,7 @@ import type { KindBearing } from './todo-kind';
 import { resolveEscalationsForTodo } from './supervisor-store';
 import { expireSubscriptionsForTarget } from './session-subscriptions';
 import { mkdirSync, existsSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, isAbsolute } from 'node:path';
 import { hostname } from 'node:os';
 import { trackingProjectRoot, isTransientProjectPath, projectRegistry, listRegisteredProjectPathsSync } from './project-registry';
 import type { LeafSplitItem } from './split-decision';
@@ -724,6 +724,21 @@ function addColumnIfMissing(db: Database, table: string, col: string, ddl: strin
  */
 const prepared = new Set<string>();
 
+/**
+ * Guard `openDb`'s entry point: a `project` argument must already be an absolute path.
+ * Returns the canonicalised path on success, or an error naming the offending value on
+ * failure — a registered project NAME is resolved only at the MCP boundary by
+ * `resolveProjectArg`, never here.
+ */
+export function resolveStoreProject(project: string): { path: string } | { error: string } {
+  if (typeof project !== 'string' || project.length === 0 || !isAbsolute(project)) {
+    return {
+      error: `openDb: project must be an absolute path, got ${JSON.stringify(project)} — a registered project NAME is resolved only at the MCP boundary by resolveProjectArg (src/services/project-registry.ts)`,
+    };
+  }
+  return { path: canonicalProjectRoot(project) };
+}
+
 export function openDb(project: string): Database {
   // A worker whose cwd is its isolation worktree (<repo>/.collab/agent-sessions/...)
   // must resolve to the TRACKING repo's database, never a worktree-local one — else
@@ -731,7 +746,9 @@ export function openDb(project: string): Database {
   // on a full disk) and the Coordinator's rows are invisible. See decision 20106f26.
   // canonicalProjectRoot is the SAME function storePath uses, so the key can never disagree
   // with the file it names.
-  project = canonicalProjectRoot(project);
+  const r = resolveStoreProject(project);
+  if ('error' in r) throw new Error(r.error);
+  project = r.path;
   // The consolidated database. On a machine meeting this code for the first time, this call
   // also performs the one-time move out of todos.db + mission.db and turns foreign keys on.
   const db = openCollabDb(project);
