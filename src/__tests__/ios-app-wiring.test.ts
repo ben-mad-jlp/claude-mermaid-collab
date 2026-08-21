@@ -19,6 +19,11 @@ const pairingImportCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/PairingImportTests.swift',
   import.meta.url
 );
+const serverPickerViewPath = new URL('../../ios/MermaidCollab/Sources/ServerPickerView.swift', import.meta.url);
+const serverPickerRowCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerPickerRowTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -76,5 +81,15 @@ describe('ios app wiring', () => {
     expect(pairingImportCoreTest).toContain('test1_');
     expect(pairingImportCoreTest).toContain('test2_');
     expect(pairingImportCoreTest).toContain('test3_');
+  });
+
+  it('11. ServerPickerView.swift names the registry entries and the reachability property', () => {
+    const serverPickerView = readFileSync(serverPickerViewPath, 'utf8');
+    expect(serverPickerView).toContain('registry.entries');
+    expect(serverPickerView).toContain('reachability');
+    const serverPickerRowCoreTest = readFileSync(serverPickerRowCoreTestPath, 'utf8');
+    expect(serverPickerRowCoreTest).toContain('test1_');
+    expect(serverPickerRowCoreTest).toContain('test2_');
+    expect(serverPickerRowCoreTest).toContain('test3_');
   });
 });
