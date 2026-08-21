@@ -99,6 +99,24 @@ final class ZenStore: ObservableObject {
         escalations.values.first { $0.project == s.project && $0.session == s.session }
     }
 
+    /// Switch the app to another registered server.
+    ///
+    /// The registry can hold several servers (one pairing QR each), but nothing could
+    /// CHOOSE between them: ServerPickerView was read-only and unreferenced, so a phone
+    /// that paired a second machine had no way to look at it (2026-08-21). Re-points the
+    /// selection, restores that server's own bearer, and restarts the socket — the WS
+    /// carries the token, so it must be rebuilt rather than left on the old server.
+    func selectServer(_ serverId: String) {
+        guard registry.entries.contains(where: { $0.id == serverId }) else { return }
+        guard serverId != selectedServerId else { return }
+        stop()
+        selectedServerId = serverId
+        token = tokenStore.token(forServerId: serverId) ?? token
+        summaries.removeAll()
+        escalations.removeAll()
+        start()
+    }
+
     func start() {
         closed = false
         Task {
