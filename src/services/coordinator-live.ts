@@ -158,7 +158,9 @@ export {
   STRANDED_EPIC_MAX_GIT_CHECKS,
   strandedEpicCandidates,
   sweepStrandedEpics,
+  readEpicBranchTips,
 } from './coordinator-land';
+export type { SweepSummary } from './sweep-verdict-cache';
 
 /** Run a subprocess ASYNC and await it — NEVER block the single-threaded sidecar
  *  event loop with spawnSync (bug 944408c2: the coordinator/watchdog runs in the
