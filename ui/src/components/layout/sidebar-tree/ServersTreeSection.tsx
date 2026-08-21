@@ -7,7 +7,7 @@
  * with this section until Wave 2's `header-remove-server-switcher` task
  * removes it; ServerSwitcher.tsx is deleted in Wave 3's cleanup.
  */
-import React, { forwardRef, useState, useImperativeHandle } from 'react';
+import React, { forwardRef, useState, useImperativeHandle, Fragment } from 'react';
 import { useServers } from '@/contexts/ServerContext';
 import { ServerIcon } from '@/components/ServerIcon';
 
@@ -39,6 +39,10 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
 
     const [adding, setAdding] = useState(false);
     const [form, setForm] = useState({ label: '', host: '', port: '9002', token: '' });
+    // The row truncates label and host to fit the sidebar, so a long MagicDNS name like
+    // trimaxion.tail445728.ts.net:9002 is unreadable. This expands ONE row's full detail
+    // in place. Kept off the row's own click, which switches servers.
+    const [detailsId, setDetailsId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     // Remote-launch dialog state. We start a collab server on a remote box over
@@ -287,6 +291,20 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                         Pending
                       </span>
                     )}
+                    <button
+                      type="button"
+                      data-testid={`server-details-toggle-${s.id}`}
+                      aria-expanded={detailsId === s.id}
+                      aria-label={detailsId === s.id ? `Hide details for ${s.label}` : `Show details for ${s.label}`}
+                      title="Show full server details"
+                      className="shrink-0 px-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailsId(detailsId === s.id ? null : s.id);
+                      }}
+                    >
+                      {detailsId === s.id ? '\u25be' : '\u2139'}
+                    </button>
                     {s.status === 'unauthorized' && (
                       <span
                         data-testid={`server-unauthorized-badge-${s.id}`}
@@ -375,6 +393,27 @@ const ServersTreeSection = forwardRef<ServersTreeSectionHandle, ServersTreeSecti
                       </button>
                     ) : null}
                   </div>
+                  {detailsId === s.id && (
+                    <dl
+                      data-testid={`server-details-${s.id}`}
+                      className="px-2 py-1.5 mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5 rounded bg-gray-50 dark:bg-gray-800/60 text-2xs"
+                    >
+                      {([
+                        ['Label', s.label],
+                        ['Host', `${s.host}:${s.port}`],
+                        ['Status', s.status],
+                        ['Pairing', s.pairing],
+                        ['Source', s.source],
+                        ['ID', s.id],
+                      ] as Array<[string, string]>).map(([k, v]) => (
+                        <Fragment key={k}>
+                          <dt className="text-gray-500 dark:text-gray-400">{k}</dt>
+                          {/* break-all, not truncate: the whole point is that nothing is cut off. */}
+                          <dd className="font-mono break-all text-gray-700 dark:text-gray-300">{v}</dd>
+                        </Fragment>
+                      ))}
+                    </dl>
+                  )}
                   {launchFor === s.id && (
                     <form onSubmit={(e) => submitLaunch(e, s.host, s.port)} className="px-2 py-1.5 mt-1 grid gap-1.5 rounded bg-gray-50 dark:bg-gray-800/60">
                       <div className="text-2xs text-gray-500 dark:text-gray-400">
