@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn, classifyLensOutcome } from './criterion-verify-panel.js';
+import { VERIFY_LENSES, type VerifyLens, type LensVerifyCtx, type PanelVerdict, type AssertionFact, buildLensVerifyPrompt, parseLensVerdict, joinPanelVerdicts, parseNamedAssertions, declaringCallerIn, classifyLensOutcome, panelQuorumNote } from './criterion-verify-panel.js';
 import { planPanelModels, assertDistinctPanel, PANEL_LENS_TIMEOUT_MS } from './criterion-verify-panel-plan.js';
 import { invokeNode, type NodeSpec, type NodeResult } from '../agent/node-invoker.js';
 import { missionIdOfCriterion, listCriteria } from './mission-store.js';
@@ -229,6 +229,7 @@ export async function runCriterionVerifyPanel(
   let outcome: 'pass' | 'dissent' | 'infra-degraded';
   let dissent: string | undefined;
   let hold = false;
+  let quorumNote = '';
 
   if (parseableVerdicts.length < requiredMajority) {
     // Below-majority coverage: infra-degraded hold, no grading.
@@ -245,6 +246,7 @@ export async function runCriterionVerifyPanel(
     const join = joinPanelVerdicts(parseableVerdicts);
     met = join.met;
     outcome = met ? 'pass' : 'dissent';
+    quorumNote = panelQuorumNote(join);
     if (!met) {
       hold = true;
       dissent = join.dissent;
@@ -262,9 +264,10 @@ export async function runCriterionVerifyPanel(
     ? `\n\nPRIOR evidence (retained — re-verify against ground truth if this reopen was a shared-evidence-path land, not a real change):\n${criterion.evidence}`
     : '';
   const shaLabel = currentHeadSha ?? 'unknown-sha';
+  const quorumSuffix = quorumNote ? ` (${quorumNote})` : '';
   const evidence =
     outcome === 'pass'
-      ? `Auto-panel PASS at ${shaLabel} — strict-majority met (${verdicts.filter((v) => v.met).length}/${lenses.length}) across distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${priorEvidence}`
+      ? `Auto-panel PASS at ${shaLabel} — strict-majority met (${verdicts.filter((v) => v.met).length}/${lenses.length}) across distinct-model lens${lenses.length === 1 ? '' : 'es'} (${panelSummary}).${quorumSuffix}${priorEvidence}`
       : outcome === 'infra-degraded'
         ? `Auto-panel HOLD (infra-degraded — only ${parseableVerdicts.length}/${lenses.length} lenses produced a parseable verdict, below the required majority of ${requiredMajority}; this is NOT adversarial dissent) at ${shaLabel} — criterion stays unverified (never auto-passed). ${panelSummary}.${priorEvidence}`
         : `Auto-panel HOLD at ${shaLabel} — criterion stays unverified (never auto-passed). Dissent: ${dissent || panelSummary}.${priorEvidence}`;
