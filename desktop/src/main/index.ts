@@ -8,7 +8,7 @@ import {
   resolveInitialBounds,
   type WindowState,
 } from './window-state';
-import { ServerSupervisor, getFreePort } from './server-supervisor';
+import { ServerSupervisor, getFreePort, resolveFlagsEnv } from './server-supervisor';
 import { BrowserPaneManager } from './browser-pane';
 import { DesktopControl } from './desktop-control';
 import { ServerProxy } from './server-proxy';
@@ -662,6 +662,11 @@ async function startServices(opts: { cdpPort: number; controlUrl: string; contro
     workdir: dataDir,
     session: process.env.MC_SESSION ?? 'desktop',
     host: '127.0.0.1',
+    // Bind address, separate from the connect address above. Loopback-only means a
+    // phone on the tailnet cannot reach the server and /api/pair says so; set
+    // "MERMAID_BIND_HOST": "0.0.0.0" in ~/.mermaid-collab/config.json to open it up.
+    // A Dock launch has a clean env, so the config file is the only durable source.
+    bindHost: process.env.MERMAID_BIND_HOST ?? resolveFlagsEnv().MERMAID_BIND_HOST,
     cdpPort,
     controlUrl,
     controlToken,
