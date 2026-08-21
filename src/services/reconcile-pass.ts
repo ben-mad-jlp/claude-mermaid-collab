@@ -456,7 +456,10 @@ export async function runReconcilePass(project: string): Promise<void> {
   // -------------------------------------------------------------------------
   await yieldToLoop();
   try {
-    await sweepStrandedEpics(project);
+    const strandedSummary = await sweepStrandedEpics(project);
+    if (strandedSummary.errors > 0) {
+      console.warn(`[reconcile-pass] stranded-epic sweep had ${strandedSummary.errors} error(s) for ${project}`);
+    }
   } catch (err) {
     console.warn(
       `[reconcile-pass] stranded-epic sweep failed for ${project}:`,
