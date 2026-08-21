@@ -14,6 +14,11 @@ const mappingCoreTestPath = new URL(
   '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/ServerProjectsMappingTests.swift',
   import.meta.url
 );
+const pairingPath = new URL('../../ios/MermaidCollab/Sources/Pairing.swift', import.meta.url);
+const pairingImportCoreTestPath = new URL(
+  '../../ios/MermaidCollabCore/Tests/MermaidCollabCoreTests/PairingImportTests.swift',
+  import.meta.url
+);
 
 describe('ios app wiring', () => {
   it('1. Store.swift assigns a Keychain-backed tokenStore', () => {
@@ -58,5 +63,18 @@ describe('ios app wiring', () => {
   it('8. Core ServerProjectsMappingTests declares its numbered case', () => {
     const mappingCoreTest = readFileSync(mappingCoreTestPath, 'utf8');
     expect(mappingCoreTest).toContain('test1_twoServersYieldOneKeyEachWithTheirOwnProjects');
+  });
+
+  it('9. Pairing.swift merges a parsed payload into the registry', () => {
+    const pairing = readFileSync(pairingPath, 'utf8');
+    expect(pairing).toMatch(/registry\s*=\s*[^\n]*\.merging\(/);
+    expect(pairing).toContain('parsePayload');
+  });
+
+  it('10. Core PairingImportTests declares the three numbered cases', () => {
+    const pairingImportCoreTest = readFileSync(pairingImportCoreTestPath, 'utf8');
+    expect(pairingImportCoreTest).toContain('test1_');
+    expect(pairingImportCoreTest).toContain('test2_');
+    expect(pairingImportCoreTest).toContain('test3_');
   });
 });

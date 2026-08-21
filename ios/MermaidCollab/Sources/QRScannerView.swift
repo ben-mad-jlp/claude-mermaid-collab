@@ -3,7 +3,7 @@ import SwiftUI
 import MermaidCollabCore
 
 struct QRScannerView: UIViewControllerRepresentable {
-    var onScan: (PairingLink) -> Void
+    var onScan: (String) -> Void
 
     func makeUIViewController(context: Context) -> ScannerViewController {
         let controller = ScannerViewController()
@@ -25,7 +25,7 @@ struct QRScannerView: UIViewControllerRepresentable {
 
 final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     private let session = AVCaptureSession()
-    var onScan: ((PairingLink) -> Void)?
+    var onScan: ((String) -> Void)?
     var onDenied: (() -> Void)?
     private var hasDecodedOnce = false
 
@@ -95,14 +95,14 @@ final class ScannerViewController: UIViewController, AVCaptureMetadataOutputObje
             guard let machineReadableCode = metadata as? AVMetadataMachineReadableCodeObject,
                   machineReadableCode.type == .qr,
                   let stringValue = machineReadableCode.stringValue,
-                  let link = PairingLink.parse(stringValue) else {
+                  PairingLink.parsePayload(stringValue) != nil else {
                 continue
             }
 
             hasDecodedOnce = true
             session.stopRunning()
             DispatchQueue.main.async {
-                self.onScan?(link)
+                self.onScan?(stringValue)
             }
             break
         }

@@ -44,12 +44,37 @@ final class AppModel: ObservableObject {
         apply(c)
     }
 
-    /// Handle a `mermaidcollab://pair?host=<host:port>&token=<tok>` deep link.
+    /// Handle a `mermaidcollab://pair?host=<host:port>&token=<tok>` deep link, or the
+    /// multi-server `?servers=<base64>` payload form. Both shapes decode through
+    /// `PairingLink.parsePayload`.
     @discardableResult
     func handle(url: URL) -> Bool {
-        guard let link = PairingLink.parse(url) else { return false }
-        pair(host: link.hostPort, token: link.token)
+        guard let payload = PairingLink.parsePayload(url.absoluteString) else { return false }
+        importPayload(payload)
         return true
+    }
+
+    /// Handle a raw scanned QR string (single-link or multi-server payload).
+    @discardableResult
+    func handle(scanned: String) -> Bool {
+        guard let payload = PairingLink.parsePayload(scanned) else { return false }
+        importPayload(payload)
+        return true
+    }
+
+    /// Merge a parsed pairing payload into the registry, persist each server's token, and
+    /// select + connect to the first server so the paired gate flips.
+    func importPayload(_ payload: PairingPayload) {
+        store.registry = store.registry.merging(payload)
+        for server in payload.servers {
+            store.tokenStore.setToken(server.token, forServerId: server.id)
+        }
+        guard let first = payload.servers.first else { return }
+        store.selectedServerId = first.id
+        let c = Credentials(host: "\(first.host):\(first.port)", token: first.token)
+        Keychain.saveCredentials(c)
+        credentials = c
+        apply(c)
     }
 
     func unpair() {
@@ -133,8 +158,8 @@ struct PairingView: View {
             .navigationTitle("Zen")
         }
         .sheet(isPresented: $showScanner) {
-            QRScannerView(onScan: { link in
-                app.pair(host: link.hostPort, token: link.token)
+            QRScannerView(onScan: { scanned in
+                _ = app.handle(scanned: scanned)
                 showScanner = false
             })
         }
