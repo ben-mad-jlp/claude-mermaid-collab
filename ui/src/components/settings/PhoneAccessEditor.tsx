@@ -7,6 +7,13 @@ interface HostCandidate {
   iface: string;
   likelyTailscale: boolean;
 }
+/** One fleet server in the version-2 multi-entry payload. */
+interface PairServerEntry {
+  id: string;
+  label: string;
+  host: string;
+  token: string;
+}
 interface PairPayload {
   token: string;
   port: number;
@@ -14,6 +21,8 @@ interface PairPayload {
   hosts: HostCandidate[];
   qr: string | null;
   warning?: string;
+  version?: number;
+  servers?: PairServerEntry[];
 }
 
 /**
@@ -58,8 +67,10 @@ export function PhoneAccessEditor() {
     } catch { /* clipboard unavailable */ }
   };
 
-  const best = data?.hosts[0];
+  const best = data?.hosts?.[0];
   const deepLink = data?.qr ?? null;
+  const servers = data?.servers ?? [];
+  const hasServers = servers.length > 0;
 
   return (
     <div className="space-y-4">
@@ -90,28 +101,51 @@ export function PhoneAccessEditor() {
             </div>
           )}
 
-          <Field
-            label="Host"
-            value={best ? `${best.address}:${data.port}` : `(no reachable interface) :${data.port}`}
-            hint={best?.likelyTailscale ? 'likely Tailscale' : best?.iface}
-            onCopy={best ? () => copy('host', `${best.address}:${data.port}`) : undefined}
-            copied={copied === 'host'}
-          />
+          {hasServers ? (
+            servers.map(s => (
+              <div key={s.id} data-testid="pair-server-row" className="space-y-2 rounded-md border border-gray-200 dark:border-gray-700 p-3">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">{s.label}</div>
+                <Field
+                  label="Host"
+                  value={s.host}
+                  onCopy={() => copy(`host:${s.id}`, s.host)}
+                  copied={copied === `host:${s.id}`}
+                />
+                <Field
+                  label="Token"
+                  value={s.token}
+                  mono
+                  onCopy={() => copy(`token:${s.id}`, s.token)}
+                  copied={copied === `token:${s.id}`}
+                />
+              </div>
+            ))
+          ) : (
+            <>
+              <Field
+                label="Host"
+                value={best ? `${best.address}:${data.port}` : `(no reachable interface) :${data.port}`}
+                hint={best?.likelyTailscale ? 'likely Tailscale' : best?.iface}
+                onCopy={best ? () => copy('host', `${best.address}:${data.port}`) : undefined}
+                copied={copied === 'host'}
+              />
 
-          {data.hosts.length > 1 && (
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              Other interfaces:{' '}
-              {data.hosts.slice(1).map(h => `${h.address}${h.likelyTailscale ? ' (tailscale?)' : ''}`).join(', ')}
-            </div>
+              {(data.hosts?.length ?? 0) > 1 && (
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  Other interfaces:{' '}
+                  {data.hosts.slice(1).map(h => `${h.address}${h.likelyTailscale ? ' (tailscale?)' : ''}`).join(', ')}
+                </div>
+              )}
+
+              <Field
+                label="Token"
+                value={data.token}
+                mono
+                onCopy={() => copy('token', data.token)}
+                copied={copied === 'token'}
+              />
+            </>
           )}
-
-          <Field
-            label="Token"
-            value={data.token}
-            mono
-            onCopy={() => copy('token', data.token)}
-            copied={copied === 'token'}
-          />
 
           {deepLink && (
             <Field
