@@ -43,8 +43,8 @@ describe('sweepCorruptEpics', () => {
     expect(e.corrupt).toBe(true);
     expect(report.corruptCount).toBe(1);
 
-    const reopened = await sweepCorruptEpics(repo, { report });
-    expect(reopened).toContain(land.id);
+    const result = await sweepCorruptEpics(repo, { report });
+    expect(result.reopened).toContain(land.id);
     expect(getTodo(repo, land.id)!.status).not.toBe('done'); // stamp reverted → ready
   });
 
@@ -62,8 +62,8 @@ describe('sweepCorruptEpics', () => {
     expect(e.stranded).toBe(false);
     expect(e.corrupt).toBe(false);
 
-    const reopened = await sweepCorruptEpics(repo, { report });
-    expect(reopened).not.toContain(land.id);
+    const result = await sweepCorruptEpics(repo, { report });
+    expect(result.reopened).not.toContain(land.id);
     expect(getTodo(repo, land.id)!.status).toBe('done'); // untouched
   });
 
@@ -108,14 +108,14 @@ describe('sweepCorruptEpics', () => {
     expect(landBefore.status).toBe('done');
 
     // Sweep
-    const reopened = await sweepCorruptEpics(repo, { report });
+    const result = await sweepCorruptEpics(repo, { report });
 
     // Verify: landedAt cleared
     const epicAfter = getTodo(repo, epic.id)!;
     expect(epicAfter.landedAt).toBeNull();
 
     // Verify: land leaf reopened (no longer done)
-    expect(reopened).toContain(land.id);
+    expect(result.reopened).toContain(land.id);
     expect(getTodo(repo, land.id)!.status).not.toBe('done');
 
     // Verify: criterion met = false with pending recheck
@@ -171,7 +171,7 @@ describe('sweepCorruptEpics', () => {
     const firstEnqueuedAt = firstRechecks[0].enqueuedAt;
 
     // Second sweep (with force: true to bypass throttle)
-    const reopened2 = await sweepCorruptEpics(repo, { report, force: true });
+    const result2 = await sweepCorruptEpics(repo, { report, force: true });
 
     // Verify: no duplicate recheck
     const secondRechecks = listPendingRechecks(repo);

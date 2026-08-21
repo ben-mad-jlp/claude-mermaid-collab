@@ -43,8 +43,8 @@ describe('corrupt-sweep-throttle', () => {
 
     // First sweep at baseTime should reopen the land leaf
     const report1 = await buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
-    const reopened1 = await sweepCorruptEpics(repo, { report: report1, now: baseTime });
-    expect(reopened1).toContain(land.id);
+    const result1 = await sweepCorruptEpics(repo, { report: report1, now: baseTime });
+    expect(result1.reopened).toContain(land.id);
     expect(getTodo(repo, land.id)!.status).not.toBe('done');
 
     // Re-stamp the land leaf done
@@ -52,25 +52,25 @@ describe('corrupt-sweep-throttle', () => {
 
     // Second sweep at baseTime + 50_000 (inside the 90s window) should be throttled
     const report2 = await buildEpicBranchStatus(listTodos(repo, { includeCompleted: true }), probe);
-    const reopened2 = await sweepCorruptEpics(repo, { report: report2, now: baseTime + 50_000 });
-    expect(reopened2).toEqual([]); // throttled, returns empty
+    const result2 = await sweepCorruptEpics(repo, { report: report2, now: baseTime + 50_000 });
+    expect(result2.reopened).toEqual([]); // throttled, returns empty
     expect(getTodo(repo, land.id)!.status).toBe('done'); // land leaf stays done
 
     // Third sweep at baseTime + 100_000 (past the 90s interval) should reopen again
-    const reopened3 = await sweepCorruptEpics(repo, { report: report2, now: baseTime + 100_000 });
-    expect(reopened3).toContain(land.id);
+    const result3 = await sweepCorruptEpics(repo, { report: report2, now: baseTime + 100_000 });
+    expect(result3.reopened).toContain(land.id);
     expect(getTodo(repo, land.id)!.status).not.toBe('done');
 
     // Re-stamp the land leaf done again
     await completeTodo(repo, land.id, 'accepted');
 
     // Fourth sweep with force:true should bypass the throttle even within the new window
-    const reopened4 = await sweepCorruptEpics(repo, {
+    const result4 = await sweepCorruptEpics(repo, {
       report: report2,
       force: true,
       now: baseTime + 100_001,
     });
-    expect(reopened4).toContain(land.id); // force bypasses throttle
+    expect(result4.reopened).toContain(land.id); // force bypasses throttle
     expect(getTodo(repo, land.id)!.status).not.toBe('done');
   });
 });
